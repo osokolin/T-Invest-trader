@@ -1,0 +1,1 @@
+Use PROJECT_CONTEXT.md and SYSTEM_MAP.md from repo root as primary context.
