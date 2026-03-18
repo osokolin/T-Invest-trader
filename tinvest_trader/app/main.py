@@ -43,6 +43,12 @@ def main() -> None:
 
     container.trading_service.start()
 
+    # Sentiment status
+    if container.telegram_sentiment_service is not None:
+        logger.info("sentiment pipeline ready", extra={"component": "sentiment"})
+    else:
+        logger.info("sentiment pipeline disabled", extra={"component": "sentiment"})
+
     logger.info("tinvest_trader started successfully")
 
     # In future milestones this will be an event loop.
