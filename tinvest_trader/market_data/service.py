@@ -33,6 +33,7 @@ class MarketDataService:
     def get_snapshot(self, figi: str) -> MarketSnapshot:
         """Build a normalized market snapshot for the given instrument."""
         # control check: market data raw verification
+        # FINAL CONTROL CHECK
         instrument = self.get_instrument(figi)
         last_price_raw = self._client.get_last_price(figi)
         trading_status_raw = self._client.get_trading_status(figi)
