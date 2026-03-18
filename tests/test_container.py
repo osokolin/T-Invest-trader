@@ -60,3 +60,18 @@ def test_container_sentiment_wired_when_enabled(monkeypatch):
     cfg = load_config()
     c = build_container(cfg)
     assert isinstance(c.telegram_sentiment_service, TelegramSentimentService)
+
+
+def test_container_observation_none_when_disabled(container):
+    assert container.observation_service is None
+
+
+def test_container_observation_wired_when_enabled(monkeypatch):
+    monkeypatch.setenv("TINVEST_OBSERVATION_ENABLED", "true")
+    from tinvest_trader.app.config import load_config
+    from tinvest_trader.app.container import build_container
+    from tinvest_trader.services.observation_service import ObservationService
+
+    cfg = load_config()
+    c = build_container(cfg)
+    assert isinstance(c.observation_service, ObservationService)

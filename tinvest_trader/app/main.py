@@ -49,6 +49,12 @@ def main() -> None:
     else:
         logger.info("sentiment pipeline disabled", extra={"component": "sentiment"})
 
+    # Observation status
+    if container.observation_service is not None:
+        logger.info("observation pipeline ready", extra={"component": "observation"})
+    else:
+        logger.info("observation pipeline disabled", extra={"component": "observation"})
+
     logger.info("tinvest_trader started successfully")
 
     # In future milestones this will be an event loop.

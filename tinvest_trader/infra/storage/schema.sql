@@ -164,3 +164,31 @@ CREATE INDEX IF NOT EXISTS idx_telegram_sentiment_figi_time
     ON telegram_sentiment_events (figi, scored_at DESC);
 CREATE INDEX IF NOT EXISTS idx_telegram_sentiment_ticker_time
     ON telegram_sentiment_events (ticker, scored_at DESC);
+
+-- ============================================================
+-- Milestone 4: Signal observation and aggregation
+-- ============================================================
+
+-- Derived sentiment observations per ticker per time window
+CREATE TABLE IF NOT EXISTS signal_observations (
+    id                  BIGSERIAL PRIMARY KEY,
+    ticker              TEXT NOT NULL,
+    figi                TEXT,
+    window              TEXT NOT NULL,
+    observation_time    TIMESTAMPTZ NOT NULL,
+    message_count       INTEGER NOT NULL,
+    positive_count      INTEGER NOT NULL,
+    negative_count      INTEGER NOT NULL,
+    neutral_count       INTEGER NOT NULL,
+    positive_score_avg  NUMERIC(8, 6),
+    negative_score_avg  NUMERIC(8, 6),
+    neutral_score_avg   NUMERIC(8, 6),
+    sentiment_balance   NUMERIC(8, 6),
+    recorded_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_signal_obs_ticker_time
+    ON signal_observations (ticker, observation_time DESC);
+CREATE INDEX IF NOT EXISTS idx_signal_obs_figi_time
+    ON signal_observations (figi, observation_time DESC);
+CREATE INDEX IF NOT EXISTS idx_signal_obs_window_time
+    ON signal_observations (window, observation_time DESC);

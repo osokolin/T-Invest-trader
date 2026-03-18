@@ -43,6 +43,14 @@ class SentimentConfig:
 
 
 @dataclass(frozen=True)
+class ObservationConfig:
+    enabled: bool = False
+    windows: tuple[str, ...] = ("5m", "15m", "1h")
+    persist_derived_metrics: bool = True
+    tracked_tickers: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class LoggingConfig:
     level: str = "INFO"
     json_output: bool = True
@@ -55,6 +63,7 @@ class AppConfig:
     market_data: MarketDataConfig = field(default_factory=MarketDataConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     sentiment: SentimentConfig = field(default_factory=SentimentConfig)
+    observation: ObservationConfig = field(default_factory=ObservationConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     environment: str = "sandbox"
 
@@ -93,6 +102,20 @@ def load_config() -> AppConfig:
             postgres_dsn=os.environ.get("TINVEST_POSTGRES_DSN", ""),
             pool_min_size=int(os.environ.get("TINVEST_DB_POOL_MIN", "2")),
             pool_max_size=int(os.environ.get("TINVEST_DB_POOL_MAX", "5")),
+        ),
+        observation=ObservationConfig(
+            enabled=os.environ.get(
+                "TINVEST_OBSERVATION_ENABLED", "false",
+            ).lower() == "true",
+            windows=_parse_csv(
+                os.environ.get("TINVEST_OBSERVATION_WINDOWS", "5m,15m,1h"),
+            ),
+            persist_derived_metrics=os.environ.get(
+                "TINVEST_OBSERVATION_PERSIST_DERIVED", "true",
+            ).lower() == "true",
+            tracked_tickers=_parse_csv(
+                os.environ.get("TINVEST_OBSERVATION_TRACKED_TICKERS", ""),
+            ),
         ),
         sentiment=SentimentConfig(
             enabled=os.environ.get("TINVEST_SENTIMENT_ENABLED", "false").lower() == "true",
