@@ -174,7 +174,7 @@ CREATE TABLE IF NOT EXISTS signal_observations (
     id                  BIGSERIAL PRIMARY KEY,
     ticker              TEXT NOT NULL,
     figi                TEXT,
-    window              TEXT NOT NULL,
+    "window"            TEXT NOT NULL,
     observation_time    TIMESTAMPTZ NOT NULL,
     message_count       INTEGER NOT NULL,
     positive_count      INTEGER NOT NULL,
@@ -191,4 +191,4 @@ CREATE INDEX IF NOT EXISTS idx_signal_obs_ticker_time
 CREATE INDEX IF NOT EXISTS idx_signal_obs_figi_time
     ON signal_observations (figi, observation_time DESC);
 CREATE INDEX IF NOT EXISTS idx_signal_obs_window_time
-    ON signal_observations (window, observation_time DESC);
+    ON signal_observations ("window", observation_time DESC);
