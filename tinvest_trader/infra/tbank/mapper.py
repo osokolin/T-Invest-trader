@@ -8,8 +8,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from tinvest_trader.domain.enums import CandleInterval, TradingStatus
+from tinvest_trader.domain.enums import CandleInterval, OrderSide, OrderStatus, TradingStatus
 from tinvest_trader.domain.models import (
+    BrokerOrder,
     Candle,
     Instrument,
     MarketSnapshot,
@@ -80,3 +81,40 @@ def _parse_timestamp(value: str | None) -> datetime:
         return datetime.fromisoformat(value)
     except (ValueError, TypeError):
         return datetime.now(UTC)
+
+
+# -- Order mapping --
+
+
+def map_order_status(raw: str) -> OrderStatus:
+    """Map a broker execution-report status string to OrderStatus."""
+    mapping = {
+        "EXECUTION_REPORT_STATUS_NEW": OrderStatus.NEW,
+        "EXECUTION_REPORT_STATUS_PARTIALLYFILL": OrderStatus.PARTIALLY_FILLED,
+        "EXECUTION_REPORT_STATUS_FILL": OrderStatus.FILLED,
+        "EXECUTION_REPORT_STATUS_CANCELLED": OrderStatus.CANCELLED,
+        "EXECUTION_REPORT_STATUS_REJECTED": OrderStatus.REJECTED,
+    }
+    return mapping.get(raw, OrderStatus.REJECTED)
+
+
+def map_order_direction(raw: str) -> OrderSide:
+    """Map a broker order-direction string to OrderSide."""
+    mapping = {
+        "ORDER_DIRECTION_BUY": OrderSide.BUY,
+        "ORDER_DIRECTION_SELL": OrderSide.SELL,
+    }
+    return mapping.get(raw, OrderSide.BUY)
+
+
+def map_broker_order(raw: dict) -> BrokerOrder:
+    """Map a broker order response dict to BrokerOrder."""
+    return BrokerOrder(
+        order_id=raw["order_id"],
+        figi=raw.get("figi", ""),
+        direction=map_order_direction(raw.get("direction", "")),
+        quantity=int(raw.get("requested_quantity", 0)),
+        filled_quantity=int(raw.get("filled_quantity", 0)),
+        status=map_order_status(raw.get("status", "")),
+        message=raw.get("message", ""),
+    )
