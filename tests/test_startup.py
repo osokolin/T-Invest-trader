@@ -10,7 +10,7 @@ def test_app_runs_without_crashing():
     proc = subprocess.Popen(
         [sys.executable, "-m", "tinvest_trader.app.main"],
         stderr=subprocess.PIPE,
-        stdout=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
         text=True,
     )
 
@@ -49,7 +49,7 @@ def test_app_runs_with_background_enabled_without_optional_services():
     proc = subprocess.Popen(
         [sys.executable, "-m", "tinvest_trader.app.main"],
         stderr=subprocess.PIPE,
-        stdout=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
         text=True,
         env=env,
     )
