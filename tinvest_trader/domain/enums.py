@@ -26,3 +26,18 @@ class Environment(Enum):
     PAPER = "paper"
     SANDBOX = "sandbox"
     PRODUCTION = "production"
+
+
+class TradingStatus(Enum):
+    OPEN = "OPEN"
+    CLOSED = "CLOSED"
+    PREMARKET = "PREMARKET"
+    UNKNOWN = "UNKNOWN"
+
+
+class CandleInterval(Enum):
+    MIN_1 = "1min"
+    MIN_5 = "5min"
+    MIN_15 = "15min"
+    HOUR = "hour"
+    DAY = "day"
