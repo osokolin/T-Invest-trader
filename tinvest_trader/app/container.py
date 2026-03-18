@@ -13,11 +13,13 @@ from tinvest_trader.infra.storage.repository import TradingRepository
 from tinvest_trader.infra.tbank.client import TBankClient
 from tinvest_trader.instruments.registry import InstrumentRegistry
 from tinvest_trader.market_data.service import MarketDataService
+from tinvest_trader.observation.windows import parse_windows
 from tinvest_trader.portfolio.state import PortfolioState
 from tinvest_trader.sentiment.instrument_mapper import InstrumentMapper
 from tinvest_trader.sentiment.parser import extract_tickers
 from tinvest_trader.sentiment.scorer import StubSentimentScorer
 from tinvest_trader.sentiment.source import StubMessageSource
+from tinvest_trader.services.observation_service import ObservationService
 from tinvest_trader.services.telegram_sentiment_service import TelegramSentimentService
 from tinvest_trader.services.trading_service import TradingService
 
@@ -39,6 +41,7 @@ class Container:
     telegram_sentiment_service: TelegramSentimentService | None = field(
         init=False, default=None,
     )
+    observation_service: ObservationService | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
         self.logger = setup_logging(self.config.logging)
@@ -80,6 +83,10 @@ class Container:
         if self.config.sentiment.enabled:
             self._wire_sentiment()
 
+        # Observation pipeline (optional, disabled by default)
+        if self.config.observation.enabled:
+            self._wire_observation()
+
     def _wire_sentiment(self) -> None:
         """Wire sentiment components when enabled."""
         cfg = self.config.sentiment
@@ -118,6 +125,38 @@ class Container:
                 "channels": len(cfg.channels),
                 "backend": cfg.source_backend,
                 "model": cfg.model_name,
+            },
+        )
+
+    def _wire_observation(self) -> None:
+        """Wire observation components when enabled."""
+        cfg = self.config.observation
+        windows = parse_windows(cfg.windows)
+
+        # Tracked tickers precedence: observation > sentiment > market_data
+        tracked: frozenset[str]
+        if cfg.tracked_tickers:
+            tracked = frozenset(cfg.tracked_tickers)
+        elif self.config.sentiment.tracked_tickers:
+            tracked = frozenset(self.config.sentiment.tracked_tickers)
+        else:
+            tracked = frozenset()  # will discover from DB
+
+        self.observation_service = ObservationService(
+            repository=self.repository,
+            windows=windows,
+            tracked_tickers=tracked,
+            persist=cfg.persist_derived_metrics,
+            logger=self.logger,
+        )
+
+        self.logger.info(
+            "observation pipeline initialized",
+            extra={
+                "component": "observation",
+                "windows": [w.label for w in windows],
+                "tracked_tickers": len(tracked),
+                "persist": cfg.persist_derived_metrics,
             },
         )
 

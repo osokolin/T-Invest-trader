@@ -13,6 +13,7 @@ from tinvest_trader.domain.models import (
     OrderIntent,
 )
 from tinvest_trader.infra.storage.postgres import PostgresPool
+from tinvest_trader.observation.models import SignalObservation
 from tinvest_trader.sentiment.models import SentimentResult, TelegramMessage, TickerMention
 
 
@@ -259,5 +260,82 @@ class TradingRepository:
                 result.score_negative,
                 result.score_neutral,
                 result.scored_at,
+            ))
+            conn.commit()
+
+    # -- Observation / aggregation --
+
+    def fetch_sentiment_events_for_window(
+        self,
+        ticker: str,
+        start_time: datetime,
+        end_time: datetime,
+        figi: str | None = None,
+    ) -> list[dict]:
+        """Fetch sentiment event rows for a ticker within a time window.
+
+        Returns list of dicts with keys: label, score_positive, score_negative, score_neutral.
+        """
+        if figi:
+            sql = """
+                SELECT label, score_positive, score_negative, score_neutral
+                FROM telegram_sentiment_events
+                WHERE figi = %s AND scored_at >= %s AND scored_at < %s
+                ORDER BY scored_at
+            """
+            params = (figi, start_time, end_time)
+        else:
+            sql = """
+                SELECT label, score_positive, score_negative, score_neutral
+                FROM telegram_sentiment_events
+                WHERE ticker = %s AND scored_at >= %s AND scored_at < %s
+                ORDER BY scored_at
+            """
+            params = (ticker.upper(), start_time, end_time)
+
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, params)
+            columns = ("label", "score_positive", "score_negative", "score_neutral")
+            return [dict(zip(columns, row, strict=True)) for row in cur.fetchall()]
+
+    def fetch_distinct_tickers_with_sentiment(
+        self,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> list[dict]:
+        """Fetch distinct ticker/figi pairs that have sentiment events in the window."""
+        sql = """
+            SELECT DISTINCT ticker, figi
+            FROM telegram_sentiment_events
+            WHERE scored_at >= %s AND scored_at < %s
+            ORDER BY ticker
+        """
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, (start_time, end_time))
+            return [{"ticker": row[0], "figi": row[1]} for row in cur.fetchall()]
+
+    def insert_signal_observation(self, obs: SignalObservation) -> None:
+        sql = """
+            INSERT INTO signal_observations
+                (ticker, figi, window, observation_time, message_count,
+                 positive_count, negative_count, neutral_count,
+                 positive_score_avg, negative_score_avg, neutral_score_avg,
+                 sentiment_balance)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        with self._pool.get_connection() as conn:
+            conn.execute(sql, (
+                obs.ticker,
+                obs.figi,
+                obs.window,
+                obs.observation_time,
+                obs.message_count,
+                obs.positive_count,
+                obs.negative_count,
+                obs.neutral_count,
+                obs.positive_score_avg,
+                obs.negative_score_avg,
+                obs.neutral_score_avg,
+                obs.sentiment_balance,
             ))
             conn.commit()
