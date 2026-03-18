@@ -1,6 +1,7 @@
 """Tests for market_data/service.py -- normalized market data access."""
 
 import logging
+from unittest.mock import MagicMock
 
 from tinvest_trader.app.config import BrokerConfig
 from tinvest_trader.domain.enums import CandleInterval, TradingStatus
@@ -9,7 +10,7 @@ from tinvest_trader.infra.tbank.client import TBankClient
 from tinvest_trader.market_data.service import MarketDataService
 
 
-def _make_service() -> MarketDataService:
+def _make_service(repository=None) -> MarketDataService:
     """Create a MarketDataService with a stub client for testing."""
     client = TBankClient(
         config=BrokerConfig(),
@@ -18,6 +19,7 @@ def _make_service() -> MarketDataService:
     return MarketDataService(
         client=client,
         logger=logging.getLogger("test"),
+        repository=repository,
     )
 
 
@@ -43,3 +45,24 @@ def test_get_recent_candles():
     assert len(result) >= 1
     assert isinstance(result[0], Candle)
     assert result[0].interval == CandleInterval.MIN_5
+
+
+def test_get_snapshot_persists_when_repository_present():
+    repo = MagicMock()
+    service = _make_service(repository=repo)
+    service.get_snapshot("BBG000B9XRY4")
+    repo.insert_market_snapshot.assert_called_once()
+
+
+def test_get_snapshot_works_without_repository():
+    service = _make_service(repository=None)
+    result = service.get_snapshot("BBG000B9XRY4")
+    assert isinstance(result, MarketSnapshot)
+
+
+def test_get_snapshot_survives_repository_failure():
+    repo = MagicMock()
+    repo.insert_market_snapshot.side_effect = RuntimeError("db down")
+    service = _make_service(repository=repo)
+    result = service.get_snapshot("BBG000B9XRY4")
+    assert isinstance(result, MarketSnapshot)
