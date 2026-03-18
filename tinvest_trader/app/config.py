@@ -40,6 +40,11 @@ class SentimentConfig:
     tracked_tickers: tuple[str, ...] = ()
     model_name: str = "stub"
     source_backend: str = "stub"
+    telethon_api_id: int | None = None
+    telethon_api_hash: str = ""
+    telethon_session_path: str = ""
+    telethon_poll_limit: int = 50
+    telethon_request_timeout_sec: float | None = None
 
 
 @dataclass(frozen=True)
@@ -125,6 +130,23 @@ def load_config() -> AppConfig:
             ),
             model_name=os.environ.get("TINVEST_SENTIMENT_MODEL_NAME", "stub"),
             source_backend=os.environ.get("TINVEST_SENTIMENT_SOURCE_BACKEND", "stub"),
+            telethon_api_id=(
+                int(os.environ["TINVEST_SENTIMENT_TELETHON_API_ID"])
+                if os.environ.get("TINVEST_SENTIMENT_TELETHON_API_ID", "").strip()
+                else None
+            ),
+            telethon_api_hash=os.environ.get("TINVEST_SENTIMENT_TELETHON_API_HASH", ""),
+            telethon_session_path=os.environ.get(
+                "TINVEST_SENTIMENT_TELETHON_SESSION_PATH", "",
+            ),
+            telethon_poll_limit=int(
+                os.environ.get("TINVEST_SENTIMENT_TELETHON_POLL_LIMIT", "50"),
+            ),
+            telethon_request_timeout_sec=(
+                float(os.environ["TINVEST_SENTIMENT_TELETHON_TIMEOUT_SEC"])
+                if os.environ.get("TINVEST_SENTIMENT_TELETHON_TIMEOUT_SEC", "").strip()
+                else None
+            ),
         ),
         logging=LoggingConfig(
             level=os.environ.get("TINVEST_LOG_LEVEL", "INFO"),
