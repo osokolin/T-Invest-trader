@@ -6,6 +6,11 @@ from tinvest_trader.infra.tbank.client import TBankClient
 from tinvest_trader.instruments.registry import InstrumentRegistry
 from tinvest_trader.market_data.service import MarketDataService
 from tinvest_trader.portfolio.state import PortfolioState
+from tinvest_trader.sentiment.source import StubMessageSource
+from tinvest_trader.sentiment.telethon_source import (
+    TelethonConfigError,
+    TelethonMessageSource,
+)
 from tinvest_trader.services.background_runner import BackgroundRunner
 from tinvest_trader.services.trading_service import TradingService
 
@@ -61,6 +66,61 @@ def test_container_sentiment_wired_when_enabled(monkeypatch):
     cfg = load_config()
     c = build_container(cfg)
     assert isinstance(c.telegram_sentiment_service, TelegramSentimentService)
+
+
+def test_container_sentiment_uses_stub_backend(monkeypatch):
+    monkeypatch.setenv("TINVEST_SENTIMENT_ENABLED", "true")
+    monkeypatch.setenv("TINVEST_SENTIMENT_CHANNELS", "TestChannel")
+    monkeypatch.setenv("TINVEST_SENTIMENT_SOURCE_BACKEND", "stub")
+    from tinvest_trader.app.config import load_config
+    from tinvest_trader.app.container import build_container
+
+    c = build_container(load_config())
+    assert isinstance(c.telegram_sentiment_service._source, StubMessageSource)
+
+
+def test_container_sentiment_uses_telethon_backend(monkeypatch):
+    monkeypatch.setenv("TINVEST_SENTIMENT_ENABLED", "true")
+    monkeypatch.setenv("TINVEST_SENTIMENT_CHANNELS", "TestChannel")
+    monkeypatch.setenv("TINVEST_SENTIMENT_SOURCE_BACKEND", "telethon")
+    monkeypatch.setenv("TINVEST_SENTIMENT_TELETHON_API_ID", "12345")
+    monkeypatch.setenv("TINVEST_SENTIMENT_TELETHON_API_HASH", "hash-value")
+    monkeypatch.setenv("TINVEST_SENTIMENT_TELETHON_SESSION_PATH", "/tmp/test.session")
+    from tinvest_trader.app.config import load_config
+    from tinvest_trader.app.container import build_container
+
+    c = build_container(load_config())
+    assert isinstance(c.telegram_sentiment_service._source, TelethonMessageSource)
+
+
+def test_container_sentiment_telethon_requires_config(monkeypatch):
+    monkeypatch.setenv("TINVEST_SENTIMENT_ENABLED", "true")
+    monkeypatch.setenv("TINVEST_SENTIMENT_CHANNELS", "TestChannel")
+    monkeypatch.setenv("TINVEST_SENTIMENT_SOURCE_BACKEND", "telethon")
+    from tinvest_trader.app.config import load_config
+    from tinvest_trader.app.container import build_container
+
+    try:
+        build_container(load_config())
+    except TelethonConfigError:
+        pass
+    else:
+        raise AssertionError("expected TelethonConfigError")
+
+
+def test_container_sentiment_unknown_backend_raises(monkeypatch):
+    monkeypatch.setenv("TINVEST_SENTIMENT_ENABLED", "true")
+    monkeypatch.setenv("TINVEST_SENTIMENT_CHANNELS", "TestChannel")
+    monkeypatch.setenv("TINVEST_SENTIMENT_SOURCE_BACKEND", "unknown")
+    from tinvest_trader.app.config import load_config
+    from tinvest_trader.app.container import build_container
+
+    try:
+        build_container(load_config())
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected ValueError")
 
 
 def test_container_observation_none_when_disabled(container):

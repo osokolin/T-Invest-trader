@@ -19,6 +19,7 @@ from tinvest_trader.sentiment.instrument_mapper import InstrumentMapper
 from tinvest_trader.sentiment.parser import extract_tickers
 from tinvest_trader.sentiment.scorer import StubSentimentScorer
 from tinvest_trader.sentiment.source import StubMessageSource
+from tinvest_trader.sentiment.telethon_source import build_telethon_message_source
 from tinvest_trader.services.background_runner import BackgroundRunner
 from tinvest_trader.services.observation_service import ObservationService
 from tinvest_trader.services.telegram_sentiment_service import TelegramSentimentService
@@ -98,7 +99,12 @@ class Container:
         cfg = self.config.sentiment
 
         # Source backend
-        source = StubMessageSource()
+        if cfg.source_backend == "stub":
+            source = StubMessageSource()
+        elif cfg.source_backend == "telethon":
+            source = build_telethon_message_source(cfg)
+        else:
+            raise ValueError(f"unsupported sentiment source backend: {cfg.source_backend}")
 
         # Scorer
         scorer = StubSentimentScorer(model_name=cfg.model_name)
