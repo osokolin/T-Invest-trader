@@ -25,11 +25,20 @@ def main() -> None:
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    # Startup sequence
+    # Database setup (optional -- skipped when no DSN configured)
+    if container.storage_pool is not None:
+        container.storage_pool.initialize_schema()
+        if not container.storage_pool.health_check():
+            logger.error("database health check failed, exiting")
+            sys.exit(1)
+        logger.info("database connected and schema ready")
+
+    # Broker startup
     container.tbank_client.connect()
     healthy = container.tbank_client.health_check()
     if not healthy:
         logger.error("broker health check failed, exiting")
+        _shutdown(container, logger)
         sys.exit(1)
 
     container.trading_service.start()
@@ -41,6 +50,14 @@ def main() -> None:
     if not shutdown_requested:
         logger.info("skeleton mode: no trading loop, shutting down")
 
+    _shutdown(container, logger)
+
+
+def _shutdown(container: object, logger: object) -> None:
+    """Clean up resources."""
+    pool = getattr(container, "storage_pool", None)
+    if pool is not None:
+        pool.close()
     logger.info("tinvest_trader shutdown complete")
 
 

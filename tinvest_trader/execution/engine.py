@@ -12,19 +12,31 @@ Does NOT contain strategy logic or risk checks.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from tinvest_trader.domain.enums import OrderStatus
 from tinvest_trader.domain.models import ExecutionResult, OrderIntent
 from tinvest_trader.infra.tbank.client import TBankClient
 from tinvest_trader.infra.tbank.mapper import map_broker_order
 
+if TYPE_CHECKING:
+    from tinvest_trader.infra.storage.repository import TradingRepository
+
 
 class ExecutionEngine:
     """Submits orders to the broker and returns normalized results."""
 
-    def __init__(self, client: TBankClient, logger: logging.Logger) -> None:
+    def __init__(
+        self,
+        client: TBankClient,
+        logger: logging.Logger,
+        repository: TradingRepository | None = None,
+        account_id: str = "",
+    ) -> None:
         self._client = client
         self._logger = logger
+        self._repository = repository
+        self._account_id = account_id
 
     def submit_order(self, intent: OrderIntent) -> ExecutionResult:
         """Submit an OrderIntent to the broker.
@@ -45,6 +57,19 @@ class ExecutionEngine:
             },
         )
 
+        # Persist intent before broker call
+        if self._repository is not None:
+            try:
+                self._repository.insert_order_intent(intent, self._account_id)
+            except Exception:
+                self._logger.exception(
+                    "failed to persist order intent",
+                    extra={
+                        "component": "execution_engine",
+                        "idempotency_key": intent.idempotency_key,
+                    },
+                )
+
         try:
             raw = self._client.post_order(
                 figi=intent.figi,
@@ -62,7 +87,9 @@ class ExecutionEngine:
                     "idempotency_key": intent.idempotency_key,
                 },
             )
-            return ExecutionResult(success=False, error=str(exc))
+            result = ExecutionResult(success=False, error=str(exc))
+            self._persist_execution_event(intent, result)
+            return result
 
         broker_order = map_broker_order(raw)
 
@@ -82,11 +109,31 @@ class ExecutionEngine:
             },
         )
 
-        return ExecutionResult(
+        result = ExecutionResult(
             success=success,
             broker_order=broker_order,
             error=broker_order.message if not success else "",
         )
+
+        self._persist_execution_event(intent, result)
+        return result
+
+    def _persist_execution_event(
+        self, intent: OrderIntent, result: ExecutionResult,
+    ) -> None:
+        """Persist execution event to audit trail. Failures are logged, not raised."""
+        if self._repository is None:
+            return
+        try:
+            self._repository.insert_execution_event(intent, result, self._account_id)
+        except Exception:
+            self._logger.exception(
+                "failed to persist execution event",
+                extra={
+                    "component": "execution_engine",
+                    "idempotency_key": intent.idempotency_key,
+                },
+            )
 
     @staticmethod
     def is_retryable(result: ExecutionResult) -> bool:

@@ -3,7 +3,9 @@ name = "tinvest-trader"
 version = "0.1.0"
 description = "Automated trading system for T-Invest API"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "psycopg[binary,pool]>=3.1",
+]
 
 [project.optional-dependencies]
 dev = [

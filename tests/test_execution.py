@@ -1,15 +1,16 @@
 """Tests for execution/engine.py -- order submission and error classification."""
 
 import logging
+from unittest.mock import MagicMock
 
 from tinvest_trader.app.config import BrokerConfig
 from tinvest_trader.domain.enums import OrderSide, OrderStatus, OrderType
-from tinvest_trader.domain.models import ExecutionResult, OrderIntent
+from tinvest_trader.domain.models import BrokerOrder, ExecutionResult, OrderIntent
 from tinvest_trader.execution.engine import ExecutionEngine
 from tinvest_trader.infra.tbank.client import TBankClient
 
 
-def _make_engine() -> ExecutionEngine:
+def _make_engine(repository=None) -> ExecutionEngine:
     """Create an ExecutionEngine with a stub client."""
     client = TBankClient(
         config=BrokerConfig(),
@@ -18,6 +19,7 @@ def _make_engine() -> ExecutionEngine:
     return ExecutionEngine(
         client=client,
         logger=logging.getLogger("test"),
+        repository=repository,
     )
 
 
@@ -89,8 +91,6 @@ def test_is_retryable_network_error_is_true():
 
 
 def test_is_retryable_rejected_is_false():
-    from tinvest_trader.domain.models import BrokerOrder
-
     broker_order = BrokerOrder(
         order_id="x",
         figi="BBG000B9XRY4",
@@ -102,3 +102,30 @@ def test_is_retryable_rejected_is_false():
     )
     result = ExecutionResult(success=False, broker_order=broker_order, error="rejected")
     assert ExecutionEngine.is_retryable(result) is False
+
+
+def test_submit_order_persists_intent_and_event():
+    repo = MagicMock()
+    engine = _make_engine(repository=repo)
+    intent = _make_intent()
+    engine.submit_order(intent)
+    repo.insert_order_intent.assert_called_once()
+    repo.insert_execution_event.assert_called_once()
+
+
+def test_submit_order_works_without_repository():
+    engine = _make_engine(repository=None)
+    intent = _make_intent()
+    result = engine.submit_order(intent)
+    assert isinstance(result, ExecutionResult)
+    assert result.success is True
+
+
+def test_submit_order_survives_repository_failure():
+    repo = MagicMock()
+    repo.insert_order_intent.side_effect = RuntimeError("db down")
+    repo.insert_execution_event.side_effect = RuntimeError("db down")
+    engine = _make_engine(repository=repo)
+    intent = _make_intent()
+    result = engine.submit_order(intent)
+    assert result.success is True

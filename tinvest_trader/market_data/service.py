@@ -7,6 +7,7 @@ It returns only internal domain models, never broker DTOs.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from tinvest_trader.domain.enums import CandleInterval
 from tinvest_trader.domain.models import Candle, Instrument, MarketSnapshot
@@ -17,13 +18,22 @@ from tinvest_trader.infra.tbank.mapper import (
     map_market_snapshot,
 )
 
+if TYPE_CHECKING:
+    from tinvest_trader.infra.storage.repository import TradingRepository
+
 
 class MarketDataService:
     """Provides normalized market data to the rest of the system."""
 
-    def __init__(self, client: TBankClient, logger: logging.Logger) -> None:
+    def __init__(
+        self,
+        client: TBankClient,
+        logger: logging.Logger,
+        repository: TradingRepository | None = None,
+    ) -> None:
         self._client = client
         self._logger = logger
+        self._repository = repository
 
     def get_instrument(self, figi: str) -> Instrument:
         """Fetch and normalize instrument metadata."""
@@ -35,7 +45,18 @@ class MarketDataService:
         instrument = self.get_instrument(figi)
         last_price_raw = self._client.get_last_price(figi)
         trading_status_raw = self._client.get_trading_status(figi)
-        return map_market_snapshot(instrument, last_price_raw, trading_status_raw)
+        snapshot = map_market_snapshot(instrument, last_price_raw, trading_status_raw)
+
+        if self._repository is not None:
+            try:
+                self._repository.insert_market_snapshot(snapshot)
+            except Exception:
+                self._logger.exception(
+                    "failed to persist market snapshot",
+                    extra={"component": "market_data", "figi": figi},
+                )
+
+        return snapshot
 
     def get_recent_candles(
         self,
