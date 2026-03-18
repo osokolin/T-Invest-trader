@@ -34,6 +34,15 @@ class DatabaseConfig:
 
 
 @dataclass(frozen=True)
+class SentimentConfig:
+    enabled: bool = False
+    channels: tuple[str, ...] = ()
+    tracked_tickers: tuple[str, ...] = ()
+    model_name: str = "stub"
+    source_backend: str = "stub"
+
+
+@dataclass(frozen=True)
 class LoggingConfig:
     level: str = "INFO"
     json_output: bool = True
@@ -45,6 +54,7 @@ class AppConfig:
     trading: TradingConfig = field(default_factory=TradingConfig)
     market_data: MarketDataConfig = field(default_factory=MarketDataConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
+    sentiment: SentimentConfig = field(default_factory=SentimentConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     environment: str = "sandbox"
 
@@ -83,6 +93,15 @@ def load_config() -> AppConfig:
             postgres_dsn=os.environ.get("TINVEST_POSTGRES_DSN", ""),
             pool_min_size=int(os.environ.get("TINVEST_DB_POOL_MIN", "2")),
             pool_max_size=int(os.environ.get("TINVEST_DB_POOL_MAX", "5")),
+        ),
+        sentiment=SentimentConfig(
+            enabled=os.environ.get("TINVEST_SENTIMENT_ENABLED", "false").lower() == "true",
+            channels=_parse_csv(os.environ.get("TINVEST_SENTIMENT_CHANNELS", "")),
+            tracked_tickers=_parse_csv(
+                os.environ.get("TINVEST_SENTIMENT_TRACKED_TICKERS", ""),
+            ),
+            model_name=os.environ.get("TINVEST_SENTIMENT_MODEL_NAME", "stub"),
+            source_backend=os.environ.get("TINVEST_SENTIMENT_SOURCE_BACKEND", "stub"),
         ),
         logging=LoggingConfig(
             level=os.environ.get("TINVEST_LOG_LEVEL", "INFO"),

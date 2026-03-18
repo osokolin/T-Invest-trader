@@ -13,6 +13,7 @@ from tinvest_trader.domain.models import (
     OrderIntent,
 )
 from tinvest_trader.infra.storage.postgres import PostgresPool
+from tinvest_trader.sentiment.models import SentimentResult, TelegramMessage, TickerMention
 
 
 class TradingRepository:
@@ -184,4 +185,79 @@ class TradingRepository:
         """
         with self._pool.get_connection() as conn:
             conn.execute(sql, (account_id, figi, quantity, average_price, snapshot_time))
+            conn.commit()
+
+    # -- Telegram sentiment ingestion --
+
+    def insert_telegram_message_raw(self, msg: TelegramMessage) -> bool:
+        """Insert raw Telegram message. Returns True if newly inserted, False if duplicate."""
+        sql = """
+            INSERT INTO telegram_messages_raw
+                (channel_name, message_id, published_at, message_text, source_payload)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (channel_name, message_id) DO NOTHING
+            RETURNING id
+        """
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, (
+                msg.channel_name,
+                msg.message_id,
+                msg.published_at,
+                msg.message_text,
+                json.dumps(msg.source_payload) if msg.source_payload else None,
+            ))
+            inserted = cur.fetchone() is not None
+            conn.commit()
+        return inserted
+
+    def insert_telegram_message_mention(
+        self,
+        msg: TelegramMessage,
+        mention: TickerMention,
+    ) -> None:
+        sql = """
+            INSERT INTO telegram_message_mentions
+                (channel_name, message_id, published_at, figi, ticker,
+                 mention_type, confidence)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """
+        with self._pool.get_connection() as conn:
+            conn.execute(sql, (
+                msg.channel_name,
+                msg.message_id,
+                msg.published_at,
+                mention.figi,
+                mention.ticker.upper(),
+                mention.mention_type,
+                mention.confidence,
+            ))
+            conn.commit()
+
+    def insert_telegram_sentiment_event(
+        self,
+        msg: TelegramMessage,
+        mention: TickerMention,
+        result: SentimentResult,
+    ) -> None:
+        sql = """
+            INSERT INTO telegram_sentiment_events
+                (channel_name, message_id, published_at, figi, ticker,
+                 model_name, label, score_positive, score_negative,
+                 score_neutral, scored_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        with self._pool.get_connection() as conn:
+            conn.execute(sql, (
+                msg.channel_name,
+                msg.message_id,
+                msg.published_at,
+                mention.figi,
+                mention.ticker.upper(),
+                result.model_name,
+                result.label,
+                result.score_positive,
+                result.score_negative,
+                result.score_neutral,
+                result.scored_at,
+            ))
             conn.commit()

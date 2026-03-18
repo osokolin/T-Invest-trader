@@ -14,6 +14,11 @@ from tinvest_trader.infra.tbank.client import TBankClient
 from tinvest_trader.instruments.registry import InstrumentRegistry
 from tinvest_trader.market_data.service import MarketDataService
 from tinvest_trader.portfolio.state import PortfolioState
+from tinvest_trader.sentiment.instrument_mapper import InstrumentMapper
+from tinvest_trader.sentiment.parser import extract_tickers
+from tinvest_trader.sentiment.scorer import StubSentimentScorer
+from tinvest_trader.sentiment.source import StubMessageSource
+from tinvest_trader.services.telegram_sentiment_service import TelegramSentimentService
 from tinvest_trader.services.trading_service import TradingService
 
 
@@ -31,6 +36,9 @@ class Container:
     execution_engine: ExecutionEngine = field(init=False)
     portfolio: PortfolioState = field(init=False)
     trading_service: TradingService = field(init=False)
+    telegram_sentiment_service: TelegramSentimentService | None = field(
+        init=False, default=None,
+    )
 
     def __post_init__(self) -> None:
         self.logger = setup_logging(self.config.logging)
@@ -67,6 +75,51 @@ class Container:
         )
         self.portfolio = PortfolioState()
         self.trading_service = TradingService(logger=self.logger)
+
+        # Sentiment pipeline (optional, disabled by default)
+        if self.config.sentiment.enabled:
+            self._wire_sentiment()
+
+    def _wire_sentiment(self) -> None:
+        """Wire sentiment components when enabled."""
+        cfg = self.config.sentiment
+
+        # Source backend
+        source = StubMessageSource()
+
+        # Scorer
+        scorer = StubSentimentScorer(model_name=cfg.model_name)
+
+        # Tracked tickers: sentiment config takes precedence, else fall back
+        tracked_tickers: frozenset[str]
+        if cfg.tracked_tickers:
+            tracked_tickers = frozenset(cfg.tracked_tickers)
+        else:
+            tracked_tickers = frozenset(self.config.market_data.tracked_instruments)
+
+        mapper = InstrumentMapper(
+            ticker_to_figi={},  # populated from instrument_catalog in future
+            tracked_tickers=tracked_tickers,
+        )
+
+        self.telegram_sentiment_service = TelegramSentimentService(
+            source=source,
+            parser_fn=extract_tickers,
+            mapper=mapper,
+            scorer=scorer,
+            repository=self.repository,
+            logger=self.logger,
+        )
+
+        self.logger.info(
+            "sentiment pipeline initialized",
+            extra={
+                "component": "sentiment",
+                "channels": len(cfg.channels),
+                "backend": cfg.source_backend,
+                "model": cfg.model_name,
+            },
+        )
 
 
 def build_container(config: AppConfig) -> Container:
