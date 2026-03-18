@@ -1,15 +1,40 @@
+import signal
 import subprocess
 import sys
+import time
 
 
 def test_app_runs_without_crashing():
-    """Run the app entrypoint and verify it exits cleanly."""
-    result = subprocess.run(
+    """Run the app entrypoint, verify startup, then send SIGTERM for clean shutdown."""
+    proc = subprocess.Popen(
         [sys.executable, "-m", "tinvest_trader.app.main"],
-        capture_output=True,
+        stderr=subprocess.PIPE,
+        stdout=subprocess.PIPE,
         text=True,
-        timeout=10,
     )
-    assert result.returncode == 0
-    assert "tinvest_trader started successfully" in result.stderr
-    assert "shutdown complete" in result.stderr
+
+    # Wait for startup to complete (up to 5s)
+    deadline = time.monotonic() + 5
+    output_lines = []
+    started = False
+    while time.monotonic() < deadline:
+        line = proc.stderr.readline()
+        if not line and proc.poll() is not None:
+            break
+        output_lines.append(line)
+        if "started successfully" in line:
+            started = True
+            break
+
+    assert started, f"App did not start. Output: {''.join(output_lines)}"
+
+    # Send SIGTERM for clean shutdown
+    proc.send_signal(signal.SIGTERM)
+    proc.wait(timeout=5)
+
+    # Read remaining output
+    remaining = proc.stderr.read()
+    full_output = "".join(output_lines) + remaining
+
+    assert proc.returncode == 0
+    assert "shutdown complete" in full_output
