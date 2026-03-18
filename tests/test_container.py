@@ -44,3 +44,19 @@ def test_container_has_instrument_registry(container):
 def test_container_storage_none_without_dsn(container):
     assert container.storage_pool is None
     assert container.repository is None
+
+
+def test_container_sentiment_none_when_disabled(container):
+    assert container.telegram_sentiment_service is None
+
+
+def test_container_sentiment_wired_when_enabled(monkeypatch):
+    monkeypatch.setenv("TINVEST_SENTIMENT_ENABLED", "true")
+    monkeypatch.setenv("TINVEST_SENTIMENT_CHANNELS", "TestChannel")
+    from tinvest_trader.app.config import load_config
+    from tinvest_trader.app.container import build_container
+    from tinvest_trader.services.telegram_sentiment_service import TelegramSentimentService
+
+    cfg = load_config()
+    c = build_container(cfg)
+    assert isinstance(c.telegram_sentiment_service, TelegramSentimentService)
