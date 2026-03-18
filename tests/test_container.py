@@ -2,6 +2,7 @@ import logging
 
 from tinvest_trader.app.container import Container
 from tinvest_trader.infra.tbank.client import TBankClient
+from tinvest_trader.market_data.service import MarketDataService
 from tinvest_trader.services.trading_service import TradingService
 
 
@@ -15,6 +16,10 @@ def test_container_has_logger(container):
 
 def test_container_has_tbank_client(container):
     assert isinstance(container.tbank_client, TBankClient)
+
+
+def test_container_has_market_data(container):
+    assert isinstance(container.market_data, MarketDataService)
 
 
 def test_container_has_trading_service(container):
