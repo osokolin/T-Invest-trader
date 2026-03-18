@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import signal
 import sys
+import threading
 
 from tinvest_trader.app.config import load_config
 from tinvest_trader.app.container import build_container
@@ -14,13 +15,12 @@ def main() -> None:
 
     logger.info("tinvest_trader starting", extra={"environment": config.environment})
 
-    shutdown_requested = False
+    stop_event = threading.Event()
 
     def handle_signal(signum: int, _frame: object) -> None:
-        nonlocal shutdown_requested
         sig_name = signal.Signals(signum).name
         logger.info("shutdown signal received", extra={"signal": sig_name})
-        shutdown_requested = True
+        stop_event.set()
 
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
@@ -57,10 +57,10 @@ def main() -> None:
 
     logger.info("tinvest_trader started successfully")
 
-    # In future milestones this will be an event loop.
-    # For now, just log and exit cleanly.
-    if not shutdown_requested:
-        logger.info("skeleton mode: no trading loop, shutting down")
+    # Block until SIGINT/SIGTERM. Future milestones will replace this
+    # with a real event/trading loop.
+    logger.info("waiting for shutdown signal (SIGINT/SIGTERM)")
+    stop_event.wait()
 
     _shutdown(container, logger)
 
