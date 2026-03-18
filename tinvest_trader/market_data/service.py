@@ -30,6 +30,7 @@ class MarketDataService:
         return map_instrument(raw)
 
     def get_snapshot(self, figi: str) -> MarketSnapshot:
+        # control check: market data raw verification
         instrument = self.get_instrument(figi)
         last_price_raw = self._client.get_last_price(figi)
         trading_status_raw = self._client.get_trading_status(figi)
