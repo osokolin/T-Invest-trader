@@ -1,4 +1,4 @@
-"""Tests for market_data/service.py — normalized market data access."""
+"""Tests for market_data/service.py -- normalized market data access."""
 
 import logging
 

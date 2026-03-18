@@ -1,28 +1,45 @@
+"""Domain enums -- shared across the trading system."""
+
 from __future__ import annotations
 
 from enum import Enum
 
 
 class Signal(Enum):
+    """Strategy signal output."""
+
     BUY = "BUY"
     SELL = "SELL"
     HOLD = "HOLD"
 
 
 class OrderSide(Enum):
+    """Direction of an order."""
+
     BUY = "BUY"
     SELL = "SELL"
 
 
+class OrderType(Enum):
+    """Type of order to place."""
+
+    MARKET = "MARKET"
+    LIMIT = "LIMIT"
+
+
 class OrderStatus(Enum):
-    PENDING = "PENDING"
-    SUBMITTED = "SUBMITTED"
+    """Lifecycle status of an order."""
+
+    NEW = "NEW"
+    PARTIALLY_FILLED = "PARTIALLY_FILLED"
     FILLED = "FILLED"
     CANCELLED = "CANCELLED"
     REJECTED = "REJECTED"
 
 
 class Environment(Enum):
+    """Runtime environment."""
+
     PAPER = "paper"
     SANDBOX = "sandbox"
     PRODUCTION = "production"

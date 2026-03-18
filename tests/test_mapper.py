@@ -1,4 +1,4 @@
-"""Tests for infra/tbank/mapper.py — broker DTO to domain model mapping."""
+"""Tests for infra/tbank/mapper.py -- broker DTO to domain model mapping."""
 
 from tinvest_trader.domain.enums import CandleInterval, TradingStatus
 from tinvest_trader.domain.models import Candle, Instrument, MarketSnapshot, MoneyValue

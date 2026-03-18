@@ -87,3 +87,61 @@ class TBankClient:
                 "time": None,
             },
         ]
+
+    # -- Order methods (stubs) --
+
+    def post_order(
+        self,
+        figi: str,
+        quantity: int,
+        direction: str,
+        order_type: str,
+        idempotency_key: str,
+    ) -> dict:
+        """Submit an order to the broker (stub)."""
+        self._logger.info(
+            "post_order (stub)",
+            extra={
+                "component": "tbank_client",
+                "figi": figi,
+                "direction": direction,
+                "quantity": quantity,
+                "idempotency_key": idempotency_key,
+            },
+        )
+        return {
+            "order_id": f"stub-order-{idempotency_key[:8]}",
+            "figi": figi,
+            "direction": direction,
+            "requested_quantity": quantity,
+            "filled_quantity": quantity,
+            "status": "EXECUTION_REPORT_STATUS_FILL",
+            "message": "",
+        }
+
+    def get_order_state(self, order_id: str) -> dict:
+        """Get current state of an order (stub)."""
+        self._logger.info(
+            "get_order_state (stub)",
+            extra={"component": "tbank_client", "order_id": order_id},
+        )
+        return {
+            "order_id": order_id,
+            "figi": "UNKNOWN",
+            "direction": "ORDER_DIRECTION_BUY",
+            "requested_quantity": 1,
+            "filled_quantity": 1,
+            "status": "EXECUTION_REPORT_STATUS_FILL",
+            "message": "",
+        }
+
+    def cancel_order(self, order_id: str) -> dict:
+        """Cancel an order (stub)."""
+        self._logger.info(
+            "cancel_order (stub)",
+            extra={"component": "tbank_client", "order_id": order_id},
+        )
+        return {
+            "order_id": order_id,
+            "status": "EXECUTION_REPORT_STATUS_CANCELLED",
+        }

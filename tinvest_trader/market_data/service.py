@@ -1,4 +1,4 @@
-"""Market data service — normalized access to instrument data, prices, and candles.
+"""Market data service -- normalized access to instrument data, prices, and candles.
 
 This service sits between the broker client (infra) and consumers (strategy, app).
 It returns only internal domain models, never broker DTOs.
