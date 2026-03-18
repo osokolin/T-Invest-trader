@@ -6,6 +6,7 @@ from tinvest_trader.infra.tbank.client import TBankClient
 from tinvest_trader.instruments.registry import InstrumentRegistry
 from tinvest_trader.market_data.service import MarketDataService
 from tinvest_trader.portfolio.state import PortfolioState
+from tinvest_trader.services.background_runner import BackgroundRunner
 from tinvest_trader.services.trading_service import TradingService
 
 
@@ -75,3 +76,29 @@ def test_container_observation_wired_when_enabled(monkeypatch):
     cfg = load_config()
     c = build_container(cfg)
     assert isinstance(c.observation_service, ObservationService)
+
+
+def test_container_background_runner_none_when_disabled(container):
+    assert container.background_runner is None
+
+
+def test_container_background_runner_wired_when_enabled(monkeypatch):
+    monkeypatch.setenv("TINVEST_BACKGROUND_ENABLED", "true")
+    from tinvest_trader.app.config import load_config
+    from tinvest_trader.app.container import build_container
+
+    c = build_container(load_config())
+    assert isinstance(c.background_runner, BackgroundRunner)
+
+
+def test_container_background_runner_can_exist_without_optional_services(monkeypatch):
+    monkeypatch.setenv("TINVEST_BACKGROUND_ENABLED", "true")
+    monkeypatch.delenv("TINVEST_SENTIMENT_ENABLED", raising=False)
+    monkeypatch.delenv("TINVEST_OBSERVATION_ENABLED", raising=False)
+    from tinvest_trader.app.config import load_config
+    from tinvest_trader.app.container import build_container
+
+    c = build_container(load_config())
+    assert isinstance(c.background_runner, BackgroundRunner)
+    assert c.telegram_sentiment_service is None
+    assert c.observation_service is None
