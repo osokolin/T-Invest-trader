@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from tinvest_trader.domain.enums import OrderSide
+
 
 @dataclass(frozen=True)
 class Instrument:
@@ -20,5 +22,5 @@ class Position:
 class Order:
     order_id: str
     figi: str
-    direction: str
+    direction: OrderSide
     quantity: int
