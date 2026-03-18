@@ -25,7 +25,6 @@ def main() -> None:
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    # control check: raw branch formatting verification
     # Startup sequence
     container.tbank_client.connect()
     healthy = container.tbank_client.health_check()
