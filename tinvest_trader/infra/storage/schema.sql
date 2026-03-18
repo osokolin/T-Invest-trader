@@ -110,3 +110,57 @@ CREATE TABLE IF NOT EXISTS position_snapshots (
 );
 CREATE INDEX IF NOT EXISTS idx_position_snapshots_account_figi_time
     ON position_snapshots (account_id, figi, snapshot_time DESC);
+
+-- ============================================================
+-- Milestone 3.5: Telegram sentiment ingestion
+-- ============================================================
+
+-- Raw Telegram messages: stored before any analysis
+CREATE TABLE IF NOT EXISTS telegram_messages_raw (
+    id              BIGSERIAL PRIMARY KEY,
+    channel_name    TEXT NOT NULL,
+    message_id      TEXT NOT NULL,
+    published_at    TIMESTAMPTZ,
+    message_text    TEXT NOT NULL,
+    source_payload  JSONB,
+    recorded_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (channel_name, message_id)
+);
+CREATE INDEX IF NOT EXISTS idx_telegram_raw_channel_time
+    ON telegram_messages_raw (channel_name, published_at DESC);
+
+-- Ticker mentions extracted from messages
+CREATE TABLE IF NOT EXISTS telegram_message_mentions (
+    id              BIGSERIAL PRIMARY KEY,
+    channel_name    TEXT NOT NULL,
+    message_id      TEXT NOT NULL,
+    published_at    TIMESTAMPTZ,
+    figi            TEXT,
+    ticker          TEXT NOT NULL,
+    mention_type    TEXT NOT NULL,
+    confidence      NUMERIC(8, 6),
+    recorded_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_telegram_mentions_ticker_time
+    ON telegram_message_mentions (ticker, recorded_at DESC);
+
+-- Sentiment scoring results per mention
+CREATE TABLE IF NOT EXISTS telegram_sentiment_events (
+    id              BIGSERIAL PRIMARY KEY,
+    channel_name    TEXT NOT NULL,
+    message_id      TEXT NOT NULL,
+    published_at    TIMESTAMPTZ,
+    figi            TEXT,
+    ticker          TEXT,
+    model_name      TEXT NOT NULL,
+    label           TEXT NOT NULL,
+    score_positive  NUMERIC(8, 6),
+    score_negative  NUMERIC(8, 6),
+    score_neutral   NUMERIC(8, 6),
+    scored_at       TIMESTAMPTZ NOT NULL,
+    recorded_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_telegram_sentiment_figi_time
+    ON telegram_sentiment_events (figi, scored_at DESC);
+CREATE INDEX IF NOT EXISTS idx_telegram_sentiment_ticker_time
+    ON telegram_sentiment_events (ticker, scored_at DESC);
