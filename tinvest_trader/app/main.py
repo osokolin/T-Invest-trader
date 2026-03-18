@@ -55,6 +55,13 @@ def main() -> None:
     else:
         logger.info("observation pipeline disabled", extra={"component": "observation"})
 
+    # Background runner status
+    if container.background_runner is not None:
+        logger.info("background runner enabled", extra={"component": "background_runner"})
+        container.background_runner.start()
+    else:
+        logger.info("background runner disabled", extra={"component": "background_runner"})
+
     logger.info("tinvest_trader started successfully")
 
     # Block until SIGINT/SIGTERM. Future milestones will replace this
@@ -67,6 +74,9 @@ def main() -> None:
 
 def _shutdown(container: object, logger: object) -> None:
     """Clean up resources."""
+    runner = getattr(container, "background_runner", None)
+    if runner is not None:
+        runner.stop()
     pool = getattr(container, "storage_pool", None)
     if pool is not None:
         pool.close()

@@ -20,6 +20,7 @@ from tinvest_trader.sentiment.parser import extract_tickers
 from tinvest_trader.sentiment.scorer import StubSentimentScorer
 from tinvest_trader.sentiment.source import StubMessageSource
 from tinvest_trader.sentiment.telethon_source import build_telethon_message_source
+from tinvest_trader.services.background_runner import BackgroundRunner
 from tinvest_trader.services.observation_service import ObservationService
 from tinvest_trader.services.telegram_sentiment_service import TelegramSentimentService
 from tinvest_trader.services.trading_service import TradingService
@@ -43,6 +44,7 @@ class Container:
         init=False, default=None,
     )
     observation_service: ObservationService | None = field(init=False, default=None)
+    background_runner: BackgroundRunner | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
         self.logger = setup_logging(self.config.logging)
@@ -87,6 +89,10 @@ class Container:
         # Observation pipeline (optional, disabled by default)
         if self.config.observation.enabled:
             self._wire_observation()
+
+        # Background runner (optional, disabled by default)
+        if self.config.background.enabled:
+            self._wire_background_runner()
 
     def _wire_sentiment(self) -> None:
         """Wire sentiment components when enabled."""
@@ -163,6 +169,25 @@ class Container:
                 "windows": [w.label for w in windows],
                 "tracked_tickers": len(tracked),
                 "persist": cfg.persist_derived_metrics,
+            },
+        )
+
+    def _wire_background_runner(self) -> None:
+        """Wire background runner when enabled."""
+        self.background_runner = BackgroundRunner(
+            config=self.config.background,
+            logger=self.logger,
+            telegram_sentiment_service=self.telegram_sentiment_service,
+            observation_service=self.observation_service,
+            sentiment_channels=self.config.sentiment.channels,
+        )
+
+        self.logger.info(
+            "background runner initialized",
+            extra={
+                "component": "background_runner",
+                "run_sentiment": self.config.background.run_sentiment,
+                "run_observation": self.config.background.run_observation,
             },
         )
 

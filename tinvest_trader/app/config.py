@@ -56,6 +56,15 @@ class ObservationConfig:
 
 
 @dataclass(frozen=True)
+class BackgroundConfig:
+    enabled: bool = False
+    sentiment_ingest_interval_seconds: int = 300
+    observation_interval_seconds: int = 600
+    run_sentiment: bool = True
+    run_observation: bool = True
+
+
+@dataclass(frozen=True)
 class LoggingConfig:
     level: str = "INFO"
     json_output: bool = True
@@ -69,6 +78,7 @@ class AppConfig:
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     sentiment: SentimentConfig = field(default_factory=SentimentConfig)
     observation: ObservationConfig = field(default_factory=ObservationConfig)
+    background: BackgroundConfig = field(default_factory=BackgroundConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     environment: str = "sandbox"
 
@@ -121,6 +131,21 @@ def load_config() -> AppConfig:
             tracked_tickers=_parse_csv(
                 os.environ.get("TINVEST_OBSERVATION_TRACKED_TICKERS", ""),
             ),
+        ),
+        background=BackgroundConfig(
+            enabled=os.environ.get("TINVEST_BACKGROUND_ENABLED", "false").lower() == "true",
+            sentiment_ingest_interval_seconds=int(
+                os.environ.get("TINVEST_BACKGROUND_SENTIMENT_INTERVAL_SECONDS", "300"),
+            ),
+            observation_interval_seconds=int(
+                os.environ.get("TINVEST_BACKGROUND_OBSERVATION_INTERVAL_SECONDS", "600"),
+            ),
+            run_sentiment=os.environ.get(
+                "TINVEST_BACKGROUND_RUN_SENTIMENT", "true",
+            ).lower() == "true",
+            run_observation=os.environ.get(
+                "TINVEST_BACKGROUND_RUN_OBSERVATION", "true",
+            ).lower() == "true",
         ),
         sentiment=SentimentConfig(
             enabled=os.environ.get("TINVEST_SENTIMENT_ENABLED", "false").lower() == "true",
