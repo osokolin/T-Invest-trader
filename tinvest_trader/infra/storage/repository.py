@@ -317,7 +317,7 @@ class TradingRepository:
     def insert_signal_observation(self, obs: SignalObservation) -> None:
         sql = """
             INSERT INTO signal_observations
-                (ticker, figi, window, observation_time, message_count,
+                (ticker, figi, "window", observation_time, message_count,
                  positive_count, negative_count, neutral_count,
                  positive_score_avg, negative_score_avg, neutral_score_avg,
                  sentiment_balance)
