@@ -55,6 +55,12 @@ def main() -> None:
     else:
         logger.info("observation pipeline disabled", extra={"component": "observation"})
 
+    # Broker events status
+    if container.broker_event_ingestion_service is not None:
+        logger.info("broker events pipeline ready", extra={"component": "broker_events"})
+    else:
+        logger.info("broker events pipeline disabled", extra={"component": "broker_events"})
+
     # Background runner status
     if container.background_runner is not None:
         logger.info("background runner enabled", extra={"component": "background_runner"})

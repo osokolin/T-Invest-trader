@@ -6,6 +6,8 @@ from unittest.mock import MagicMock
 
 from tinvest_trader.domain.enums import OrderSide, OrderStatus, OrderType, TradingStatus
 from tinvest_trader.domain.models import (
+    BrokerEventFeature,
+    BrokerEventRaw,
     BrokerOrder,
     ExecutionResult,
     Instrument,
@@ -169,6 +171,71 @@ def test_insert_position_snapshot():
     conn.execute.assert_called_once()
     conn.commit.assert_called_once()
     assert "position_snapshots" in conn.execute.call_args[0][0]
+
+
+def test_insert_broker_event_raw():
+    repo, conn = _make_repo()
+    cur = MagicMock()
+    cur.fetchone.return_value = (1,)
+    conn.execute.return_value = cur
+
+    inserted = repo.insert_broker_event_raw(
+        BrokerEventRaw(
+            account_id="acc-1",
+            source_method="GetDividends",
+            figi="FIGI1",
+            ticker="SBER",
+            event_uid="event-1",
+            event_time=datetime(2026, 3, 19, tzinfo=UTC),
+            payload={"record_date": "2026-03-19T00:00:00+00:00"},
+        ),
+    )
+
+    assert inserted is True
+    conn.commit.assert_called_once()
+    assert "broker_event_raw" in conn.execute.call_args[0][0]
+
+
+def test_insert_broker_event_feature():
+    repo, conn = _make_repo()
+    cur = MagicMock()
+    cur.fetchone.return_value = (1,)
+    conn.execute.return_value = cur
+
+    inserted = repo.insert_broker_event_feature(
+        BrokerEventFeature(
+            account_id="acc-1",
+            source_method="GetDividends",
+            figi="FIGI1",
+            ticker="SBER",
+            event_uid="event-1",
+            event_time=datetime(2026, 3, 19, tzinfo=UTC),
+            event_type="dividend",
+            event_value=10.5,
+            currency="RUB",
+        ),
+    )
+
+    assert inserted is True
+    conn.commit.assert_called_once()
+    assert "broker_event_features" in conn.execute.call_args[0][0]
+
+
+def test_fetch_latest_broker_event_time():
+    repo, conn = _make_repo()
+    now = datetime(2026, 3, 19, tzinfo=UTC)
+    cur = MagicMock()
+    cur.fetchone.return_value = (now,)
+    conn.execute.return_value = cur
+
+    latest = repo.fetch_latest_broker_event_time(
+        source_method="GetDividends",
+        figi="FIGI1",
+        account_id="acc-1",
+    )
+
+    assert latest == now
+    assert "broker_event_features" in conn.execute.call_args[0][0]
 
 
 def test_fetch_operational_summary():

@@ -13,6 +13,7 @@ def _make_runner(
     run_observation: bool = True,
     sentiment_service: MagicMock | None = None,
     observation_service: MagicMock | None = None,
+    broker_event_service: MagicMock | None = None,
     sentiment_channels: tuple[str, ...] = ("TestChannel",),
 ) -> BackgroundRunner:
     config = BackgroundConfig(
@@ -27,7 +28,9 @@ def _make_runner(
         logger=logging.getLogger("test"),
         telegram_sentiment_service=sentiment_service,
         observation_service=observation_service,
+        broker_event_ingestion_service=broker_event_service,
         sentiment_channels=sentiment_channels,
+        broker_event_interval_seconds=1,
     )
 
 
@@ -68,34 +71,75 @@ def test_runner_observation_cycle_calls_service():
     observation_service.observe_all.assert_called_once_with()
 
 
+def test_runner_broker_event_cycle_calls_service():
+    broker_event_service = MagicMock()
+    broker_event_service.ingest_all.return_value = 4
+    runner = _make_runner(
+        sentiment_service=MagicMock(),
+        observation_service=MagicMock(),
+        broker_event_service=broker_event_service,
+    )
+
+    runner.run_broker_event_cycle()
+
+    broker_event_service.ingest_all.assert_called_once_with()
+
+
 def test_runner_sentiment_failure_is_safe():
     sentiment_service = MagicMock()
     sentiment_service.ingest_all_channels.side_effect = RuntimeError("boom")
     observation_service = MagicMock()
+    broker_event_service = MagicMock()
     runner = _make_runner(
         sentiment_service=sentiment_service,
         observation_service=observation_service,
+        broker_event_service=broker_event_service,
     )
 
     runner.run_sentiment_cycle()
     runner.run_observation_cycle()
+    runner.run_broker_event_cycle()
 
     observation_service.observe_all.assert_called_once_with()
+    broker_event_service.ingest_all.assert_called_once_with()
 
 
 def test_runner_observation_failure_is_safe():
     sentiment_service = MagicMock()
     observation_service = MagicMock()
     observation_service.observe_all.side_effect = RuntimeError("boom")
+    broker_event_service = MagicMock()
     runner = _make_runner(
         sentiment_service=sentiment_service,
         observation_service=observation_service,
+        broker_event_service=broker_event_service,
     )
 
     runner.run_observation_cycle()
     runner.run_sentiment_cycle()
+    runner.run_broker_event_cycle()
 
     sentiment_service.ingest_all_channels.assert_called_once_with(("TestChannel",))
+    broker_event_service.ingest_all.assert_called_once_with()
+
+
+def test_runner_broker_event_failure_is_safe():
+    sentiment_service = MagicMock()
+    observation_service = MagicMock()
+    broker_event_service = MagicMock()
+    broker_event_service.ingest_all.side_effect = RuntimeError("boom")
+    runner = _make_runner(
+        sentiment_service=sentiment_service,
+        observation_service=observation_service,
+        broker_event_service=broker_event_service,
+    )
+
+    runner.run_broker_event_cycle()
+    runner.run_sentiment_cycle()
+    runner.run_observation_cycle()
+
+    sentiment_service.ingest_all_channels.assert_called_once_with(("TestChannel",))
+    observation_service.observe_all.assert_called_once_with()
 
 
 def test_runner_start_does_not_create_thread_when_disabled():

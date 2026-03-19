@@ -192,3 +192,50 @@ CREATE INDEX IF NOT EXISTS idx_signal_obs_figi_time
     ON signal_observations (figi, observation_time DESC);
 CREATE INDEX IF NOT EXISTS idx_signal_obs_window_time
     ON signal_observations ("window", observation_time DESC);
+
+-- ============================================================
+-- Milestone 6: Broker-side structured event ingestion
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS broker_event_raw (
+    id              BIGSERIAL PRIMARY KEY,
+    account_id      TEXT NOT NULL DEFAULT '',
+    source_method   TEXT NOT NULL,
+    figi            TEXT,
+    ticker          TEXT,
+    event_uid       TEXT NOT NULL,
+    event_time      TIMESTAMPTZ,
+    payload         JSONB NOT NULL,
+    recorded_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_broker_event_raw_unique
+    ON broker_event_raw (account_id, source_method, event_uid);
+CREATE INDEX IF NOT EXISTS idx_broker_event_raw_figi_time
+    ON broker_event_raw (figi, event_time DESC);
+CREATE INDEX IF NOT EXISTS idx_broker_event_raw_ticker_time
+    ON broker_event_raw (ticker, event_time DESC);
+CREATE INDEX IF NOT EXISTS idx_broker_event_raw_source_time
+    ON broker_event_raw (source_method, event_time DESC);
+
+CREATE TABLE IF NOT EXISTS broker_event_features (
+    id              BIGSERIAL PRIMARY KEY,
+    account_id      TEXT NOT NULL DEFAULT '',
+    source_method   TEXT NOT NULL,
+    figi            TEXT,
+    ticker          TEXT,
+    event_uid       TEXT NOT NULL,
+    event_time      TIMESTAMPTZ,
+    event_type      TEXT NOT NULL,
+    event_direction TEXT,
+    event_value     NUMERIC(20, 9),
+    currency        TEXT,
+    recorded_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_broker_event_features_unique
+    ON broker_event_features (account_id, source_method, event_uid);
+CREATE INDEX IF NOT EXISTS idx_broker_event_features_figi_time
+    ON broker_event_features (figi, event_time DESC);
+CREATE INDEX IF NOT EXISTS idx_broker_event_features_ticker_time
+    ON broker_event_features (ticker, event_time DESC);
+CREATE INDEX IF NOT EXISTS idx_broker_event_features_source_time
+    ON broker_event_features (source_method, event_time DESC);

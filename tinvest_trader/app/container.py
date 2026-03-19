@@ -21,6 +21,9 @@ from tinvest_trader.sentiment.scorer import StubSentimentScorer
 from tinvest_trader.sentiment.source import StubMessageSource
 from tinvest_trader.sentiment.telethon_source import build_telethon_message_source
 from tinvest_trader.services.background_runner import BackgroundRunner
+from tinvest_trader.services.broker_event_ingestion_service import (
+    BrokerEventIngestionService,
+)
 from tinvest_trader.services.observation_service import ObservationService
 from tinvest_trader.services.telegram_sentiment_service import TelegramSentimentService
 from tinvest_trader.services.trading_service import TradingService
@@ -44,6 +47,9 @@ class Container:
         init=False, default=None,
     )
     observation_service: ObservationService | None = field(init=False, default=None)
+    broker_event_ingestion_service: BrokerEventIngestionService | None = field(
+        init=False, default=None,
+    )
     background_runner: BackgroundRunner | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
@@ -89,6 +95,10 @@ class Container:
         # Observation pipeline (optional, disabled by default)
         if self.config.observation.enabled:
             self._wire_observation()
+
+        # Broker-side structured event ingestion (optional, disabled by default)
+        if self.config.broker_events.enabled:
+            self._wire_broker_events()
 
         # Background runner (optional, disabled by default)
         if self.config.background.enabled:
@@ -172,6 +182,35 @@ class Container:
             },
         )
 
+    def _wire_broker_events(self) -> None:
+        """Wire broker-side structured event ingestion when enabled."""
+        cfg = self.config.broker_events
+        tracked_figis = (
+            cfg.tracked_figis_override
+            if cfg.tracked_figis_override
+            else self.config.market_data.tracked_instruments
+        )
+
+        self.broker_event_ingestion_service = BrokerEventIngestionService(
+            client=self.tbank_client,
+            repository=self.repository,
+            logger=self.logger,
+            account_id=self.config.broker.account_id,
+            tracked_figis=tracked_figis,
+            event_types=cfg.event_types,
+            lookback_days=cfg.lookback_days,
+        )
+
+        self.logger.info(
+            "broker events pipeline initialized",
+            extra={
+                "component": "broker_events",
+                "event_types": list(cfg.event_types),
+                "tracked_figis": len(tracked_figis),
+                "lookback_days": cfg.lookback_days,
+            },
+        )
+
     def _wire_background_runner(self) -> None:
         """Wire background runner when enabled."""
         self.background_runner = BackgroundRunner(
@@ -179,7 +218,9 @@ class Container:
             logger=self.logger,
             telegram_sentiment_service=self.telegram_sentiment_service,
             observation_service=self.observation_service,
+            broker_event_ingestion_service=self.broker_event_ingestion_service,
             sentiment_channels=self.config.sentiment.channels,
+            broker_event_interval_seconds=self.config.broker_events.poll_interval_seconds,
         )
 
         self.logger.info(
@@ -188,6 +229,7 @@ class Container:
                 "component": "background_runner",
                 "run_sentiment": self.config.background.run_sentiment,
                 "run_observation": self.config.background.run_observation,
+                "run_broker_events": self.broker_event_ingestion_service is not None,
             },
         )
 
