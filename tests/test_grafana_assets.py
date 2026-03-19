@@ -22,6 +22,16 @@ def test_dashboard_json_files_are_present_and_valid() -> None:
         assert dashboard["panels"]
 
 
+def test_broker_events_timeseries_query_avoids_coalesce_inside_grafana_macros() -> None:
+    dashboard = json.loads((GRAFANA_ROOT / "dashboards" / "broker-events.json").read_text())
+    panel = next(item for item in dashboard["panels"] if item["title"] == "Broker Events by Type")
+    query = panel["targets"][0]["rawSql"]
+
+    assert "__timeGroupAlias(COALESCE(" not in query
+    assert "__timeFilter(COALESCE(" not in query
+    assert "COALESCE(event_time, recorded_at) AS event_ts" in query
+
+
 def test_provisioning_files_reference_postgres_and_dashboards() -> None:
     datasource_path = GRAFANA_ROOT / "provisioning" / "datasources" / "postgres.yml"
     dashboards_path = GRAFANA_ROOT / "provisioning" / "dashboards" / "dashboards.yml"
