@@ -14,6 +14,7 @@ def _make_service(
     tracked_figis: tuple[str, ...] = ("FIGI1",),
     event_types: tuple[str, ...] = ("dividends", "reports", "insider_deals"),
     repository: MagicMock | None = None,
+    lookback_days_by_event_type: dict[str, int] | None = None,
 ) -> tuple[BrokerEventIngestionService, MagicMock, MagicMock]:
     client = MagicMock()
     client.get_instrument.return_value = {
@@ -57,7 +58,11 @@ def _make_service(
         account_id="acc-1",
         tracked_figis=tracked_figis,
         event_types=event_types,
-        lookback_days=30,
+        lookback_days_by_event_type=lookback_days_by_event_type or {
+            "dividends": 30,
+            "reports": 30,
+            "insider_deals": 30,
+        },
     )
     return service, client, repo
 
@@ -77,6 +82,29 @@ def test_ingest_all_processes_supported_event_types():
     client.get_insider_deals.assert_called_once_with(instrument_uid="uid-1")
     assert repo.insert_broker_event_raw.call_count == 3
     assert repo.insert_broker_event_feature.call_count == 3
+
+
+def test_ingest_all_applies_source_specific_lookbacks():
+    service, client, _repo = _make_service(
+        lookback_days_by_event_type={
+            "dividends": 365,
+            "reports": 90,
+            "insider_deals": 3650,
+        },
+    )
+
+    service.ingest_all(as_of=datetime(2026, 3, 19, tzinfo=UTC))
+
+    client.get_dividends.assert_called_once_with(
+        figi="FIGI1",
+        from_time=datetime(2025, 3, 19, 0, 0, tzinfo=UTC),
+        to_time=datetime(2026, 3, 19, 0, 0, tzinfo=UTC),
+    )
+    client.get_asset_reports.assert_called_once_with(
+        instrument_uid="uid-1",
+        from_time=datetime(2025, 12, 19, 0, 0, tzinfo=UTC),
+        to_time=datetime(2026, 3, 19, 0, 0, tzinfo=UTC),
+    )
 
 
 def test_ingest_all_uses_repositoryless_mode():
@@ -118,6 +146,29 @@ def test_ingest_all_filters_old_insider_deals():
     assert processed == 0
     repo.insert_broker_event_raw.assert_not_called()
     repo.insert_broker_event_feature.assert_not_called()
+
+
+def test_ingest_all_keeps_old_insider_deals_when_source_lookback_is_longer():
+    service, _client, repo = _make_service(
+        event_types=("insider_deals",),
+        lookback_days_by_event_type={"insider_deals": 3650},
+    )
+    service._client.get_insider_deals.return_value = [
+        {
+            "trade_id": 11,
+            "direction": "TRADE_DIRECTION_BUY",
+            "currency": "RUB",
+            "date": "2020-04-10T00:00:00+00:00",
+            "price": {"units": 120, "nano": 0},
+            "ticker": "SBER",
+        },
+    ]
+
+    processed = service.ingest_all(as_of=datetime(2026, 3, 19, tzinfo=UTC))
+
+    assert processed == 1
+    repo.insert_broker_event_raw.assert_called_once()
+    repo.insert_broker_event_feature.assert_called_once()
 
 
 def test_ingest_all_uses_tracked_figi_override_only():

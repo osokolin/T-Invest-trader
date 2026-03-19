@@ -69,7 +69,10 @@ class BrokerEventsConfig:
     enabled: bool = False
     event_types: tuple[str, ...] = ("dividends", "reports", "insider_deals")
     poll_interval_seconds: int = 1800
-    lookback_days: int = 30
+    lookback_days: int | None = None
+    dividends_lookback_days: int = 365
+    reports_lookback_days: int = 365
+    insider_deals_lookback_days: int = 3650
     tracked_figis_override: tuple[str, ...] = ()
 
 
@@ -102,6 +105,15 @@ def _parse_csv(value: str) -> tuple[str, ...]:
 
 def load_config() -> AppConfig:
     """Load configuration from environment variables."""
+    broker_events_legacy_lookback = os.environ.get(
+        "TINVEST_BROKER_EVENTS_LOOKBACK_DAYS", "",
+    ).strip()
+    broker_events_legacy_lookback_days = (
+        int(broker_events_legacy_lookback)
+        if broker_events_legacy_lookback
+        else None
+    )
+
     return AppConfig(
         broker=BrokerConfig(
             token=os.environ.get("TINVEST_TOKEN", ""),
@@ -170,8 +182,24 @@ def load_config() -> AppConfig:
             poll_interval_seconds=int(
                 os.environ.get("TINVEST_BROKER_EVENTS_POLL_INTERVAL_SECONDS", "1800"),
             ),
-            lookback_days=int(
-                os.environ.get("TINVEST_BROKER_EVENTS_LOOKBACK_DAYS", "30"),
+            lookback_days=broker_events_legacy_lookback_days,
+            dividends_lookback_days=int(
+                os.environ.get(
+                    "TINVEST_BROKER_EVENTS_DIVIDENDS_LOOKBACK_DAYS",
+                    str(broker_events_legacy_lookback_days or 365),
+                ),
+            ),
+            reports_lookback_days=int(
+                os.environ.get(
+                    "TINVEST_BROKER_EVENTS_REPORTS_LOOKBACK_DAYS",
+                    str(broker_events_legacy_lookback_days or 365),
+                ),
+            ),
+            insider_deals_lookback_days=int(
+                os.environ.get(
+                    "TINVEST_BROKER_EVENTS_INSIDER_DEALS_LOOKBACK_DAYS",
+                    str(broker_events_legacy_lookback_days or 3650),
+                ),
             ),
             tracked_figis_override=_parse_csv(
                 os.environ.get("TINVEST_BROKER_EVENTS_TRACKED_FIGIS", ""),
