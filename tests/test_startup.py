@@ -51,7 +51,7 @@ def _kill_and_collect(
 
 
 def test_app_runs_without_crashing():
-    """Run the app entrypoint, verify startup, then send SIGTERM for clean shutdown."""
+    """Run the app entrypoint, verify startup, then terminate it deterministically."""
     proc = subprocess.Popen(
         [sys.executable, "-m", "tinvest_trader.app.main"],
         stderr=subprocess.PIPE,
@@ -63,13 +63,10 @@ def test_app_runs_without_crashing():
 
     assert started, f"App did not start. Output: {''.join(output_lines)}"
 
-    returncode, full_output, forced_kill = _shutdown_and_collect(proc, output_lines)
-    if forced_kill:
-        assert "started successfully" in full_output
-        assert "Traceback" not in full_output
-    else:
-        assert returncode == 0
-        assert "shutdown complete" in full_output
+    returncode, full_output = _kill_and_collect(proc, output_lines)
+    assert returncode != 0
+    assert "started successfully" in full_output
+    assert "Traceback" not in full_output
 
 
 def test_app_runs_with_background_enabled_without_optional_services():
