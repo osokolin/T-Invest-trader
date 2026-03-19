@@ -329,3 +329,71 @@ CREATE INDEX IF NOT EXISTS idx_cbr_events_published
     ON cbr_events (published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cbr_events_source_published
     ON cbr_events (source_url, published_at DESC);
+
+-- ============================================================
+-- Milestone 9: MOEX ISS market data ingestion
+-- ============================================================
+
+-- Security reference metadata from ISS /securities/{secid}.json
+CREATE TABLE IF NOT EXISTS moex_security_reference (
+    id              BIGSERIAL PRIMARY KEY,
+    secid           TEXT NOT NULL,
+    name            TEXT NOT NULL DEFAULT '',
+    short_name      TEXT NOT NULL DEFAULT '',
+    isin            TEXT NOT NULL DEFAULT '',
+    reg_number      TEXT NOT NULL DEFAULT '',
+    list_level      INTEGER,
+    issuer          TEXT NOT NULL DEFAULT '',
+    issue_size      BIGINT,
+    "group"         TEXT NOT NULL DEFAULT '',
+    primary_boardid TEXT NOT NULL DEFAULT '',
+    raw_description JSONB,
+    recorded_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_moex_security_ref_secid
+    ON moex_security_reference (secid);
+CREATE INDEX IF NOT EXISTS idx_moex_security_ref_isin
+    ON moex_security_reference (isin);
+
+-- Raw daily market history rows from ISS history endpoint
+CREATE TABLE IF NOT EXISTS moex_market_history_raw (
+    id              BIGSERIAL PRIMARY KEY,
+    secid           TEXT NOT NULL,
+    boardid         TEXT NOT NULL,
+    trade_date      DATE NOT NULL,
+    open            NUMERIC(20, 9),
+    high            NUMERIC(20, 9),
+    low             NUMERIC(20, 9),
+    close           NUMERIC(20, 9),
+    legal_close     NUMERIC(20, 9),
+    waprice         NUMERIC(20, 9),
+    volume          BIGINT,
+    value           NUMERIC(20, 4),
+    num_trades      INTEGER,
+    recorded_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_moex_history_raw_unique
+    ON moex_market_history_raw (secid, boardid, trade_date);
+CREATE INDEX IF NOT EXISTS idx_moex_history_raw_secid_date
+    ON moex_market_history_raw (secid, trade_date DESC);
+
+-- Normalized daily market history (board-filtered, cleaned)
+CREATE TABLE IF NOT EXISTS moex_market_history (
+    id              BIGSERIAL PRIMARY KEY,
+    secid           TEXT NOT NULL,
+    boardid         TEXT NOT NULL,
+    trade_date      DATE NOT NULL,
+    open            NUMERIC(20, 9),
+    high            NUMERIC(20, 9),
+    low             NUMERIC(20, 9),
+    close           NUMERIC(20, 9),
+    waprice         NUMERIC(20, 9),
+    volume          BIGINT,
+    value           NUMERIC(20, 4),
+    num_trades      INTEGER,
+    recorded_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_moex_history_unique
+    ON moex_market_history (secid, boardid, trade_date);
+CREATE INDEX IF NOT EXISTS idx_moex_history_secid_date
+    ON moex_market_history (secid, trade_date DESC);

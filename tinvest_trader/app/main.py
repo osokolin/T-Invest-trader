@@ -73,6 +73,12 @@ def main() -> None:
     else:
         logger.info("cbr pipeline disabled", extra={"component": "cbr"})
 
+    # MOEX status
+    if container.moex_ingestion_service is not None:
+        logger.info("moex pipeline ready", extra={"component": "moex"})
+    else:
+        logger.info("moex pipeline disabled", extra={"component": "moex"})
+
     # Background runner status
     if container.background_runner is not None:
         logger.info("background runner enabled", extra={"component": "background_runner"})
