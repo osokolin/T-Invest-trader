@@ -56,6 +56,18 @@ class TradingRepository:
             ))
             conn.commit()
 
+    def fetch_ticker_by_figi(self, figi: str) -> str | None:
+        """Look up ticker from instrument_catalog by FIGI."""
+        sql = """
+            SELECT ticker FROM instrument_catalog
+            WHERE figi = %s AND ticker IS NOT NULL AND ticker != ''
+            LIMIT 1
+        """
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, (figi,))
+            row = cur.fetchone()
+        return row[0] if row else None
+
     # -- Market data --
 
     def insert_market_snapshot(self, snap: MarketSnapshot) -> None:
@@ -221,7 +233,11 @@ class TradingRepository:
                 (account_id, source_method, figi, ticker, event_uid, event_time,
                  event_type, event_direction, event_value, currency)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (account_id, source_method, event_uid) DO NOTHING
+            ON CONFLICT (account_id, source_method, event_uid) DO UPDATE
+                SET ticker = EXCLUDED.ticker
+                WHERE EXCLUDED.ticker IS NOT NULL
+                  AND (broker_event_features.ticker IS NULL
+                       OR broker_event_features.ticker = 'STUB')
             RETURNING id
         """
         with self._pool.get_connection() as conn:
