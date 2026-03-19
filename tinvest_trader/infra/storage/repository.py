@@ -6,6 +6,7 @@ import json
 import logging
 from datetime import datetime
 
+from tinvest_trader.cbr.models import CbrEvent, CbrFeedItem
 from tinvest_trader.domain.models import (
     BrokerEventFeature,
     BrokerEventRaw,
@@ -652,3 +653,59 @@ class TradingRepository:
                 feature.days_since_last_insider_deal,
             ))
             conn.commit()
+
+    # -- CBR events --
+
+    def insert_cbr_feed_raw(self, item: CbrFeedItem) -> bool:
+        """Insert a raw CBR feed item. Returns True if inserted, False if duplicate."""
+        sql = """
+            INSERT INTO cbr_feed_raw
+                (source_url, source_type, item_uid, published_at, payload)
+            VALUES (%s, 'rss', %s, %s, %s)
+            ON CONFLICT (source_url, item_uid) DO NOTHING
+            RETURNING id
+        """
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, (
+                item.source_url,
+                item.item_uid,
+                item.published_at,
+                item.payload_xml,
+            ))
+            row = cur.fetchone()
+            conn.commit()
+        return row is not None
+
+    def insert_cbr_event(self, event: CbrEvent) -> bool:
+        """Insert a normalized CBR event. Returns True if inserted, False if duplicate."""
+        sql = """
+            INSERT INTO cbr_events
+                (source_url, event_type, title, published_at, event_key, url, summary)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (source_url, event_key) DO NOTHING
+            RETURNING id
+        """
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, (
+                event.source_url,
+                event.event_type,
+                event.title,
+                event.published_at,
+                event.event_key,
+                event.url,
+                event.summary,
+            ))
+            row = cur.fetchone()
+            conn.commit()
+        return row is not None
+
+    def cbr_event_exists(self, event_key: str, source_url: str) -> bool:
+        """Check if a CBR event already exists."""
+        sql = """
+            SELECT 1 FROM cbr_events
+            WHERE source_url = %s AND event_key = %s
+            LIMIT 1
+        """
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, (source_url, event_key))
+            return cur.fetchone() is not None

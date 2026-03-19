@@ -291,3 +291,41 @@ CREATE INDEX IF NOT EXISTS idx_fused_signal_figi_time
     ON fused_signal_features (figi, observation_time DESC);
 CREATE INDEX IF NOT EXISTS idx_fused_signal_window_time
     ON fused_signal_features ("window", observation_time DESC);
+
+-- ============================================================
+-- Milestone 8: CBR (Bank of Russia) event ingestion
+-- ============================================================
+
+-- Raw CBR feed items: stored before normalization
+CREATE TABLE IF NOT EXISTS cbr_feed_raw (
+    id              BIGSERIAL PRIMARY KEY,
+    source_url      TEXT NOT NULL,
+    source_type     TEXT NOT NULL DEFAULT 'rss',
+    item_uid        TEXT NOT NULL,
+    published_at    TIMESTAMPTZ,
+    payload         TEXT NOT NULL,
+    recorded_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cbr_feed_raw_unique
+    ON cbr_feed_raw (source_url, item_uid);
+CREATE INDEX IF NOT EXISTS idx_cbr_feed_raw_published
+    ON cbr_feed_raw (published_at DESC);
+
+-- Normalized CBR events
+CREATE TABLE IF NOT EXISTS cbr_events (
+    id              BIGSERIAL PRIMARY KEY,
+    source_url      TEXT NOT NULL,
+    event_type      TEXT NOT NULL,
+    title           TEXT NOT NULL,
+    published_at    TIMESTAMPTZ,
+    event_key       TEXT NOT NULL,
+    url             TEXT NOT NULL DEFAULT '',
+    summary         TEXT NOT NULL DEFAULT '',
+    recorded_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cbr_events_unique
+    ON cbr_events (source_url, event_key);
+CREATE INDEX IF NOT EXISTS idx_cbr_events_published
+    ON cbr_events (published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cbr_events_source_published
+    ON cbr_events (source_url, published_at DESC);

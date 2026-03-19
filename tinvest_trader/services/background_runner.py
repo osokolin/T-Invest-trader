@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from tinvest_trader.services.broker_event_ingestion_service import (
         BrokerEventIngestionService,
     )
+    from tinvest_trader.services.cbr_ingestion_service import CbrIngestionService
     from tinvest_trader.services.fusion_service import FusionService
     from tinvest_trader.services.observation_service import ObservationService
     from tinvest_trader.services.telegram_sentiment_service import TelegramSentimentService
@@ -29,8 +30,10 @@ class BackgroundRunner:
         observation_service: ObservationService | None = None,
         broker_event_ingestion_service: BrokerEventIngestionService | None = None,
         fusion_service: FusionService | None = None,
+        cbr_ingestion_service: CbrIngestionService | None = None,
         sentiment_channels: tuple[str, ...] = (),
         broker_event_interval_seconds: int = 1800,
+        cbr_interval_seconds: int = 3600,
         time_fn: Callable[[], float] | None = None,
     ) -> None:
         self._config = config
@@ -39,8 +42,10 @@ class BackgroundRunner:
         self._observation_service = observation_service
         self._broker_event_ingestion_service = broker_event_ingestion_service
         self._fusion_service = fusion_service
+        self._cbr_ingestion_service = cbr_ingestion_service
         self._sentiment_channels = sentiment_channels
         self._broker_event_interval_seconds = broker_event_interval_seconds
+        self._cbr_interval_seconds = cbr_interval_seconds
         self._time_fn = time_fn or time.monotonic
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -174,6 +179,7 @@ class BackgroundRunner:
             or self._observation_is_runnable()
             or self._broker_events_is_runnable()
             or self._fusion_is_runnable()
+            or self._cbr_is_runnable()
         )
 
     def _sentiment_is_runnable(self) -> bool:
@@ -187,6 +193,9 @@ class BackgroundRunner:
 
     def _fusion_is_runnable(self) -> bool:
         return self._config.run_fusion and self._fusion_service is not None
+
+    def _cbr_is_runnable(self) -> bool:
+        return self._config.run_cbr and self._cbr_ingestion_service is not None
 
     def run_broker_event_cycle(self) -> None:
         """Run one broker structured-event ingestion cycle safely."""
@@ -238,11 +247,38 @@ class BackgroundRunner:
                 extra={"component": "background_runner"},
             )
 
+    def run_cbr_cycle(self) -> None:
+        """Run one CBR RSS ingestion cycle safely."""
+        if not self._config.run_cbr:
+            return
+        if self._cbr_ingestion_service is None:
+            self._logger.info(
+                "skipping cbr cycle: service unavailable",
+                extra={"component": "background_runner"},
+            )
+            return
+
+        try:
+            persisted = self._cbr_ingestion_service.ingest_all()
+            self._logger.info(
+                "background cbr cycle complete",
+                extra={
+                    "component": "background_runner",
+                    "persisted": persisted,
+                },
+            )
+        except Exception:
+            self._logger.exception(
+                "background cbr cycle failed",
+                extra={"component": "background_runner"},
+            )
+
     def _run_loop(self) -> None:
         next_sentiment_run = self._time_fn()
         next_observation_run = self._time_fn()
         next_broker_event_run = self._time_fn()
         next_fusion_run = self._time_fn()
+        next_cbr_run = self._time_fn()
 
         while not self._stop_event.is_set():
             now = self._time_fn()
@@ -293,6 +329,19 @@ class BackgroundRunner:
                     fusion_wait
                     if next_wait is None
                     else min(next_wait, fusion_wait)
+                )
+
+            if self._cbr_is_runnable():
+                if now >= next_cbr_run:
+                    self.run_cbr_cycle()
+                    next_cbr_run = self._time_fn() + max(
+                        1, self._cbr_interval_seconds,
+                    )
+                cbr_wait = max(0.0, next_cbr_run - self._time_fn())
+                next_wait = (
+                    cbr_wait
+                    if next_wait is None
+                    else min(next_wait, cbr_wait)
                 )
 
             if next_wait is None:

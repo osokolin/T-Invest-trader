@@ -24,6 +24,7 @@ from tinvest_trader.services.background_runner import BackgroundRunner
 from tinvest_trader.services.broker_event_ingestion_service import (
     BrokerEventIngestionService,
 )
+from tinvest_trader.services.cbr_ingestion_service import CbrIngestionService
 from tinvest_trader.services.fusion_service import FusionService
 from tinvest_trader.services.observation_service import ObservationService
 from tinvest_trader.services.telegram_sentiment_service import TelegramSentimentService
@@ -52,6 +53,7 @@ class Container:
         init=False, default=None,
     )
     fusion_service: FusionService | None = field(init=False, default=None)
+    cbr_ingestion_service: CbrIngestionService | None = field(init=False, default=None)
     background_runner: BackgroundRunner | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
@@ -105,6 +107,10 @@ class Container:
         # Signal fusion layer (optional, disabled by default)
         if self.config.fusion.enabled:
             self._wire_fusion()
+
+        # CBR event ingestion (optional, disabled by default)
+        if self.config.cbr.enabled:
+            self._wire_cbr()
 
         # Background runner (optional, disabled by default)
         if self.config.background.enabled:
@@ -259,6 +265,28 @@ class Container:
             },
         )
 
+    def _wire_cbr(self) -> None:
+        """Wire CBR event ingestion when enabled."""
+        cfg = self.config.cbr
+        rss_urls = cfg.rss_urls if cfg.rss_enabled else ()
+
+        self.cbr_ingestion_service = CbrIngestionService(
+            repository=self.repository,
+            logger=self.logger,
+            rss_urls=rss_urls,
+            store_raw_payloads=cfg.store_raw_payloads,
+        )
+
+        self.logger.info(
+            "cbr pipeline initialized",
+            extra={
+                "component": "cbr",
+                "rss_enabled": cfg.rss_enabled,
+                "rss_urls": len(rss_urls),
+                "poll_interval_seconds": cfg.poll_interval_seconds,
+            },
+        )
+
     def _wire_background_runner(self) -> None:
         """Wire background runner when enabled."""
         self.background_runner = BackgroundRunner(
@@ -268,8 +296,10 @@ class Container:
             observation_service=self.observation_service,
             broker_event_ingestion_service=self.broker_event_ingestion_service,
             fusion_service=self.fusion_service,
+            cbr_ingestion_service=self.cbr_ingestion_service,
             sentiment_channels=self.config.sentiment.channels,
             broker_event_interval_seconds=self.config.broker_events.poll_interval_seconds,
+            cbr_interval_seconds=self.config.cbr.poll_interval_seconds,
         )
 
         self.logger.info(
@@ -280,6 +310,7 @@ class Container:
                 "run_observation": self.config.background.run_observation,
                 "run_broker_events": self.broker_event_ingestion_service is not None,
                 "run_fusion": self.fusion_service is not None,
+                "run_cbr": self.cbr_ingestion_service is not None,
             },
         )
 

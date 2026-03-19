@@ -67,6 +67,12 @@ def main() -> None:
     else:
         logger.info("fusion layer disabled", extra={"component": "fusion"})
 
+    # CBR status
+    if container.cbr_ingestion_service is not None:
+        logger.info("cbr pipeline ready", extra={"component": "cbr"})
+    else:
+        logger.info("cbr pipeline disabled", extra={"component": "cbr"})
+
     # Background runner status
     if container.background_runner is not None:
         logger.info("background runner enabled", extra={"component": "background_runner"})
