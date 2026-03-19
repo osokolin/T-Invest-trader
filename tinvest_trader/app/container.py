@@ -26,6 +26,7 @@ from tinvest_trader.services.broker_event_ingestion_service import (
 )
 from tinvest_trader.services.cbr_ingestion_service import CbrIngestionService
 from tinvest_trader.services.fusion_service import FusionService
+from tinvest_trader.services.moex_ingestion_service import MoexIngestionService
 from tinvest_trader.services.observation_service import ObservationService
 from tinvest_trader.services.telegram_sentiment_service import TelegramSentimentService
 from tinvest_trader.services.trading_service import TradingService
@@ -54,6 +55,7 @@ class Container:
     )
     fusion_service: FusionService | None = field(init=False, default=None)
     cbr_ingestion_service: CbrIngestionService | None = field(init=False, default=None)
+    moex_ingestion_service: MoexIngestionService | None = field(init=False, default=None)
     background_runner: BackgroundRunner | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
@@ -111,6 +113,10 @@ class Container:
         # CBR event ingestion (optional, disabled by default)
         if self.config.cbr.enabled:
             self._wire_cbr()
+
+        # MOEX ISS market data ingestion (optional, disabled by default)
+        if self.config.moex.enabled:
+            self._wire_moex()
 
         # Background runner (optional, disabled by default)
         if self.config.background.enabled:
@@ -287,6 +293,41 @@ class Container:
             },
         )
 
+    def _wire_moex(self) -> None:
+        """Wire MOEX ISS ingestion when enabled."""
+        cfg = self.config.moex
+        tracked_tickers = (
+            cfg.tracked_tickers_override
+            if cfg.tracked_tickers_override
+            else self.config.market_data.tracked_instruments
+        )
+
+        self.moex_ingestion_service = MoexIngestionService(
+            repository=self.repository,
+            logger=self.logger,
+            tracked_tickers=tracked_tickers,
+            engine=cfg.engine,
+            market=cfg.market,
+            board=cfg.board,
+            history_lookback_days=cfg.history_lookback_days,
+            metadata_enabled=cfg.metadata_enabled,
+            history_enabled=cfg.history_enabled,
+        )
+
+        self.logger.info(
+            "moex pipeline initialized",
+            extra={
+                "component": "moex",
+                "metadata_enabled": cfg.metadata_enabled,
+                "history_enabled": cfg.history_enabled,
+                "tracked_tickers": len(tracked_tickers),
+                "history_lookback_days": cfg.history_lookback_days,
+                "engine": cfg.engine,
+                "market": cfg.market,
+                "board": cfg.board,
+            },
+        )
+
     def _wire_background_runner(self) -> None:
         """Wire background runner when enabled."""
         self.background_runner = BackgroundRunner(
@@ -297,9 +338,11 @@ class Container:
             broker_event_ingestion_service=self.broker_event_ingestion_service,
             fusion_service=self.fusion_service,
             cbr_ingestion_service=self.cbr_ingestion_service,
+            moex_ingestion_service=self.moex_ingestion_service,
             sentiment_channels=self.config.sentiment.channels,
             broker_event_interval_seconds=self.config.broker_events.poll_interval_seconds,
             cbr_interval_seconds=self.config.cbr.poll_interval_seconds,
+            moex_interval_seconds=self.config.moex.poll_interval_seconds,
         )
 
         self.logger.info(
@@ -311,6 +354,7 @@ class Container:
                 "run_broker_events": self.broker_event_ingestion_service is not None,
                 "run_fusion": self.fusion_service is not None,
                 "run_cbr": self.cbr_ingestion_service is not None,
+                "run_moex": self.moex_ingestion_service is not None,
             },
         )
 

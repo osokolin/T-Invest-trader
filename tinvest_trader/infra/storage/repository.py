@@ -17,6 +17,11 @@ from tinvest_trader.domain.models import (
 )
 from tinvest_trader.fusion.models import FusedSignalFeature
 from tinvest_trader.infra.storage.postgres import PostgresPool
+from tinvest_trader.moex.models import (
+    MoexHistoryRow,
+    MoexMarketHistoryNormalized,
+    MoexSecurityInfo,
+)
 from tinvest_trader.observation.models import SignalObservation
 from tinvest_trader.sentiment.models import SentimentResult, TelegramMessage, TickerMention
 
@@ -709,3 +714,101 @@ class TradingRepository:
         with self._pool.get_connection() as conn:
             cur = conn.execute(sql, (source_url, event_key))
             return cur.fetchone() is not None
+
+    # -- MOEX ISS market data --
+
+    def upsert_moex_security_reference(self, info: MoexSecurityInfo) -> bool:
+        """Upsert MOEX security metadata. Returns True if inserted/updated."""
+        sql = """
+            INSERT INTO moex_security_reference
+                (secid, name, short_name, isin, reg_number, list_level,
+                 issuer, issue_size, "group", primary_boardid, raw_description)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (secid) DO UPDATE SET
+                name = EXCLUDED.name,
+                short_name = EXCLUDED.short_name,
+                isin = EXCLUDED.isin,
+                reg_number = EXCLUDED.reg_number,
+                list_level = EXCLUDED.list_level,
+                issuer = EXCLUDED.issuer,
+                issue_size = EXCLUDED.issue_size,
+                "group" = EXCLUDED."group",
+                primary_boardid = EXCLUDED.primary_boardid,
+                raw_description = EXCLUDED.raw_description,
+                recorded_at = now()
+            RETURNING id
+        """
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, (
+                info.secid,
+                info.name,
+                info.short_name,
+                info.isin,
+                info.reg_number,
+                info.list_level,
+                info.issuer,
+                info.issue_size,
+                info.group,
+                info.primary_boardid,
+                json.dumps(info.raw_description),
+            ))
+            row = cur.fetchone()
+            conn.commit()
+        return row is not None
+
+    def insert_moex_market_history_raw(self, row: MoexHistoryRow) -> bool:
+        """Insert raw MOEX history row. Returns True if inserted, False if duplicate."""
+        sql = """
+            INSERT INTO moex_market_history_raw
+                (secid, boardid, trade_date, open, high, low, close,
+                 legal_close, waprice, volume, value, num_trades)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (secid, boardid, trade_date) DO NOTHING
+            RETURNING id
+        """
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, (
+                row.secid,
+                row.boardid,
+                row.trade_date,
+                row.open,
+                row.high,
+                row.low,
+                row.close,
+                row.legal_close,
+                row.waprice,
+                row.volume,
+                row.value,
+                row.num_trades,
+            ))
+            inserted = cur.fetchone() is not None
+            conn.commit()
+        return inserted
+
+    def insert_moex_market_history(self, row: MoexMarketHistoryNormalized) -> bool:
+        """Insert normalized MOEX history row. Returns True if inserted, False if duplicate."""
+        sql = """
+            INSERT INTO moex_market_history
+                (secid, boardid, trade_date, open, high, low, close,
+                 waprice, volume, value, num_trades)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (secid, boardid, trade_date) DO NOTHING
+            RETURNING id
+        """
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, (
+                row.secid,
+                row.boardid,
+                row.trade_date,
+                row.open,
+                row.high,
+                row.low,
+                row.close,
+                row.waprice,
+                row.volume,
+                row.value,
+                row.num_trades,
+            ))
+            inserted = cur.fetchone() is not None
+            conn.commit()
+        return inserted

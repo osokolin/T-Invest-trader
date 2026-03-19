@@ -65,6 +65,7 @@ class BackgroundConfig:
     run_observation: bool = True
     run_fusion: bool = True
     run_cbr: bool = True
+    run_moex: bool = True
 
 
 @dataclass(frozen=True)
@@ -100,6 +101,19 @@ class CbrConfig:
 
 
 @dataclass(frozen=True)
+class MoexConfig:
+    enabled: bool = False
+    metadata_enabled: bool = True
+    history_enabled: bool = True
+    poll_interval_seconds: int = 3600
+    history_lookback_days: int = 90
+    tracked_tickers_override: tuple[str, ...] = ()
+    engine: str = "stock"
+    market: str = "shares"
+    board: str = "TQBR"
+
+
+@dataclass(frozen=True)
 class LoggingConfig:
     level: str = "INFO"
     json_output: bool = True
@@ -117,6 +131,7 @@ class AppConfig:
     broker_events: BrokerEventsConfig = field(default_factory=BrokerEventsConfig)
     fusion: FusionConfig = field(default_factory=FusionConfig)
     cbr: CbrConfig = field(default_factory=CbrConfig)
+    moex: MoexConfig = field(default_factory=MoexConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     environment: str = "sandbox"
 
@@ -201,6 +216,9 @@ def load_config() -> AppConfig:
             ).lower() == "true",
             run_cbr=os.environ.get(
                 "TINVEST_BACKGROUND_RUN_CBR", "true",
+            ).lower() == "true",
+            run_moex=os.environ.get(
+                "TINVEST_BACKGROUND_RUN_MOEX", "true",
             ).lower() == "true",
         ),
         broker_events=BrokerEventsConfig(
@@ -298,6 +316,29 @@ def load_config() -> AppConfig:
             store_raw_payloads=os.environ.get(
                 "TINVEST_CBR_STORE_RAW_PAYLOADS", "true",
             ).lower() == "true",
+        ),
+        moex=MoexConfig(
+            enabled=os.environ.get(
+                "TINVEST_MOEX_ENABLED", "false",
+            ).lower() == "true",
+            metadata_enabled=os.environ.get(
+                "TINVEST_MOEX_METADATA_ENABLED", "true",
+            ).lower() == "true",
+            history_enabled=os.environ.get(
+                "TINVEST_MOEX_HISTORY_ENABLED", "true",
+            ).lower() == "true",
+            poll_interval_seconds=int(
+                os.environ.get("TINVEST_MOEX_POLL_INTERVAL_SECONDS", "3600"),
+            ),
+            history_lookback_days=int(
+                os.environ.get("TINVEST_MOEX_HISTORY_LOOKBACK_DAYS", "90"),
+            ),
+            tracked_tickers_override=_parse_csv(
+                os.environ.get("TINVEST_MOEX_TRACKED_TICKERS", ""),
+            ),
+            engine=os.environ.get("TINVEST_MOEX_ENGINE", "stock"),
+            market=os.environ.get("TINVEST_MOEX_MARKET", "shares"),
+            board=os.environ.get("TINVEST_MOEX_BOARD", "TQBR"),
         ),
         logging=LoggingConfig(
             level=os.environ.get("TINVEST_LOG_LEVEL", "INFO"),

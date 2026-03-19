@@ -17,6 +17,7 @@ from tinvest_trader.services.broker_event_ingestion_service import (
 )
 from tinvest_trader.services.cbr_ingestion_service import CbrIngestionService
 from tinvest_trader.services.fusion_service import FusionService
+from tinvest_trader.services.moex_ingestion_service import MoexIngestionService
 from tinvest_trader.services.trading_service import TradingService
 
 
@@ -236,3 +237,16 @@ def test_container_cbr_wired_when_enabled(monkeypatch):
 
     c = build_container(load_config())
     assert isinstance(c.cbr_ingestion_service, CbrIngestionService)
+
+
+def test_container_moex_none_when_disabled(container):
+    assert container.moex_ingestion_service is None
+
+
+def test_container_moex_wired_when_enabled(monkeypatch):
+    monkeypatch.setenv("TINVEST_MOEX_ENABLED", "true")
+    from tinvest_trader.app.config import load_config
+    from tinvest_trader.app.container import build_container
+
+    c = build_container(load_config())
+    assert isinstance(c.moex_ingestion_service, MoexIngestionService)
