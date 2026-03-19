@@ -1,0 +1,283 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": ["sum"],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT ticker, \"window\", observation_time, sentiment_message_count, sentiment_positive_avg, sentiment_balance, broker_dividends_count > 0 AS has_dividend, broker_reports_count > 0 AS has_report, broker_insider_deals_count > 0 AS has_insider_deal, broker_dividends_count, broker_reports_count, broker_insider_deals_count, broker_latest_report_time, broker_latest_insider_deal_time, broker_latest_dividend_value, broker_latest_dividend_currency, recorded_at FROM fused_signal_features ORDER BY recorded_at DESC LIMIT 100;",
+          "refId": "A"
+        }
+      ],
+      "title": "Latest Fused Rows",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 10
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(observation_time, $__interval), ticker AS metric, avg(sentiment_balance)::double precision AS value FROM fused_signal_features WHERE $__timeFilter(observation_time) AND sentiment_balance IS NOT NULL GROUP BY 1, 2 ORDER BY 1;",
+          "refId": "A"
+        }
+      ],
+      "title": "Sentiment Balance Over Time by Ticker",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 10
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(observation_time, $__interval), concat(ticker, ' / ', \"window\") AS metric, sum(sentiment_message_count)::double precision AS value FROM fused_signal_features WHERE $__timeFilter(observation_time) AND sentiment_message_count IS NOT NULL GROUP BY 1, 2 ORDER BY 1;",
+          "refId": "A"
+        }
+      ],
+      "title": "Sentiment Count Over Time by Ticker/Window",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 19
+      },
+      "id": 4,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(observation_time, $__interval), 'dividends' AS metric, sum(broker_dividends_count)::double precision AS value FROM fused_signal_features WHERE $__timeFilter(observation_time) GROUP BY 1 ORDER BY 1;",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(observation_time, $__interval), 'reports' AS metric, sum(broker_reports_count)::double precision AS value FROM fused_signal_features WHERE $__timeFilter(observation_time) GROUP BY 1 ORDER BY 1;",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(observation_time, $__interval), 'insider_deals' AS metric, sum(broker_insider_deals_count)::double precision AS value FROM fused_signal_features WHERE $__timeFilter(observation_time) GROUP BY 1 ORDER BY 1;",
+          "refId": "C"
+        }
+      ],
+      "title": "Broker Event Counts Over Time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 28
+      },
+      "id": 5,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": ["sum"],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT ticker, \"window\", observation_time, broker_dividends_count > 0 AS has_dividend, broker_reports_count > 0 AS has_report, broker_insider_deals_count > 0 AS has_insider_deal, broker_dividends_count, broker_reports_count, broker_insider_deals_count, broker_latest_dividend_value, broker_latest_dividend_currency, broker_latest_report_time, broker_latest_insider_deal_time, recorded_at FROM fused_signal_features WHERE broker_dividends_count > 0 OR broker_reports_count > 0 OR broker_insider_deals_count > 0 ORDER BY recorded_at DESC LIMIT 100;",
+          "refId": "A"
+        }
+      ],
+      "title": "Event Flags (rows with broker events)",
+      "type": "table"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+    "tinvest",
+    "fusion"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Fused Signal Features",
+  "uid": "fused-signal-features",
+  "version": 1,
+  "weekStart": ""
+}
