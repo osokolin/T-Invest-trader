@@ -64,6 +64,7 @@ class BackgroundConfig:
     run_sentiment: bool = True
     run_observation: bool = True
     run_fusion: bool = True
+    run_cbr: bool = True
 
 
 @dataclass(frozen=True)
@@ -87,6 +88,18 @@ class FusionConfig:
 
 
 @dataclass(frozen=True)
+class CbrConfig:
+    enabled: bool = False
+    rss_enabled: bool = True
+    rss_urls: tuple[str, ...] = (
+        "http://www.cbr.ru/rss/eventrss",
+        "http://www.cbr.ru/rss/RssPress",
+    )
+    poll_interval_seconds: int = 3600
+    store_raw_payloads: bool = True
+
+
+@dataclass(frozen=True)
 class LoggingConfig:
     level: str = "INFO"
     json_output: bool = True
@@ -103,6 +116,7 @@ class AppConfig:
     background: BackgroundConfig = field(default_factory=BackgroundConfig)
     broker_events: BrokerEventsConfig = field(default_factory=BrokerEventsConfig)
     fusion: FusionConfig = field(default_factory=FusionConfig)
+    cbr: CbrConfig = field(default_factory=CbrConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     environment: str = "sandbox"
 
@@ -185,6 +199,9 @@ def load_config() -> AppConfig:
             run_fusion=os.environ.get(
                 "TINVEST_BACKGROUND_RUN_FUSION", "true",
             ).lower() == "true",
+            run_cbr=os.environ.get(
+                "TINVEST_BACKGROUND_RUN_CBR", "true",
+            ).lower() == "true",
         ),
         broker_events=BrokerEventsConfig(
             enabled=os.environ.get(
@@ -261,6 +278,26 @@ def load_config() -> AppConfig:
             tracked_tickers=_parse_csv(
                 os.environ.get("TINVEST_FUSION_TRACKED_TICKERS", ""),
             ),
+        ),
+        cbr=CbrConfig(
+            enabled=os.environ.get(
+                "TINVEST_CBR_ENABLED", "false",
+            ).lower() == "true",
+            rss_enabled=os.environ.get(
+                "TINVEST_CBR_RSS_ENABLED", "true",
+            ).lower() == "true",
+            rss_urls=_parse_csv(
+                os.environ.get(
+                    "TINVEST_CBR_RSS_URLS",
+                    "http://www.cbr.ru/rss/eventrss,http://www.cbr.ru/rss/RssPress",
+                ),
+            ),
+            poll_interval_seconds=int(
+                os.environ.get("TINVEST_CBR_POLL_INTERVAL_SECONDS", "3600"),
+            ),
+            store_raw_payloads=os.environ.get(
+                "TINVEST_CBR_STORE_RAW_PAYLOADS", "true",
+            ).lower() == "true",
         ),
         logging=LoggingConfig(
             level=os.environ.get("TINVEST_LOG_LEVEL", "INFO"),

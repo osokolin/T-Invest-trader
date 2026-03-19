@@ -15,6 +15,7 @@ from tinvest_trader.services.background_runner import BackgroundRunner
 from tinvest_trader.services.broker_event_ingestion_service import (
     BrokerEventIngestionService,
 )
+from tinvest_trader.services.cbr_ingestion_service import CbrIngestionService
 from tinvest_trader.services.fusion_service import FusionService
 from tinvest_trader.services.trading_service import TradingService
 
@@ -222,3 +223,16 @@ def test_container_fusion_wired_when_enabled(monkeypatch):
 
     c = build_container(load_config())
     assert isinstance(c.fusion_service, FusionService)
+
+
+def test_container_cbr_none_when_disabled(container):
+    assert container.cbr_ingestion_service is None
+
+
+def test_container_cbr_wired_when_enabled(monkeypatch):
+    monkeypatch.setenv("TINVEST_CBR_ENABLED", "true")
+    from tinvest_trader.app.config import load_config
+    from tinvest_trader.app.container import build_container
+
+    c = build_container(load_config())
+    assert isinstance(c.cbr_ingestion_service, CbrIngestionService)
