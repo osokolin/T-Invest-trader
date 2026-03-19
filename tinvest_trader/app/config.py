@@ -60,8 +60,10 @@ class BackgroundConfig:
     enabled: bool = False
     sentiment_ingest_interval_seconds: int = 300
     observation_interval_seconds: int = 600
+    fusion_interval_seconds: int = 600
     run_sentiment: bool = True
     run_observation: bool = True
+    run_fusion: bool = True
 
 
 @dataclass(frozen=True)
@@ -74,6 +76,14 @@ class BrokerEventsConfig:
     reports_lookback_days: int = 365
     insider_deals_lookback_days: int = 3650
     tracked_figis_override: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class FusionConfig:
+    enabled: bool = False
+    windows: tuple[str, ...] = ("5m", "15m", "1h")
+    persist: bool = True
+    tracked_tickers: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -92,6 +102,7 @@ class AppConfig:
     observation: ObservationConfig = field(default_factory=ObservationConfig)
     background: BackgroundConfig = field(default_factory=BackgroundConfig)
     broker_events: BrokerEventsConfig = field(default_factory=BrokerEventsConfig)
+    fusion: FusionConfig = field(default_factory=FusionConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     environment: str = "sandbox"
 
@@ -162,11 +173,17 @@ def load_config() -> AppConfig:
             observation_interval_seconds=int(
                 os.environ.get("TINVEST_BACKGROUND_OBSERVATION_INTERVAL_SECONDS", "600"),
             ),
+            fusion_interval_seconds=int(
+                os.environ.get("TINVEST_BACKGROUND_FUSION_INTERVAL_SECONDS", "600"),
+            ),
             run_sentiment=os.environ.get(
                 "TINVEST_BACKGROUND_RUN_SENTIMENT", "true",
             ).lower() == "true",
             run_observation=os.environ.get(
                 "TINVEST_BACKGROUND_RUN_OBSERVATION", "true",
+            ).lower() == "true",
+            run_fusion=os.environ.get(
+                "TINVEST_BACKGROUND_RUN_FUSION", "true",
             ).lower() == "true",
         ),
         broker_events=BrokerEventsConfig(
@@ -229,6 +246,20 @@ def load_config() -> AppConfig:
                 float(os.environ["TINVEST_SENTIMENT_TELETHON_TIMEOUT_SEC"])
                 if os.environ.get("TINVEST_SENTIMENT_TELETHON_TIMEOUT_SEC", "").strip()
                 else None
+            ),
+        ),
+        fusion=FusionConfig(
+            enabled=os.environ.get(
+                "TINVEST_FUSION_ENABLED", "false",
+            ).lower() == "true",
+            windows=_parse_csv(
+                os.environ.get("TINVEST_FUSION_WINDOWS", "5m,15m,1h"),
+            ),
+            persist=os.environ.get(
+                "TINVEST_FUSION_PERSIST", "true",
+            ).lower() == "true",
+            tracked_tickers=_parse_csv(
+                os.environ.get("TINVEST_FUSION_TRACKED_TICKERS", ""),
             ),
         ),
         logging=LoggingConfig(

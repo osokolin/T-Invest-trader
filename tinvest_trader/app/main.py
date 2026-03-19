@@ -61,6 +61,12 @@ def main() -> None:
     else:
         logger.info("broker events pipeline disabled", extra={"component": "broker_events"})
 
+    # Fusion status
+    if container.fusion_service is not None:
+        logger.info("fusion layer ready", extra={"component": "fusion"})
+    else:
+        logger.info("fusion layer disabled", extra={"component": "fusion"})
+
     # Background runner status
     if container.background_runner is not None:
         logger.info("background runner enabled", extra={"component": "background_runner"})

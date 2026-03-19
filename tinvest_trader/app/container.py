@@ -24,6 +24,7 @@ from tinvest_trader.services.background_runner import BackgroundRunner
 from tinvest_trader.services.broker_event_ingestion_service import (
     BrokerEventIngestionService,
 )
+from tinvest_trader.services.fusion_service import FusionService
 from tinvest_trader.services.observation_service import ObservationService
 from tinvest_trader.services.telegram_sentiment_service import TelegramSentimentService
 from tinvest_trader.services.trading_service import TradingService
@@ -50,6 +51,7 @@ class Container:
     broker_event_ingestion_service: BrokerEventIngestionService | None = field(
         init=False, default=None,
     )
+    fusion_service: FusionService | None = field(init=False, default=None)
     background_runner: BackgroundRunner | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
@@ -99,6 +101,10 @@ class Container:
         # Broker-side structured event ingestion (optional, disabled by default)
         if self.config.broker_events.enabled:
             self._wire_broker_events()
+
+        # Signal fusion layer (optional, disabled by default)
+        if self.config.fusion.enabled:
+            self._wire_fusion()
 
         # Background runner (optional, disabled by default)
         if self.config.background.enabled:
@@ -219,6 +225,40 @@ class Container:
             },
         )
 
+    def _wire_fusion(self) -> None:
+        """Wire signal fusion layer when enabled."""
+        cfg = self.config.fusion
+        windows = parse_windows(cfg.windows)
+
+        # Tracked tickers precedence: fusion > observation > sentiment > empty
+        tracked: frozenset[str]
+        if cfg.tracked_tickers:
+            tracked = frozenset(cfg.tracked_tickers)
+        elif self.config.observation.tracked_tickers:
+            tracked = frozenset(self.config.observation.tracked_tickers)
+        elif self.config.sentiment.tracked_tickers:
+            tracked = frozenset(self.config.sentiment.tracked_tickers)
+        else:
+            tracked = frozenset()
+
+        self.fusion_service = FusionService(
+            repository=self.repository,
+            windows=windows,
+            tracked_tickers=tracked,
+            persist=cfg.persist,
+            logger=self.logger,
+        )
+
+        self.logger.info(
+            "fusion layer initialized",
+            extra={
+                "component": "fusion",
+                "windows": [w.label for w in windows],
+                "tracked_tickers": len(tracked),
+                "persist": cfg.persist,
+            },
+        )
+
     def _wire_background_runner(self) -> None:
         """Wire background runner when enabled."""
         self.background_runner = BackgroundRunner(
@@ -227,6 +267,7 @@ class Container:
             telegram_sentiment_service=self.telegram_sentiment_service,
             observation_service=self.observation_service,
             broker_event_ingestion_service=self.broker_event_ingestion_service,
+            fusion_service=self.fusion_service,
             sentiment_channels=self.config.sentiment.channels,
             broker_event_interval_seconds=self.config.broker_events.poll_interval_seconds,
         )
@@ -238,6 +279,7 @@ class Container:
                 "run_sentiment": self.config.background.run_sentiment,
                 "run_observation": self.config.background.run_observation,
                 "run_broker_events": self.broker_event_ingestion_service is not None,
+                "run_fusion": self.fusion_service is not None,
             },
         )
 

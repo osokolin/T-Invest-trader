@@ -1,0 +1,103 @@
+import logging
+from datetime import UTC, datetime
+from unittest.mock import MagicMock
+
+from tinvest_trader.observation.models import ObservationWindow, SignalObservation
+from tinvest_trader.services.fusion_service import FusionService
+
+NOW = datetime(2025, 6, 1, 12, 0, 0, tzinfo=UTC)
+
+
+def _make_service(persist=False, tracked=frozenset()):
+    repo = MagicMock()
+    logger = logging.getLogger("test_fusion")
+    windows = [
+        ObservationWindow(label="5m", seconds=300),
+        ObservationWindow(label="1h", seconds=3600),
+    ]
+    return FusionService(
+        repository=repo,
+        windows=windows,
+        tracked_tickers=tracked,
+        persist=persist,
+        logger=logger,
+    ), repo
+
+
+def test_fuse_ticker_combines_observation_and_events():
+    svc, repo = _make_service()
+    obs = SignalObservation(
+        ticker="SBER", figi=None, window="5m", observation_time=NOW,
+        message_count=3, positive_count=2, negative_count=1, neutral_count=0,
+        positive_score_avg=0.8, negative_score_avg=0.3, neutral_score_avg=None,
+        sentiment_balance=0.5,
+    )
+    repo.fetch_latest_signal_observation.return_value = obs
+    repo.fetch_broker_event_features_for_window.return_value = [
+        {
+            "source_method": "dividends", "event_type": "dividends",
+            "event_direction": None, "event_value": 10.0,
+            "currency": "RUB", "event_time": NOW,
+        },
+    ]
+
+    results = svc.fuse_ticker("SBER", as_of=NOW)
+    assert len(results) == 2  # one per window
+    assert results[0].sentiment_message_count == 3
+    assert results[0].broker_dividends_count == 1
+
+
+def test_fuse_ticker_no_repository():
+    logger = logging.getLogger("test_fusion")
+    svc = FusionService(
+        repository=None,
+        windows=[ObservationWindow(label="5m", seconds=300)],
+        tracked_tickers=frozenset(),
+        persist=False,
+        logger=logger,
+    )
+    assert svc.fuse_ticker("SBER", as_of=NOW) == []
+
+
+def test_fuse_ticker_persists_when_enabled():
+    svc, repo = _make_service(persist=True)
+    repo.fetch_latest_signal_observation.return_value = None
+    repo.fetch_broker_event_features_for_window.return_value = []
+
+    svc.fuse_ticker("SBER", as_of=NOW)
+    assert repo.insert_fused_signal_feature.call_count == 2  # one per window
+
+
+def test_fuse_all_uses_tracked_tickers():
+    svc, repo = _make_service(tracked=frozenset({"SBER", "GAZP"}))
+    repo.fetch_latest_signal_observation.return_value = None
+    repo.fetch_broker_event_features_for_window.return_value = []
+
+    results = svc.fuse_all(as_of=NOW)
+    # 2 tickers x 2 windows
+    assert len(results) == 4
+
+
+def test_fuse_all_discovers_tickers_when_not_tracked():
+    svc, repo = _make_service(tracked=frozenset())
+    repo.fetch_distinct_tickers_with_sentiment.return_value = [
+        {"ticker": "YNDX", "figi": None},
+    ]
+    repo.fetch_latest_signal_observation.return_value = None
+    repo.fetch_broker_event_features_for_window.return_value = []
+
+    results = svc.fuse_all(as_of=NOW)
+    assert len(results) == 2  # 1 ticker x 2 windows
+    repo.fetch_distinct_tickers_with_sentiment.assert_called_once()
+
+
+def test_fuse_all_no_repository():
+    logger = logging.getLogger("test_fusion")
+    svc = FusionService(
+        repository=None,
+        windows=[ObservationWindow(label="5m", seconds=300)],
+        tracked_tickers=frozenset(),
+        persist=False,
+        logger=logger,
+    )
+    assert svc.fuse_all(as_of=NOW) == []
