@@ -65,6 +65,15 @@ class BackgroundConfig:
 
 
 @dataclass(frozen=True)
+class BrokerEventsConfig:
+    enabled: bool = False
+    event_types: tuple[str, ...] = ("dividends", "reports", "insider_deals")
+    poll_interval_seconds: int = 1800
+    lookback_days: int = 30
+    tracked_figis_override: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class LoggingConfig:
     level: str = "INFO"
     json_output: bool = True
@@ -79,6 +88,7 @@ class AppConfig:
     sentiment: SentimentConfig = field(default_factory=SentimentConfig)
     observation: ObservationConfig = field(default_factory=ObservationConfig)
     background: BackgroundConfig = field(default_factory=BackgroundConfig)
+    broker_events: BrokerEventsConfig = field(default_factory=BrokerEventsConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     environment: str = "sandbox"
 
@@ -146,6 +156,26 @@ def load_config() -> AppConfig:
             run_observation=os.environ.get(
                 "TINVEST_BACKGROUND_RUN_OBSERVATION", "true",
             ).lower() == "true",
+        ),
+        broker_events=BrokerEventsConfig(
+            enabled=os.environ.get(
+                "TINVEST_BROKER_EVENTS_ENABLED", "false",
+            ).lower() == "true",
+            event_types=_parse_csv(
+                os.environ.get(
+                    "TINVEST_BROKER_EVENTS_TYPES",
+                    "dividends,reports,insider_deals",
+                ),
+            ),
+            poll_interval_seconds=int(
+                os.environ.get("TINVEST_BROKER_EVENTS_POLL_INTERVAL_SECONDS", "1800"),
+            ),
+            lookback_days=int(
+                os.environ.get("TINVEST_BROKER_EVENTS_LOOKBACK_DAYS", "30"),
+            ),
+            tracked_figis_override=_parse_csv(
+                os.environ.get("TINVEST_BROKER_EVENTS_TRACKED_FIGIS", ""),
+            ),
         ),
         sentiment=SentimentConfig(
             enabled=os.environ.get("TINVEST_SENTIMENT_ENABLED", "false").lower() == "true",

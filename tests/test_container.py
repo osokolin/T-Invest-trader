@@ -12,6 +12,9 @@ from tinvest_trader.sentiment.telethon_source import (
     TelethonMessageSource,
 )
 from tinvest_trader.services.background_runner import BackgroundRunner
+from tinvest_trader.services.broker_event_ingestion_service import (
+    BrokerEventIngestionService,
+)
 from tinvest_trader.services.trading_service import TradingService
 
 
@@ -155,6 +158,7 @@ def test_container_background_runner_can_exist_without_optional_services(monkeyp
     monkeypatch.setenv("TINVEST_BACKGROUND_ENABLED", "true")
     monkeypatch.delenv("TINVEST_SENTIMENT_ENABLED", raising=False)
     monkeypatch.delenv("TINVEST_OBSERVATION_ENABLED", raising=False)
+    monkeypatch.delenv("TINVEST_BROKER_EVENTS_ENABLED", raising=False)
     from tinvest_trader.app.config import load_config
     from tinvest_trader.app.container import build_container
 
@@ -162,3 +166,28 @@ def test_container_background_runner_can_exist_without_optional_services(monkeyp
     assert isinstance(c.background_runner, BackgroundRunner)
     assert c.telegram_sentiment_service is None
     assert c.observation_service is None
+
+
+def test_container_broker_event_service_none_when_disabled(container):
+    assert container.broker_event_ingestion_service is None
+
+
+def test_container_broker_event_service_wired_when_enabled(monkeypatch):
+    monkeypatch.setenv("TINVEST_BROKER_EVENTS_ENABLED", "true")
+    monkeypatch.setenv("TINVEST_TRACKED_INSTRUMENTS", "FIGI1,FIGI2")
+    from tinvest_trader.app.config import load_config
+    from tinvest_trader.app.container import build_container
+
+    c = build_container(load_config())
+    assert isinstance(c.broker_event_ingestion_service, BrokerEventIngestionService)
+
+
+def test_container_broker_event_service_uses_override_scope(monkeypatch):
+    monkeypatch.setenv("TINVEST_BROKER_EVENTS_ENABLED", "true")
+    monkeypatch.setenv("TINVEST_TRACKED_INSTRUMENTS", "FIGI1,FIGI2")
+    monkeypatch.setenv("TINVEST_BROKER_EVENTS_TRACKED_FIGIS", "FIGI3")
+    from tinvest_trader.app.config import load_config
+    from tinvest_trader.app.container import build_container
+
+    c = build_container(load_config())
+    assert c.broker_event_ingestion_service._tracked_figis == ("FIGI3",)

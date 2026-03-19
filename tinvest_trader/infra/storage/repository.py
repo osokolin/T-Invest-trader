@@ -7,6 +7,8 @@ import logging
 from datetime import datetime
 
 from tinvest_trader.domain.models import (
+    BrokerEventFeature,
+    BrokerEventRaw,
     ExecutionResult,
     Instrument,
     MarketSnapshot,
@@ -187,6 +189,84 @@ class TradingRepository:
         with self._pool.get_connection() as conn:
             conn.execute(sql, (account_id, figi, quantity, average_price, snapshot_time))
             conn.commit()
+
+    # -- Broker-side structured events --
+
+    def insert_broker_event_raw(self, event: BrokerEventRaw) -> bool:
+        sql = """
+            INSERT INTO broker_event_raw
+                (account_id, source_method, figi, ticker, event_uid, event_time, payload)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (account_id, source_method, event_uid) DO NOTHING
+            RETURNING id
+        """
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, (
+                event.account_id,
+                event.source_method,
+                event.figi,
+                event.ticker,
+                event.event_uid,
+                event.event_time,
+                json.dumps(event.payload),
+            ))
+            inserted = cur.fetchone() is not None
+            conn.commit()
+        return inserted
+
+    def insert_broker_event_feature(self, event: BrokerEventFeature) -> bool:
+        sql = """
+            INSERT INTO broker_event_features
+                (account_id, source_method, figi, ticker, event_uid, event_time,
+                 event_type, event_direction, event_value, currency)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (account_id, source_method, event_uid) DO NOTHING
+            RETURNING id
+        """
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, (
+                event.account_id,
+                event.source_method,
+                event.figi,
+                event.ticker,
+                event.event_uid,
+                event.event_time,
+                event.event_type,
+                event.event_direction,
+                event.event_value,
+                event.currency,
+            ))
+            inserted = cur.fetchone() is not None
+            conn.commit()
+        return inserted
+
+    def fetch_latest_broker_event_time(
+        self,
+        source_method: str,
+        figi: str | None = None,
+        account_id: str = "",
+    ) -> datetime | None:
+        if figi:
+            sql = """
+                SELECT max(event_time)
+                FROM broker_event_features
+                WHERE account_id = %s AND source_method = %s AND figi = %s
+            """
+            params = (account_id, source_method, figi)
+        else:
+            sql = """
+                SELECT max(event_time)
+                FROM broker_event_features
+                WHERE account_id = %s AND source_method = %s
+            """
+            params = (account_id, source_method)
+
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, params)
+            row = cur.fetchone()
+        if row is None:
+            return None
+        return row[0]
 
     # -- Telegram sentiment ingestion --
 

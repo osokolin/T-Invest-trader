@@ -121,3 +121,32 @@ class ExecutionResult:
     success: bool
     broker_order: BrokerOrder | None = None
     error: str = ""
+
+
+@dataclass(frozen=True)
+class BrokerEventRaw:
+    """Raw broker-side structured event stored for auditability."""
+
+    account_id: str
+    source_method: str
+    figi: str | None
+    ticker: str | None
+    event_uid: str
+    event_time: datetime | None
+    payload: dict
+
+
+@dataclass(frozen=True)
+class BrokerEventFeature:
+    """Normalized broker-side event ready for later aggregation."""
+
+    account_id: str
+    source_method: str
+    figi: str | None
+    ticker: str | None
+    event_uid: str
+    event_time: datetime | None
+    event_type: str
+    event_direction: str | None = None
+    event_value: float | None = None
+    currency: str | None = None
