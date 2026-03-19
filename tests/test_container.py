@@ -191,3 +191,20 @@ def test_container_broker_event_service_uses_override_scope(monkeypatch):
 
     c = build_container(load_config())
     assert c.broker_event_ingestion_service._tracked_figis == ("FIGI3",)
+
+
+def test_container_broker_event_service_uses_source_specific_lookbacks(monkeypatch):
+    monkeypatch.setenv("TINVEST_BROKER_EVENTS_ENABLED", "true")
+    monkeypatch.setenv("TINVEST_TRACKED_INSTRUMENTS", "FIGI1")
+    monkeypatch.setenv("TINVEST_BROKER_EVENTS_DIVIDENDS_LOOKBACK_DAYS", "365")
+    monkeypatch.setenv("TINVEST_BROKER_EVENTS_REPORTS_LOOKBACK_DAYS", "90")
+    monkeypatch.setenv("TINVEST_BROKER_EVENTS_INSIDER_DEALS_LOOKBACK_DAYS", "3650")
+    from tinvest_trader.app.config import load_config
+    from tinvest_trader.app.container import build_container
+
+    c = build_container(load_config())
+    assert c.broker_event_ingestion_service._lookback_days_by_event_type == {
+        "dividends": 365,
+        "reports": 90,
+        "insider_deals": 3650,
+    }

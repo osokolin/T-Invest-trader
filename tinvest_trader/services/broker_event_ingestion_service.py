@@ -40,7 +40,7 @@ class BrokerEventIngestionService:
         account_id: str,
         tracked_figis: tuple[str, ...],
         event_types: tuple[str, ...],
-        lookback_days: int,
+        lookback_days_by_event_type: dict[str, int],
     ) -> None:
         self._client = client
         self._repository = repository
@@ -48,7 +48,7 @@ class BrokerEventIngestionService:
         self._account_id = account_id
         self._tracked_figis = tracked_figis
         self._event_types = event_types
-        self._lookback_days = lookback_days
+        self._lookback_days_by_event_type = dict(lookback_days_by_event_type)
 
     def ingest_all(self, as_of: datetime | None = None) -> int:
         """Run one full broker structured-event ingestion pass."""
@@ -130,7 +130,8 @@ class BrokerEventIngestionService:
         as_of: datetime,
     ) -> int:
         source_method = _SOURCE_METHODS[event_type]
-        window_start = as_of - timedelta(days=max(1, self._lookback_days))
+        lookback_days = self._lookback_days_for_event_type(event_type)
+        window_start = as_of - timedelta(days=max(1, lookback_days))
         raw_events = self._fetch_raw_events(event_type, instrument, window_start, as_of)
         processed = 0
 
@@ -175,6 +176,9 @@ class BrokerEventIngestionService:
             },
         )
         return processed
+
+    def _lookback_days_for_event_type(self, event_type: str) -> int:
+        return max(1, self._lookback_days_by_event_type.get(event_type, 1))
 
     def _fetch_raw_events(
         self,

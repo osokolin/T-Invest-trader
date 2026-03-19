@@ -198,7 +198,11 @@ class Container:
             account_id=self.config.broker.account_id,
             tracked_figis=tracked_figis,
             event_types=cfg.event_types,
-            lookback_days=cfg.lookback_days,
+            lookback_days_by_event_type={
+                "dividends": cfg.dividends_lookback_days,
+                "reports": cfg.reports_lookback_days,
+                "insider_deals": cfg.insider_deals_lookback_days,
+            },
         )
 
         self.logger.info(
@@ -207,7 +211,11 @@ class Container:
                 "component": "broker_events",
                 "event_types": list(cfg.event_types),
                 "tracked_figis": len(tracked_figis),
-                "lookback_days": cfg.lookback_days,
+                "lookback_days_by_event_type": {
+                    "dividends": cfg.dividends_lookback_days,
+                    "reports": cfg.reports_lookback_days,
+                    "insider_deals": cfg.insider_deals_lookback_days,
+                },
             },
         )
 
