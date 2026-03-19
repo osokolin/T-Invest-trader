@@ -40,5 +40,22 @@ def test_docker_compose_includes_grafana_service() -> None:
 
     assert "grafana:" in compose_text
     assert "grafana/grafana" in compose_text
+    assert "/etc/grafana/custom-entrypoint.sh" in compose_text
     assert "./grafana/provisioning:/etc/grafana/provisioning:ro" in compose_text
     assert "./grafana/dashboards:/var/lib/grafana/dashboards:ro" in compose_text
+    assert (
+        "./deploy/grafana/custom-entrypoint.sh:/etc/grafana/custom-entrypoint.sh:ro"
+        in compose_text
+    )
+
+
+def test_grafana_custom_entrypoint_syncs_password_from_env() -> None:
+    entrypoint_text = (
+        REPO_ROOT / "deploy" / "grafana" / "custom-entrypoint.sh"
+    ).read_text()
+
+    assert "GRAFANA_ADMIN_PASSWORD" in entrypoint_text
+    assert "GRAFANA_ADMIN_USER" in entrypoint_text
+    assert "grafana cli" in entrypoint_text
+    assert "reset-admin-password" in entrypoint_text
+    assert "/api/users/1" in entrypoint_text
