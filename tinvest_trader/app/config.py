@@ -81,7 +81,7 @@ class BrokerEventsConfig:
 @dataclass(frozen=True)
 class FusionConfig:
     enabled: bool = False
-    windows: tuple[str, ...] = ("5m", "15m", "1h")
+    windows: tuple[str, ...] = ("5m", "15m", "1h", "1d", "7d", "30d")
     persist: bool = True
     tracked_tickers: tuple[str, ...] = ()
 
@@ -253,7 +253,7 @@ def load_config() -> AppConfig:
                 "TINVEST_FUSION_ENABLED", "false",
             ).lower() == "true",
             windows=_parse_csv(
-                os.environ.get("TINVEST_FUSION_WINDOWS", "5m,15m,1h"),
+                os.environ.get("TINVEST_FUSION_WINDOWS", "5m,15m,1h,1d,7d,30d"),
             ),
             persist=os.environ.get(
                 "TINVEST_FUSION_PERSIST", "true",

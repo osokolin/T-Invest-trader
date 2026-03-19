@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from tinvest_trader.fusion.aggregator import fuse_signals
 from tinvest_trader.fusion.models import FusedSignalFeature
@@ -103,3 +103,116 @@ def test_fuse_preserves_ticker_figi_window():
     assert result.figi == "FIGI_VTBR"
     assert result.window == "15m"
     assert result.observation_time == NOW
+
+
+# --- Long windows ---
+
+
+def test_fuse_long_window_with_broker_events():
+    """Broker events within a 30d window should be counted."""
+    t_old = NOW - timedelta(days=10)
+    events = [
+        _make_broker_event("dividends", t_old, 7.5, "RUB"),
+        _make_broker_event("reports", t_old - timedelta(days=5)),
+    ]
+    result = fuse_signals(None, events, "SBER", None, "30d", NOW)
+    assert result.broker_dividends_count == 1
+    assert result.broker_reports_count == 1
+    assert result.broker_total_event_count == 2
+    assert result.broker_latest_dividend_value == 7.5
+
+
+def test_fuse_long_window_sentiment_only():
+    """Long window with sentiment but no broker events still works."""
+    obs = _make_observation(window="1d")
+    result = fuse_signals(obs, [], "SBER", None, "1d", NOW)
+    assert result.sentiment_message_count == 10
+    assert result.broker_total_event_count == 0
+
+
+# --- Real DB source_method values ---
+
+
+def test_fuse_getdividends_method():
+    """Aggregator should recognize GetDividends (actual DB source_method)."""
+    events = [_make_broker_event("GetDividends", NOW, 12.0, "RUB")]
+    result = fuse_signals(None, events, "SBER", None, "7d", NOW)
+    assert result.broker_dividends_count == 1
+    assert result.broker_latest_dividend_value == 12.0
+
+
+def test_fuse_getassetreports_method():
+    events = [_make_broker_event("GetAssetReports", NOW)]
+    result = fuse_signals(None, events, "SBER", None, "7d", NOW)
+    assert result.broker_reports_count == 1
+
+
+def test_fuse_getinsiderdeals_method():
+    events = [_make_broker_event("GetInsiderDeals", NOW)]
+    result = fuse_signals(None, events, "SBER", None, "7d", NOW)
+    assert result.broker_insider_deals_count == 1
+
+
+# --- Recency fields ---
+
+
+def test_fuse_recency_fields_populated():
+    """When recency dict is provided, recency fields should be set."""
+    div_time = NOW - timedelta(days=5)
+    rep_time = NOW - timedelta(days=30)
+    recency = {
+        "last_dividend_at": div_time,
+        "last_report_at": rep_time,
+        "last_insider_deal_at": None,
+    }
+    result = fuse_signals(None, [], "SBER", None, "5m", NOW, recency=recency)
+    assert result.last_dividend_at == div_time
+    assert result.last_report_at == rep_time
+    assert result.last_insider_deal_at is None
+    assert result.days_since_last_dividend == 5.0
+    assert result.days_since_last_report == 30.0
+    assert result.days_since_last_insider_deal is None
+
+
+def test_fuse_recency_none_when_no_data():
+    """Without recency dict, all recency fields should be None."""
+    result = fuse_signals(None, [], "SBER", None, "5m", NOW)
+    assert result.last_dividend_at is None
+    assert result.last_report_at is None
+    assert result.last_insider_deal_at is None
+    assert result.days_since_last_dividend is None
+    assert result.days_since_last_report is None
+    assert result.days_since_last_insider_deal is None
+
+
+def test_fuse_recency_empty_dict():
+    """Empty recency dict should produce None recency fields."""
+    result = fuse_signals(None, [], "SBER", None, "5m", NOW, recency={})
+    assert result.last_dividend_at is None
+    assert result.days_since_last_dividend is None
+
+
+def test_fuse_days_since_fractional():
+    """days_since_* should be fractional when event is partial-day old."""
+    div_time = NOW - timedelta(hours=12)
+    recency = {
+        "last_dividend_at": div_time,
+        "last_report_at": None,
+        "last_insider_deal_at": None,
+    }
+    result = fuse_signals(None, [], "SBER", None, "1d", NOW, recency=recency)
+    assert result.days_since_last_dividend == 0.5
+
+
+def test_fuse_recency_independent_of_window_events():
+    """Recency should be populated even when window broker events are empty."""
+    div_time = NOW - timedelta(days=100)
+    recency = {
+        "last_dividend_at": div_time,
+        "last_report_at": None,
+        "last_insider_deal_at": None,
+    }
+    result = fuse_signals(None, [], "SBER", None, "5m", NOW, recency=recency)
+    assert result.broker_dividends_count == 0  # no events in window
+    assert result.last_dividend_at == div_time  # but recency is set
+    assert result.days_since_last_dividend == 100.0

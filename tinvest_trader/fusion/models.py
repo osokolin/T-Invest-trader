@@ -31,8 +31,16 @@ class FusedSignalFeature:
     broker_insider_deals_count: int
     broker_total_event_count: int
 
-    # Latest broker event values
+    # Latest broker event values (within window)
     broker_latest_dividend_value: float | None = None
     broker_latest_dividend_currency: str | None = None
     broker_latest_report_time: datetime | None = None
     broker_latest_insider_deal_time: datetime | None = None
+
+    # Broker event recency (global latest per ticker, independent of window)
+    last_dividend_at: datetime | None = None
+    last_report_at: datetime | None = None
+    last_insider_deal_at: datetime | None = None
+    days_since_last_dividend: float | None = None
+    days_since_last_report: float | None = None
+    days_since_last_insider_deal: float | None = None

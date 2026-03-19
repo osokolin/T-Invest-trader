@@ -31,6 +31,29 @@ class FusionService:
         self._persist = persist
         self._logger = logger
 
+    def _fetch_recency(
+        self,
+        ticker: str,
+        figi: str | None,
+    ) -> dict:
+        """Fetch global broker event recency for a ticker.
+
+        Returns a dict with last_dividend_at, last_report_at,
+        last_insider_deal_at keys. Returns empty dict on error.
+        """
+        if self._repository is None:
+            return {}
+        try:
+            return self._repository.fetch_broker_event_recency(
+                ticker=ticker, figi=figi,
+            )
+        except Exception:
+            self._logger.exception(
+                "failed to fetch broker event recency for fusion",
+                extra={"component": "fusion", "ticker": ticker},
+            )
+            return {}
+
     def fuse_ticker(
         self,
         ticker: str,
@@ -42,6 +65,10 @@ class FusionService:
             return []
 
         now = as_of or datetime.now(tz=UTC)
+
+        # Fetch recency once per ticker (independent of window)
+        recency = self._fetch_recency(ticker, figi)
+
         results: list[FusedSignalFeature] = []
 
         for win in self._windows:
@@ -86,6 +113,7 @@ class FusionService:
                 figi=figi,
                 window=win.label,
                 observation_time=now,
+                recency=recency,
             )
             results.append(fused)
 

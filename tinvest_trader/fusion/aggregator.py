@@ -8,6 +8,12 @@ from tinvest_trader.fusion.models import FusedSignalFeature
 from tinvest_trader.observation.models import SignalObservation
 
 
+def _days_between(earlier: datetime, later: datetime) -> float:
+    """Return fractional days between two timezone-aware datetimes."""
+    delta = later - earlier
+    return round(delta.total_seconds() / 86400, 2)
+
+
 def fuse_signals(
     observation: SignalObservation | None,
     broker_events: list[dict],
@@ -15,6 +21,7 @@ def fuse_signals(
     figi: str | None,
     window: str,
     observation_time: datetime,
+    recency: dict | None = None,
 ) -> FusedSignalFeature:
     """Combine a sentiment observation with broker event feature rows.
 
@@ -28,6 +35,10 @@ def fuse_signals(
         broker_event_features for the same ticker and window.
     ticker, figi, window, observation_time:
         Identifiers for the fused row.
+    recency:
+        Optional dict with keys last_dividend_at, last_report_at,
+        last_insider_deal_at (datetime | None). Global latest event times
+        for the ticker, independent of window.
     """
     # Sentiment side
     if observation is not None:
@@ -57,22 +68,32 @@ def fuse_signals(
         method = ev.get("source_method", "")
         ev_time = ev.get("event_time")
 
-        if method == "dividends":
+        if method in ("dividends", "GetDividends"):
             div_count += 1
             if ev_time is not None and (latest_div_time is None or ev_time > latest_div_time):
                 latest_div_time = ev_time
                 latest_div_value = ev.get("event_value")
                 latest_div_currency = ev.get("currency")
-        elif method == "reports":
+        elif method in ("reports", "GetAssetReports"):
             rep_count += 1
             if ev_time is not None and (latest_rep_time is None or ev_time > latest_rep_time):
                 latest_rep_time = ev_time
-        elif method == "insider_deals":
+        elif method in ("insider_deals", "GetInsiderDeals"):
             ins_count += 1
             if ev_time is not None and (latest_ins_time is None or ev_time > latest_ins_time):
                 latest_ins_time = ev_time
 
     total_count = div_count + rep_count + ins_count
+
+    # Recency fields -- global latest event times for the ticker
+    rec = recency or {}
+    last_div_at: datetime | None = rec.get("last_dividend_at")
+    last_rep_at: datetime | None = rec.get("last_report_at")
+    last_ins_at: datetime | None = rec.get("last_insider_deal_at")
+
+    days_div = _days_between(last_div_at, observation_time) if last_div_at else None
+    days_rep = _days_between(last_rep_at, observation_time) if last_rep_at else None
+    days_ins = _days_between(last_ins_at, observation_time) if last_ins_at else None
 
     return FusedSignalFeature(
         ticker=ticker,
@@ -95,4 +116,10 @@ def fuse_signals(
         broker_latest_dividend_currency=latest_div_currency,
         broker_latest_report_time=latest_rep_time,
         broker_latest_insider_deal_time=latest_ins_time,
+        last_dividend_at=last_div_at,
+        last_report_at=last_rep_at,
+        last_insider_deal_at=last_ins_at,
+        days_since_last_dividend=days_div,
+        days_since_last_report=days_rep,
+        days_since_last_insider_deal=days_ins,
     )

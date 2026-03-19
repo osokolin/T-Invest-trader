@@ -8,7 +8,7 @@ def test_fusion_disabled_by_default():
 
 def test_fusion_default_windows():
     cfg = FusionConfig()
-    assert cfg.windows == ("5m", "15m", "1h")
+    assert cfg.windows == ("5m", "15m", "1h", "1d", "7d", "30d")
 
 
 def test_fusion_default_persist():

@@ -8,20 +8,28 @@ from tinvest_trader.services.fusion_service import FusionService
 NOW = datetime(2025, 6, 1, 12, 0, 0, tzinfo=UTC)
 
 
-def _make_service(persist=False, tracked=frozenset()):
+def _make_service(persist=False, tracked=frozenset(), windows=None):
     repo = MagicMock()
     logger = logging.getLogger("test_fusion")
-    windows = [
-        ObservationWindow(label="5m", seconds=300),
-        ObservationWindow(label="1h", seconds=3600),
-    ]
-    return FusionService(
+    if windows is None:
+        windows = [
+            ObservationWindow(label="5m", seconds=300),
+            ObservationWindow(label="1h", seconds=3600),
+        ]
+    svc = FusionService(
         repository=repo,
         windows=windows,
         tracked_tickers=tracked,
         persist=persist,
         logger=logger,
-    ), repo
+    )
+    # Default: no recency data
+    repo.fetch_broker_event_recency.return_value = {
+        "last_dividend_at": None,
+        "last_report_at": None,
+        "last_insider_deal_at": None,
+    }
+    return svc, repo
 
 
 def test_fuse_ticker_combines_observation_and_events():
@@ -101,3 +109,62 @@ def test_fuse_all_no_repository():
         logger=logger,
     )
     assert svc.fuse_all(as_of=NOW) == []
+
+
+# --- Long windows ---
+
+
+def test_fuse_ticker_with_long_windows():
+    """Service should produce results for long windows like 1d, 7d, 30d."""
+    windows = [
+        ObservationWindow(label="5m", seconds=300),
+        ObservationWindow(label="1d", seconds=86400),
+        ObservationWindow(label="7d", seconds=604800),
+        ObservationWindow(label="30d", seconds=2592000),
+    ]
+    svc, repo = _make_service(windows=windows)
+    repo.fetch_latest_signal_observation.return_value = None
+    repo.fetch_broker_event_features_for_window.return_value = []
+
+    results = svc.fuse_ticker("SBER", as_of=NOW)
+    assert len(results) == 4
+    assert [r.window for r in results] == ["5m", "1d", "7d", "30d"]
+
+
+# --- Recency ---
+
+
+def test_fuse_ticker_passes_recency():
+    """Service should fetch recency once per ticker and pass to aggregator."""
+    div_time = datetime(2025, 5, 25, 12, 0, 0, tzinfo=UTC)
+    svc, repo = _make_service()
+    repo.fetch_latest_signal_observation.return_value = None
+    repo.fetch_broker_event_features_for_window.return_value = []
+    repo.fetch_broker_event_recency.return_value = {
+        "last_dividend_at": div_time,
+        "last_report_at": None,
+        "last_insider_deal_at": None,
+    }
+
+    results = svc.fuse_ticker("SBER", as_of=NOW)
+    # Recency fetched once (not once per window)
+    repo.fetch_broker_event_recency.assert_called_once_with(ticker="SBER", figi=None)
+    # Both windows should have the same recency data
+    for r in results:
+        assert r.last_dividend_at == div_time
+        assert r.days_since_last_dividend == 7.0
+
+
+def test_fuse_ticker_recency_error_graceful():
+    """Service should not fail when recency fetch raises."""
+    svc, repo = _make_service()
+    repo.fetch_latest_signal_observation.return_value = None
+    repo.fetch_broker_event_features_for_window.return_value = []
+    repo.fetch_broker_event_recency.side_effect = RuntimeError("db error")
+
+    results = svc.fuse_ticker("SBER", as_of=NOW)
+    assert len(results) == 2
+    # Recency fields should be None (graceful degradation)
+    for r in results:
+        assert r.last_dividend_at is None
+        assert r.days_since_last_dividend is None
