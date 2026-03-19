@@ -75,9 +75,10 @@ docker compose exec postgres psql -U tinvest -d tinvest -c "SELECT 1"
 
 ```
 cd ~/T-Invest-trader
-git pull
-docker compose build
-docker compose up -d
+git fetch origin
+git checkout main
+git reset --hard origin/main
+docker compose up -d --build
 ```
 
 ## Useful Commands
@@ -194,5 +195,6 @@ Required GitHub Secrets for automated deployment:
 - `DEPLOY_USER` -- `t_bot`
 - `DEPLOY_SSH_KEY` -- private SSH key for VPS access
 
-Workflow: on merge to main, SSH into VPS, pull, rebuild, restart.
+Workflow: on merge to main, SSH into VPS, fetch the latest `origin/main`,
+hard-reset the working tree to that revision, then rebuild and restart.
 Enable only after first successful manual deployment.
