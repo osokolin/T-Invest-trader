@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from tinvest_trader.services.broker_event_ingestion_service import (
         BrokerEventIngestionService,
     )
+    from tinvest_trader.services.fusion_service import FusionService
     from tinvest_trader.services.observation_service import ObservationService
     from tinvest_trader.services.telegram_sentiment_service import TelegramSentimentService
 
@@ -27,6 +28,7 @@ class BackgroundRunner:
         telegram_sentiment_service: TelegramSentimentService | None = None,
         observation_service: ObservationService | None = None,
         broker_event_ingestion_service: BrokerEventIngestionService | None = None,
+        fusion_service: FusionService | None = None,
         sentiment_channels: tuple[str, ...] = (),
         broker_event_interval_seconds: int = 1800,
         time_fn: Callable[[], float] | None = None,
@@ -36,6 +38,7 @@ class BackgroundRunner:
         self._telegram_sentiment_service = telegram_sentiment_service
         self._observation_service = observation_service
         self._broker_event_ingestion_service = broker_event_ingestion_service
+        self._fusion_service = fusion_service
         self._sentiment_channels = sentiment_channels
         self._broker_event_interval_seconds = broker_event_interval_seconds
         self._time_fn = time_fn or time.monotonic
@@ -170,6 +173,7 @@ class BackgroundRunner:
             self._sentiment_is_runnable()
             or self._observation_is_runnable()
             or self._broker_events_is_runnable()
+            or self._fusion_is_runnable()
         )
 
     def _sentiment_is_runnable(self) -> bool:
@@ -180,6 +184,9 @@ class BackgroundRunner:
 
     def _broker_events_is_runnable(self) -> bool:
         return self._broker_event_ingestion_service is not None
+
+    def _fusion_is_runnable(self) -> bool:
+        return self._config.run_fusion and self._fusion_service is not None
 
     def run_broker_event_cycle(self) -> None:
         """Run one broker structured-event ingestion cycle safely."""
@@ -205,10 +212,37 @@ class BackgroundRunner:
                 extra={"component": "background_runner"},
             )
 
+    def run_fusion_cycle(self) -> None:
+        """Run one signal fusion cycle safely."""
+        if not self._config.run_fusion:
+            return
+        if self._fusion_service is None:
+            self._logger.info(
+                "skipping fusion cycle: service unavailable",
+                extra={"component": "background_runner"},
+            )
+            return
+
+        try:
+            features = self._fusion_service.fuse_all()
+            self._logger.info(
+                "background fusion cycle complete",
+                extra={
+                    "component": "background_runner",
+                    "fused_features": len(features),
+                },
+            )
+        except Exception:
+            self._logger.exception(
+                "background fusion cycle failed",
+                extra={"component": "background_runner"},
+            )
+
     def _run_loop(self) -> None:
         next_sentiment_run = self._time_fn()
         next_observation_run = self._time_fn()
         next_broker_event_run = self._time_fn()
+        next_fusion_run = self._time_fn()
 
         while not self._stop_event.is_set():
             now = self._time_fn()
@@ -246,6 +280,19 @@ class BackgroundRunner:
                     broker_event_wait
                     if next_wait is None
                     else min(next_wait, broker_event_wait)
+                )
+
+            if self._fusion_is_runnable():
+                if now >= next_fusion_run:
+                    self.run_fusion_cycle()
+                    next_fusion_run = self._time_fn() + max(
+                        1, self._config.fusion_interval_seconds,
+                    )
+                fusion_wait = max(0.0, next_fusion_run - self._time_fn())
+                next_wait = (
+                    fusion_wait
+                    if next_wait is None
+                    else min(next_wait, fusion_wait)
                 )
 
             if next_wait is None:

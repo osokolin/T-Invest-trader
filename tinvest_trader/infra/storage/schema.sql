@@ -239,3 +239,47 @@ CREATE INDEX IF NOT EXISTS idx_broker_event_features_ticker_time
     ON broker_event_features (ticker, event_time DESC);
 CREATE INDEX IF NOT EXISTS idx_broker_event_features_source_time
     ON broker_event_features (source_method, event_time DESC);
+
+-- ============================================================
+-- Milestone 7: Signal Fusion Layer
+-- ============================================================
+
+-- Fused per-ticker per-window feature rows combining sentiment
+-- observations and broker event features into a single queryable set.
+CREATE TABLE IF NOT EXISTS fused_signal_features (
+    id                      BIGSERIAL PRIMARY KEY,
+    ticker                  TEXT NOT NULL,
+    figi                    TEXT,
+    "window"                TEXT NOT NULL,
+    observation_time        TIMESTAMPTZ NOT NULL,
+
+    -- Sentiment features (from signal_observations)
+    sentiment_message_count     INTEGER,
+    sentiment_positive_count    INTEGER,
+    sentiment_negative_count    INTEGER,
+    sentiment_neutral_count     INTEGER,
+    sentiment_positive_avg      NUMERIC(8, 6),
+    sentiment_negative_avg      NUMERIC(8, 6),
+    sentiment_neutral_avg       NUMERIC(8, 6),
+    sentiment_balance           NUMERIC(8, 6),
+
+    -- Broker event features (aggregated counts per source)
+    broker_dividends_count      INTEGER NOT NULL DEFAULT 0,
+    broker_reports_count        INTEGER NOT NULL DEFAULT 0,
+    broker_insider_deals_count  INTEGER NOT NULL DEFAULT 0,
+    broker_total_event_count    INTEGER NOT NULL DEFAULT 0,
+
+    -- Latest broker event value per source (nullable)
+    broker_latest_dividend_value    NUMERIC(20, 9),
+    broker_latest_dividend_currency TEXT,
+    broker_latest_report_time       TIMESTAMPTZ,
+    broker_latest_insider_deal_time TIMESTAMPTZ,
+
+    recorded_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_fused_signal_ticker_time
+    ON fused_signal_features (ticker, observation_time DESC);
+CREATE INDEX IF NOT EXISTS idx_fused_signal_figi_time
+    ON fused_signal_features (figi, observation_time DESC);
+CREATE INDEX IF NOT EXISTS idx_fused_signal_window_time
+    ON fused_signal_features ("window", observation_time DESC);

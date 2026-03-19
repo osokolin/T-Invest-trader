@@ -14,6 +14,7 @@ from tinvest_trader.domain.models import (
     MarketSnapshot,
     OrderIntent,
 )
+from tinvest_trader.fusion.models import FusedSignalFeature
 from tinvest_trader.infra.storage.postgres import PostgresPool
 from tinvest_trader.observation.models import SignalObservation
 from tinvest_trader.sentiment.models import SentimentResult, TelegramMessage, TickerMention
@@ -448,3 +449,135 @@ class TradingRepository:
             "signal_observations": int(row[3]),
             "market_snapshots": int(row[4]),
         }
+
+    # -- Signal fusion --
+
+    def fetch_broker_event_features_for_window(
+        self,
+        ticker: str,
+        start_time: datetime,
+        end_time: datetime,
+        figi: str | None = None,
+    ) -> list[dict]:
+        """Fetch broker event feature rows for a ticker within a time window."""
+        if figi:
+            sql = """
+                SELECT source_method, event_type, event_direction,
+                       event_value, currency, event_time
+                FROM broker_event_features
+                WHERE figi = %s AND event_time >= %s AND event_time < %s
+                ORDER BY event_time
+            """
+            params = (figi, start_time, end_time)
+        else:
+            sql = """
+                SELECT source_method, event_type, event_direction,
+                       event_value, currency, event_time
+                FROM broker_event_features
+                WHERE ticker = %s AND event_time >= %s AND event_time < %s
+                ORDER BY event_time
+            """
+            params = (ticker.upper(), start_time, end_time)
+
+        columns = (
+            "source_method", "event_type", "event_direction",
+            "event_value", "currency", "event_time",
+        )
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, params)
+            return [dict(zip(columns, row, strict=True)) for row in cur.fetchall()]
+
+    def fetch_latest_signal_observation(
+        self,
+        ticker: str,
+        window: str,
+        before: datetime,
+        figi: str | None = None,
+    ) -> SignalObservation | None:
+        """Fetch the most recent signal observation for a ticker/window."""
+        if figi:
+            sql = """
+                SELECT ticker, figi, "window", observation_time,
+                       message_count, positive_count, negative_count, neutral_count,
+                       positive_score_avg, negative_score_avg, neutral_score_avg,
+                       sentiment_balance
+                FROM signal_observations
+                WHERE figi = %s AND "window" = %s AND observation_time <= %s
+                ORDER BY observation_time DESC
+                LIMIT 1
+            """
+            params = (figi, window, before)
+        else:
+            sql = """
+                SELECT ticker, figi, "window", observation_time,
+                       message_count, positive_count, negative_count, neutral_count,
+                       positive_score_avg, negative_score_avg, neutral_score_avg,
+                       sentiment_balance
+                FROM signal_observations
+                WHERE ticker = %s AND "window" = %s AND observation_time <= %s
+                ORDER BY observation_time DESC
+                LIMIT 1
+            """
+            params = (ticker.upper(), window, before)
+
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, params)
+            row = cur.fetchone()
+
+        if row is None:
+            return None
+
+        return SignalObservation(
+            ticker=row[0],
+            figi=row[1],
+            window=row[2],
+            observation_time=row[3],
+            message_count=int(row[4]),
+            positive_count=int(row[5]),
+            negative_count=int(row[6]),
+            neutral_count=int(row[7]),
+            positive_score_avg=float(row[8]) if row[8] is not None else None,
+            negative_score_avg=float(row[9]) if row[9] is not None else None,
+            neutral_score_avg=float(row[10]) if row[10] is not None else None,
+            sentiment_balance=float(row[11]) if row[11] is not None else None,
+        )
+
+    def insert_fused_signal_feature(self, feature: FusedSignalFeature) -> None:
+        sql = """
+            INSERT INTO fused_signal_features
+                (ticker, figi, "window", observation_time,
+                 sentiment_message_count, sentiment_positive_count,
+                 sentiment_negative_count, sentiment_neutral_count,
+                 sentiment_positive_avg, sentiment_negative_avg,
+                 sentiment_neutral_avg, sentiment_balance,
+                 broker_dividends_count, broker_reports_count,
+                 broker_insider_deals_count, broker_total_event_count,
+                 broker_latest_dividend_value, broker_latest_dividend_currency,
+                 broker_latest_report_time, broker_latest_insider_deal_time)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        with self._pool.get_connection() as conn:
+            conn.execute(sql, (
+                feature.ticker,
+                feature.figi,
+                feature.window,
+                feature.observation_time,
+                feature.sentiment_message_count,
+                feature.sentiment_positive_count,
+                feature.sentiment_negative_count,
+                feature.sentiment_neutral_count,
+                feature.sentiment_positive_avg,
+                feature.sentiment_negative_avg,
+                feature.sentiment_neutral_avg,
+                feature.sentiment_balance,
+                feature.broker_dividends_count,
+                feature.broker_reports_count,
+                feature.broker_insider_deals_count,
+                feature.broker_total_event_count,
+                feature.broker_latest_dividend_value,
+                feature.broker_latest_dividend_currency,
+                feature.broker_latest_report_time,
+                feature.broker_latest_insider_deal_time,
+            ))
+            conn.commit()
