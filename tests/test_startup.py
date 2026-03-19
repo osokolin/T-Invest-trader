@@ -24,7 +24,7 @@ def _shutdown_and_collect(
     proc: subprocess.Popen[str],
     output_lines: list[str],
 ) -> tuple[int, str]:
-    proc.send_signal(signal.SIGTERM)
+    proc.send_signal(signal.SIGINT)
     try:
         _stdout, remaining = proc.communicate(timeout=10)
     except subprocess.TimeoutExpired:
