@@ -558,6 +558,52 @@ class TradingRepository:
             sentiment_balance=float(row[11]) if row[11] is not None else None,
         )
 
+    def fetch_broker_event_recency(
+        self,
+        ticker: str,
+        figi: str | None = None,
+    ) -> dict:
+        """Fetch the latest event timestamp per source_method for a ticker.
+
+        Returns a dict with keys: last_dividend_at, last_report_at,
+        last_insider_deal_at (each datetime | None).
+        """
+        if figi:
+            sql = """
+                SELECT source_method, MAX(event_time) AS latest
+                FROM broker_event_features
+                WHERE figi = %s
+                GROUP BY source_method
+            """
+            params = (figi,)
+        else:
+            sql = """
+                SELECT source_method, MAX(event_time) AS latest
+                FROM broker_event_features
+                WHERE ticker = %s
+                GROUP BY source_method
+            """
+            params = (ticker.upper(),)
+
+        result: dict = {
+            "last_dividend_at": None,
+            "last_report_at": None,
+            "last_insider_deal_at": None,
+        }
+        method_map = {
+            "GetDividends": "last_dividend_at",
+            "GetAssetReports": "last_report_at",
+            "GetInsiderDeals": "last_insider_deal_at",
+        }
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, params)
+            for row in cur.fetchall():
+                key = method_map.get(row[0])
+                if key:
+                    result[key] = row[1]
+
+        return result
+
     def insert_fused_signal_feature(self, feature: FusedSignalFeature) -> None:
         sql = """
             INSERT INTO fused_signal_features
@@ -569,9 +615,12 @@ class TradingRepository:
                  broker_dividends_count, broker_reports_count,
                  broker_insider_deals_count, broker_total_event_count,
                  broker_latest_dividend_value, broker_latest_dividend_currency,
-                 broker_latest_report_time, broker_latest_insider_deal_time)
+                 broker_latest_report_time, broker_latest_insider_deal_time,
+                 last_dividend_at, last_report_at, last_insider_deal_at,
+                 days_since_last_dividend, days_since_last_report,
+                 days_since_last_insider_deal)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s, %s)
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         with self._pool.get_connection() as conn:
             conn.execute(sql, (
@@ -595,5 +644,11 @@ class TradingRepository:
                 feature.broker_latest_dividend_currency,
                 feature.broker_latest_report_time,
                 feature.broker_latest_insider_deal_time,
+                feature.last_dividend_at,
+                feature.last_report_at,
+                feature.last_insider_deal_at,
+                feature.days_since_last_dividend,
+                feature.days_since_last_report,
+                feature.days_since_last_insider_deal,
             ))
             conn.commit()

@@ -275,6 +275,14 @@ CREATE TABLE IF NOT EXISTS fused_signal_features (
     broker_latest_report_time       TIMESTAMPTZ,
     broker_latest_insider_deal_time TIMESTAMPTZ,
 
+    -- Broker event recency (global latest per ticker, independent of window)
+    last_dividend_at                TIMESTAMPTZ,
+    last_report_at                  TIMESTAMPTZ,
+    last_insider_deal_at            TIMESTAMPTZ,
+    days_since_last_dividend        NUMERIC(10, 2),
+    days_since_last_report          NUMERIC(10, 2),
+    days_since_last_insider_deal    NUMERIC(10, 2),
+
     recorded_at             TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_fused_signal_ticker_time
