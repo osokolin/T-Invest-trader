@@ -339,3 +339,32 @@ class TradingRepository:
                 obs.sentiment_balance,
             ))
             conn.commit()
+
+    def fetch_operational_summary(self) -> dict[str, int]:
+        """Fetch simple operational row counts for key tables."""
+        sql = """
+            SELECT
+                (SELECT count(*) FROM telegram_messages_raw),
+                (SELECT count(*) FROM telegram_message_mentions),
+                (SELECT count(*) FROM telegram_sentiment_events),
+                (SELECT count(*) FROM signal_observations),
+                (SELECT count(*) FROM market_snapshots)
+        """
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql)
+            row = cur.fetchone()
+        if row is None:
+            return {
+                "telegram_messages_raw": 0,
+                "telegram_message_mentions": 0,
+                "telegram_sentiment_events": 0,
+                "signal_observations": 0,
+                "market_snapshots": 0,
+            }
+        return {
+            "telegram_messages_raw": int(row[0]),
+            "telegram_message_mentions": int(row[1]),
+            "telegram_sentiment_events": int(row[2]),
+            "signal_observations": int(row[3]),
+            "market_snapshots": int(row[4]),
+        }
