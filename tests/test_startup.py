@@ -26,12 +26,11 @@ def _shutdown_and_collect(
 ) -> tuple[int, str]:
     proc.send_signal(signal.SIGTERM)
     try:
-        proc.wait(timeout=5)
+        _stdout, remaining = proc.communicate(timeout=10)
     except subprocess.TimeoutExpired:
         proc.kill()
-        proc.wait(timeout=5)
+        _stdout, remaining = proc.communicate(timeout=5)
 
-    remaining = proc.stderr.read()
     full_output = "".join(output_lines) + remaining
     assert proc.returncode is not None
     return proc.returncode, full_output
