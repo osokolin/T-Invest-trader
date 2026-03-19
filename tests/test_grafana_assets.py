@@ -32,6 +32,8 @@ def test_provisioning_files_reference_postgres_and_dashboards() -> None:
     assert "name: Postgres" in datasource_text
     assert "uid: postgres" in datasource_text
     assert "url: postgres:5432" in datasource_text
+    assert "database: tinvest" in datasource_text
+    assert "jsonData:\n      database: tinvest" in datasource_text
     assert "path: /var/lib/grafana/dashboards" in dashboards_text
 
 

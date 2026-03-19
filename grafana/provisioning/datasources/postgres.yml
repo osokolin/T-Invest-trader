@@ -7,10 +7,10 @@ datasources:
     access: proxy
     url: postgres:5432
     user: tinvest
-    database: tinvest
     isDefault: true
     editable: false
     jsonData:
+      database: tinvest
       sslmode: disable
       postgresVersion: 1600
       timescaledb: false
