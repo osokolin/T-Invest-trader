@@ -169,3 +169,21 @@ def test_insert_position_snapshot():
     conn.execute.assert_called_once()
     conn.commit.assert_called_once()
     assert "position_snapshots" in conn.execute.call_args[0][0]
+
+
+def test_fetch_operational_summary():
+    repo, conn = _make_repo()
+    cur = MagicMock()
+    cur.fetchone.return_value = (1, 2, 3, 4, 5)
+    conn.execute.return_value = cur
+
+    summary = repo.fetch_operational_summary()
+
+    conn.execute.assert_called_once()
+    assert summary == {
+        "telegram_messages_raw": 1,
+        "telegram_message_mentions": 2,
+        "telegram_sentiment_events": 3,
+        "signal_observations": 4,
+        "market_snapshots": 5,
+    }
