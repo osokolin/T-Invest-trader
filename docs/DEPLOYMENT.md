@@ -79,6 +79,15 @@ Admin credentials come from `.env`:
 - `GRAFANA_ADMIN_PASSWORD`
 
 Defaults in `.env.example` are `admin` / `admin`. Change them before exposing Grafana publicly.
+The deployed stack also syncs Grafana admin credentials from `.env` on container startup:
+- `GRAFANA_ADMIN_PASSWORD` is reset from config on every start
+- `GRAFANA_ADMIN_USER` is applied automatically when the current login is still `admin` or already matches the configured login
+
+If you intentionally change the admin login later, restart Grafana after updating `.env`:
+
+```
+docker compose up -d grafana
+```
 
 ## Grafana Verification
 

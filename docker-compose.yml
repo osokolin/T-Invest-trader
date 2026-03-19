@@ -29,6 +29,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - /etc/grafana/custom-entrypoint.sh
     ports:
       - "3000:3000"
     env_file:
@@ -41,6 +44,7 @@ services:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./deploy/grafana/custom-entrypoint.sh:/etc/grafana/custom-entrypoint.sh:ro
 
 volumes:
   pgdata:
