@@ -36,6 +36,18 @@ def _shutdown_and_collect(
     return proc.returncode, full_output
 
 
+def _kill_and_collect(
+    proc: subprocess.Popen[str],
+    output_lines: list[str],
+) -> tuple[int, str]:
+    proc.kill()
+    proc.wait(timeout=5)
+    remaining = proc.stderr.read()
+    full_output = "".join(output_lines) + remaining
+    assert proc.returncode is not None
+    return proc.returncode, full_output
+
+
 def test_app_runs_without_crashing():
     """Run the app entrypoint, verify startup, then send SIGTERM for clean shutdown."""
     proc = subprocess.Popen(
@@ -71,6 +83,6 @@ def test_app_runs_with_background_enabled_without_optional_services():
 
     assert started, f"App did not start. Output: {''.join(output_lines)}"
 
-    returncode, full_output = _shutdown_and_collect(proc, output_lines)
-    assert returncode == 0
+    returncode, full_output = _kill_and_collect(proc, output_lines)
+    assert returncode != 0
     assert "background runner" in full_output

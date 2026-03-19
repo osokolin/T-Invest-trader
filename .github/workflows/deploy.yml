@@ -23,7 +23,8 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
             cd ~/T-Invest-trader
-            git pull origin main
-            docker compose build
-            docker compose up -d
+            git fetch origin
+            git checkout main
+            git reset --hard origin/main
+            docker compose up -d --build
             docker compose ps
