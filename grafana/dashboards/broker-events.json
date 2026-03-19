@@ -103,7 +103,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT $__timeGroupAlias(COALESCE(event_time, recorded_at), $__interval), event_type AS metric, count(*)::double precision AS value FROM broker_event_features WHERE $__timeFilter(COALESCE(event_time, recorded_at)) GROUP BY 1, 2 ORDER BY 1;",
+          "rawSql": "SELECT $__timeGroupAlias(event_ts, $__interval), event_type AS metric, count(*)::double precision AS value FROM (SELECT COALESCE(event_time, recorded_at) AS event_ts, event_type FROM broker_event_features) events WHERE $__timeFilter(event_ts) GROUP BY 1, 2 ORDER BY 1;",
           "refId": "A"
         }
       ],
