@@ -326,7 +326,7 @@ class TBankClient:
     def _stub_instrument(self, figi: str) -> dict:
         return {
             "figi": figi,
-            "ticker": "STUB",
+            "ticker": None,
             "name": "Stub Instrument",
             "uid": f"uid-{figi}",
         }

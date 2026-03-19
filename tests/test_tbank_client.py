@@ -38,7 +38,7 @@ def test_get_instrument_falls_back_to_stub_without_token():
 
     assert result == {
         "figi": "BBG000B9XRY4",
-        "ticker": "STUB",
+        "ticker": None,
         "name": "Stub Instrument",
         "uid": "uid-BBG000B9XRY4",
     }

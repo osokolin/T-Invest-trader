@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
-from tinvest_trader.domain.models import BrokerEventRaw
+from tinvest_trader.domain.models import BrokerEventRaw, Instrument
 from tinvest_trader.infra.tbank.mapper import map_broker_event_feature
 
 if TYPE_CHECKING:
@@ -109,16 +109,64 @@ class BrokerEventIngestionService:
                     "failed to resolve tracked instrument metadata",
                     extra={"component": "broker_events", "figi": figi},
                 )
-                continue
+                raw_instrument = {}
+
+            ticker = raw_instrument.get("ticker") or None
+            instrument_uid = (
+                raw_instrument.get("uid")
+                or raw_instrument.get("instrument_uid")
+            )
+
+            # Fallback: look up ticker from instrument_catalog if API
+            # returned no ticker (stub mode or transient failure).
+            if not ticker and self._repository is not None:
+                try:
+                    ticker = self._repository.fetch_ticker_by_figi(figi)
+                    if ticker:
+                        self._logger.info(
+                            "resolved ticker from instrument catalog",
+                            extra={
+                                "component": "broker_events",
+                                "figi": figi,
+                                "ticker": ticker,
+                            },
+                        )
+                except Exception:
+                    self._logger.exception(
+                        "failed to look up ticker from instrument catalog",
+                        extra={"component": "broker_events", "figi": figi},
+                    )
+
+            # Persist resolved metadata for future fallback lookups.
+            if ticker and self._repository is not None:
+                try:
+                    self._repository.upsert_instrument(
+                        inst=Instrument(figi=figi, ticker=ticker, name=""),
+                        tracked=True,
+                        enabled=False,
+                        instrument_uid=instrument_uid,
+                    )
+                except Exception:
+                    self._logger.exception(
+                        "failed to cache instrument metadata",
+                        extra={
+                            "component": "broker_events",
+                            "figi": figi,
+                            "ticker": ticker,
+                        },
+                    )
+
+            if not ticker:
+                self._logger.warning(
+                    "ticker resolution failed for tracked figi",
+                    extra={"component": "broker_events", "figi": figi},
+                )
 
             resolved.append(
                 _TrackedInstrumentRef(
                     figi=figi,
-                    ticker=raw_instrument.get("ticker"),
-                    instrument_uid=(
-                        raw_instrument.get("uid")
-                        or raw_instrument.get("instrument_uid")
-                    ),
+                    ticker=ticker,
+                    instrument_uid=instrument_uid,
                 ),
             )
         return resolved
