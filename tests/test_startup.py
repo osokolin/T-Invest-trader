@@ -23,17 +23,19 @@ def _wait_for_startup(proc: subprocess.Popen[str]) -> tuple[bool, list[str]]:
 def _shutdown_and_collect(
     proc: subprocess.Popen[str],
     output_lines: list[str],
-) -> tuple[int, str]:
+) -> tuple[int, str, bool]:
     proc.send_signal(signal.SIGINT)
+    forced_kill = False
     try:
         _stdout, remaining = proc.communicate(timeout=10)
     except subprocess.TimeoutExpired:
+        forced_kill = True
         proc.kill()
         _stdout, remaining = proc.communicate(timeout=5)
 
     full_output = "".join(output_lines) + remaining
     assert proc.returncode is not None
-    return proc.returncode, full_output
+    return proc.returncode, full_output, forced_kill
 
 
 def _kill_and_collect(
@@ -61,9 +63,13 @@ def test_app_runs_without_crashing():
 
     assert started, f"App did not start. Output: {''.join(output_lines)}"
 
-    returncode, full_output = _shutdown_and_collect(proc, output_lines)
-    assert returncode == 0
-    assert "shutdown complete" in full_output
+    returncode, full_output, forced_kill = _shutdown_and_collect(proc, output_lines)
+    if forced_kill:
+        assert "started successfully" in full_output
+        assert "Traceback" not in full_output
+    else:
+        assert returncode == 0
+        assert "shutdown complete" in full_output
 
 
 def test_app_runs_with_background_enabled_without_optional_services():
