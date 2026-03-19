@@ -10,6 +10,7 @@ def test_dashboard_json_files_are_present_and_valid() -> None:
         "telegram-sentiment.json": "Telegram Sentiment",
         "broker-events.json": "Broker Events",
         "signal-observations.json": "Signal Observations",
+        "fused-signal-features.json": "Fused Signal Features",
     }
 
     for filename, expected_title in dashboard_files.items():
@@ -59,6 +60,28 @@ def test_docker_compose_includes_grafana_service() -> None:
         "./deploy/grafana/custom-entrypoint.sh:/etc/grafana/custom-entrypoint.sh:ro"
         in compose_text
     )
+
+
+def test_fused_signal_features_dashboard_has_expected_panels() -> None:
+    dashboard = json.loads(
+        (GRAFANA_ROOT / "dashboards" / "fused-signal-features.json").read_text(),
+    )
+    titles = [p["title"] for p in dashboard["panels"]]
+    assert "Latest Fused Rows" in titles
+    assert "Sentiment Balance Over Time by Ticker" in titles
+    assert "Sentiment Count Over Time by Ticker/Window" in titles
+    assert "Broker Event Counts Over Time" in titles
+    assert "Event Flags (rows with broker events)" in titles
+
+
+def test_fused_signal_features_queries_reference_correct_table() -> None:
+    dashboard = json.loads(
+        (GRAFANA_ROOT / "dashboards" / "fused-signal-features.json").read_text(),
+    )
+    for panel in dashboard["panels"]:
+        for target in panel["targets"]:
+            sql = target.get("rawSql", "")
+            assert "fused_signal_features" in sql
 
 
 def test_grafana_custom_entrypoint_syncs_password_from_env() -> None:
