@@ -53,6 +53,7 @@ docker compose ps
 ```
 
 Expected: both `postgres` (healthy) and `app` services running.
+With Grafana enabled in `docker-compose.yml`, expected services are `postgres`, `app`, and `grafana`.
 
 ### 5. Check app logs
 
@@ -64,6 +65,48 @@ Look for:
 - `tinvest_trader starting`
 - `database connected and schema ready`
 - `tinvest_trader started successfully`
+
+## Grafana Access
+
+Grafana is exposed on port `3000` by default:
+
+```
+http://<your-vps-host>:3000
+```
+
+Admin credentials come from `.env`:
+- `GRAFANA_ADMIN_USER`
+- `GRAFANA_ADMIN_PASSWORD`
+
+Defaults in `.env.example` are `admin` / `admin`. Change them before exposing Grafana publicly.
+
+## Grafana Verification
+
+After `docker compose up -d --build`, check Grafana:
+
+```
+docker compose ps grafana
+docker compose logs grafana
+```
+
+On first startup, Grafana should automatically provision:
+- a PostgreSQL datasource named `Postgres`
+- a dashboard folder named `T-Invest Trader`
+- dashboards:
+  - `Telegram Sentiment`
+  - `Broker Events`
+  - `Signal Observations`
+
+To confirm the datasource is connected:
+1. Log in to Grafana
+2. Open `Connections` -> `Data sources`
+3. Open `Postgres`
+4. Verify it reports a successful connection
+
+If Grafana is exposed on a public VPS, consider:
+- restricting port `3000` via firewall
+- placing Grafana behind a reverse proxy with HTTPS
+- changing the default admin password immediately
 
 ### 6. Check postgres is accessible
 
@@ -88,6 +131,7 @@ docker compose up -d --build
 | `docker compose ps` | Show service status |
 | `docker compose logs -f app` | Follow app logs |
 | `docker compose logs -f postgres` | Follow DB logs |
+| `docker compose logs -f grafana` | Follow Grafana logs |
 | `docker compose restart app` | Restart app only |
 | `docker compose down` | Stop all services |
 | `docker compose exec app bash` | Shell into app container |
@@ -160,6 +204,8 @@ SELECT 'telegram_messages_raw' AS tbl, count(*) FROM telegram_messages_raw
 UNION ALL SELECT 'telegram_message_mentions', count(*) FROM telegram_message_mentions
 UNION ALL SELECT 'telegram_sentiment_events', count(*) FROM telegram_sentiment_events
 UNION ALL SELECT 'signal_observations', count(*) FROM signal_observations
+UNION ALL SELECT 'broker_event_raw', count(*) FROM broker_event_raw
+UNION ALL SELECT 'broker_event_features', count(*) FROM broker_event_features
 UNION ALL SELECT 'market_snapshots', count(*) FROM market_snapshots
 UNION ALL SELECT 'order_intents', count(*) FROM order_intents
 UNION ALL SELECT 'execution_events', count(*) FROM execution_events;

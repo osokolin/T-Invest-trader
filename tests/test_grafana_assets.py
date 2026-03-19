@@ -1,0 +1,44 @@
+import json
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+GRAFANA_ROOT = REPO_ROOT / "grafana"
+
+
+def test_dashboard_json_files_are_present_and_valid() -> None:
+    dashboard_files = {
+        "telegram-sentiment.json": "Telegram Sentiment",
+        "broker-events.json": "Broker Events",
+        "signal-observations.json": "Signal Observations",
+    }
+
+    for filename, expected_title in dashboard_files.items():
+        dashboard_path = GRAFANA_ROOT / "dashboards" / filename
+        assert dashboard_path.exists()
+
+        dashboard = json.loads(dashboard_path.read_text())
+        assert dashboard["title"] == expected_title
+        assert dashboard["uid"]
+        assert dashboard["panels"]
+
+
+def test_provisioning_files_reference_postgres_and_dashboards() -> None:
+    datasource_path = GRAFANA_ROOT / "provisioning" / "datasources" / "postgres.yml"
+    dashboards_path = GRAFANA_ROOT / "provisioning" / "dashboards" / "dashboards.yml"
+
+    datasource_text = datasource_path.read_text()
+    dashboards_text = dashboards_path.read_text()
+
+    assert "name: Postgres" in datasource_text
+    assert "uid: postgres" in datasource_text
+    assert "url: postgres:5432" in datasource_text
+    assert "path: /var/lib/grafana/dashboards" in dashboards_text
+
+
+def test_docker_compose_includes_grafana_service() -> None:
+    compose_text = (REPO_ROOT / "docker-compose.yml").read_text()
+
+    assert "grafana:" in compose_text
+    assert "grafana/grafana" in compose_text
+    assert "./grafana/provisioning:/etc/grafana/provisioning:ro" in compose_text
+    assert "./grafana/dashboards:/var/lib/grafana/dashboards:ro" in compose_text
