@@ -283,6 +283,15 @@ CREATE TABLE IF NOT EXISTS fused_signal_features (
     days_since_last_report          NUMERIC(10, 2),
     days_since_last_insider_deal    NUMERIC(10, 2),
 
+    -- MOEX market context (latest available data from moex_market_history)
+    moex_latest_close               NUMERIC(20, 9),
+    moex_latest_volume              BIGINT,
+    moex_latest_numtrades           INTEGER,
+    moex_last_trade_date            DATE,
+    moex_days_since_last_trade      NUMERIC(10, 2),
+    moex_price_change_1d_pct        NUMERIC(10, 4),
+    moex_range_pct                  NUMERIC(10, 4),
+
     recorded_at             TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_fused_signal_ticker_time

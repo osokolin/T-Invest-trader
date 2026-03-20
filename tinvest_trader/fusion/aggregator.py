@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from tinvest_trader.fusion.models import FusedSignalFeature
 from tinvest_trader.observation.models import SignalObservation
@@ -14,6 +14,73 @@ def _days_between(earlier: datetime, later: datetime) -> float:
     return round(delta.total_seconds() / 86400, 2)
 
 
+def _days_since_trade_date(trade_date: date, now: datetime) -> float:
+    """Return days between a trade date and the observation time."""
+    today = now.date() if isinstance(now, datetime) else now
+    delta = today - trade_date
+    return round(delta.days, 2)
+
+
+def _enrich_moex(market_context: dict | None, observation_time: datetime) -> dict:
+    """Extract MOEX market context fields from repository data.
+
+    Parameters
+    ----------
+    market_context:
+        Dict with keys: latest (dict|None), previous_close (float|None).
+        latest dict has: close, volume, num_trades, trade_date.
+    observation_time:
+        Current observation time for computing days_since.
+
+    Returns dict with moex_* fields ready for FusedSignalFeature.
+    """
+    result: dict = {
+        "moex_latest_close": None,
+        "moex_latest_volume": None,
+        "moex_latest_numtrades": None,
+        "moex_last_trade_date": None,
+        "moex_days_since_last_trade": None,
+        "moex_price_change_1d_pct": None,
+        "moex_range_pct": None,
+    }
+    if not market_context:
+        return result
+
+    latest = market_context.get("latest")
+    if not latest:
+        return result
+
+    close = latest.get("close")
+    volume = latest.get("volume")
+    num_trades = latest.get("num_trades")
+    trade_date = latest.get("trade_date")
+    high = latest.get("high")
+    low = latest.get("low")
+
+    result["moex_latest_close"] = float(close) if close is not None else None
+    result["moex_latest_volume"] = int(volume) if volume is not None else None
+    result["moex_latest_numtrades"] = int(num_trades) if num_trades is not None else None
+    result["moex_last_trade_date"] = trade_date
+
+    if trade_date is not None:
+        result["moex_days_since_last_trade"] = _days_since_trade_date(
+            trade_date, observation_time,
+        )
+
+    # Price change vs previous day
+    prev_close = market_context.get("previous_close")
+    if close is not None and prev_close is not None and prev_close != 0:
+        pct = round((float(close) - float(prev_close)) / float(prev_close) * 100, 4)
+        result["moex_price_change_1d_pct"] = pct
+
+    # Intraday range percentage
+    if high is not None and low is not None and low != 0:
+        range_pct = round((float(high) - float(low)) / float(low) * 100, 4)
+        result["moex_range_pct"] = range_pct
+
+    return result
+
+
 def fuse_signals(
     observation: SignalObservation | None,
     broker_events: list[dict],
@@ -22,6 +89,7 @@ def fuse_signals(
     window: str,
     observation_time: datetime,
     recency: dict | None = None,
+    market_context: dict | None = None,
 ) -> FusedSignalFeature:
     """Combine a sentiment observation with broker event feature rows.
 
@@ -39,6 +107,8 @@ def fuse_signals(
         Optional dict with keys last_dividend_at, last_report_at,
         last_insider_deal_at (datetime | None). Global latest event times
         for the ticker, independent of window.
+    market_context:
+        Optional dict with MOEX market data: latest row + previous close.
     """
     # Sentiment side
     if observation is not None:
@@ -95,6 +165,9 @@ def fuse_signals(
     days_rep = _days_between(last_rep_at, observation_time) if last_rep_at else None
     days_ins = _days_between(last_ins_at, observation_time) if last_ins_at else None
 
+    # MOEX market context
+    moex = _enrich_moex(market_context, observation_time)
+
     return FusedSignalFeature(
         ticker=ticker,
         figi=figi,
@@ -122,4 +195,11 @@ def fuse_signals(
         days_since_last_dividend=days_div,
         days_since_last_report=days_rep,
         days_since_last_insider_deal=days_ins,
+        moex_latest_close=moex["moex_latest_close"],
+        moex_latest_volume=moex["moex_latest_volume"],
+        moex_latest_numtrades=moex["moex_latest_numtrades"],
+        moex_last_trade_date=moex["moex_last_trade_date"],
+        moex_days_since_last_trade=moex["moex_days_since_last_trade"],
+        moex_price_change_1d_pct=moex["moex_price_change_1d_pct"],
+        moex_range_pct=moex["moex_range_pct"],
     )

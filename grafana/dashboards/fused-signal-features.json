@@ -271,6 +271,54 @@
       ],
       "title": "Event Flags (rows with broker events)",
       "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 38
+      },
+      "id": 6,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": ["sum"],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "recorded_at",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT ticker, \"window\", observation_time, moex_latest_close, moex_latest_volume, moex_latest_numtrades, moex_last_trade_date, moex_days_since_last_trade, moex_price_change_1d_pct, moex_range_pct, recorded_at FROM fused_signal_features WHERE moex_latest_close IS NOT NULL ORDER BY recorded_at DESC LIMIT 100;",
+          "refId": "A"
+        }
+      ],
+      "title": "MOEX Market Context (rows with market data)",
+      "type": "table"
     }
   ],
   "refresh": "30s",

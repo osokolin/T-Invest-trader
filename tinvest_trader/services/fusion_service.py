@@ -54,6 +54,19 @@ class FusionService:
             )
             return {}
 
+    def _fetch_moex_market_context(self, ticker: str) -> dict | None:
+        """Fetch MOEX market context for a ticker. Returns None on error."""
+        if self._repository is None:
+            return None
+        try:
+            return self._repository.fetch_moex_market_context(ticker=ticker)
+        except Exception:
+            self._logger.exception(
+                "failed to fetch MOEX market context for fusion",
+                extra={"component": "fusion", "ticker": ticker},
+            )
+            return None
+
     def fuse_ticker(
         self,
         ticker: str,
@@ -68,6 +81,9 @@ class FusionService:
 
         # Fetch recency once per ticker (independent of window)
         recency = self._fetch_recency(ticker, figi)
+
+        # Fetch MOEX market context once per ticker (independent of window)
+        market_context = self._fetch_moex_market_context(ticker)
 
         results: list[FusedSignalFeature] = []
 
@@ -114,6 +130,7 @@ class FusionService:
                 window=win.label,
                 observation_time=now,
                 recency=recency,
+                market_context=market_context,
             )
             results.append(fused)
 

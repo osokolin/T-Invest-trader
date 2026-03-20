@@ -1,5 +1,5 @@
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from unittest.mock import MagicMock
 
 from tinvest_trader.observation.models import ObservationWindow, SignalObservation
@@ -29,6 +29,8 @@ def _make_service(persist=False, tracked=frozenset(), windows=None):
         "last_report_at": None,
         "last_insider_deal_at": None,
     }
+    # Default: no MOEX data
+    repo.fetch_moex_market_context.return_value = None
     return svc, repo
 
 
@@ -168,3 +170,61 @@ def test_fuse_ticker_recency_error_graceful():
     for r in results:
         assert r.last_dividend_at is None
         assert r.days_since_last_dividend is None
+
+
+# --- MOEX market context ---
+
+
+def test_fuse_ticker_passes_moex_context():
+    """Service should fetch MOEX context once per ticker and pass to aggregator."""
+    svc, repo = _make_service()
+    repo.fetch_latest_signal_observation.return_value = None
+    repo.fetch_broker_event_features_for_window.return_value = []
+    repo.fetch_moex_market_context.return_value = {
+        "latest": {
+            "close": 300.5,
+            "volume": 1000000,
+            "num_trades": 5000,
+            "trade_date": date(2025, 5, 30),
+            "high": 305.0,
+            "low": 295.0,
+        },
+        "previous_close": 298.0,
+    }
+
+    results = svc.fuse_ticker("SBER", as_of=NOW)
+    # MOEX context fetched once (not once per window)
+    repo.fetch_moex_market_context.assert_called_once_with(ticker="SBER")
+    # Both windows should have the same MOEX data
+    for r in results:
+        assert r.moex_latest_close == 300.5
+        assert r.moex_latest_volume == 1000000
+        assert r.moex_last_trade_date == date(2025, 5, 30)
+
+
+def test_fuse_ticker_moex_error_graceful():
+    """Service should not fail when MOEX context fetch raises."""
+    svc, repo = _make_service()
+    repo.fetch_latest_signal_observation.return_value = None
+    repo.fetch_broker_event_features_for_window.return_value = []
+    repo.fetch_moex_market_context.side_effect = RuntimeError("db error")
+
+    results = svc.fuse_ticker("SBER", as_of=NOW)
+    assert len(results) == 2
+    for r in results:
+        assert r.moex_latest_close is None
+        assert r.moex_latest_volume is None
+
+
+def test_fuse_ticker_no_moex_data():
+    """When MOEX returns None, MOEX fields should be None (no crash)."""
+    svc, repo = _make_service()
+    repo.fetch_latest_signal_observation.return_value = None
+    repo.fetch_broker_event_features_for_window.return_value = []
+    repo.fetch_moex_market_context.return_value = None
+
+    results = svc.fuse_ticker("SBER", as_of=NOW)
+    assert len(results) == 2
+    for r in results:
+        assert r.moex_latest_close is None
+        assert r.moex_days_since_last_trade is None

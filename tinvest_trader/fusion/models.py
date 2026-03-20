@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 
 
 @dataclass(frozen=True)
 class FusedSignalFeature:
-    """Combined sentiment + broker event feature row for a ticker and window."""
+    """Combined sentiment + broker event + market context feature row."""
 
     ticker: str
     figi: str | None
@@ -44,3 +44,12 @@ class FusedSignalFeature:
     days_since_last_dividend: float | None = None
     days_since_last_report: float | None = None
     days_since_last_insider_deal: float | None = None
+
+    # MOEX market context (latest available data from moex_market_history)
+    moex_latest_close: float | None = None
+    moex_latest_volume: int | None = None
+    moex_latest_numtrades: int | None = None
+    moex_last_trade_date: date | None = None
+    moex_days_since_last_trade: float | None = None
+    moex_price_change_1d_pct: float | None = None
+    moex_range_pct: float | None = None
