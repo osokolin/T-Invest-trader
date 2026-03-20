@@ -66,6 +66,7 @@ class BackgroundConfig:
     run_fusion: bool = True
     run_cbr: bool = True
     run_moex: bool = True
+    run_quote_sync: bool = True
 
 
 @dataclass(frozen=True)
@@ -135,6 +136,12 @@ class SignalCalibrationConfig:
 
 
 @dataclass(frozen=True)
+class QuoteSyncConfig:
+    enabled: bool = False
+    poll_interval_seconds: int = 60
+
+
+@dataclass(frozen=True)
 class LoggingConfig:
     level: str = "INFO"
     json_output: bool = True
@@ -159,6 +166,7 @@ class AppConfig:
     signal_calibration: SignalCalibrationConfig = field(
         default_factory=SignalCalibrationConfig,
     )
+    quote_sync: QuoteSyncConfig = field(default_factory=QuoteSyncConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     environment: str = "sandbox"
 
@@ -246,6 +254,9 @@ def load_config() -> AppConfig:
             ).lower() == "true",
             run_moex=os.environ.get(
                 "TINVEST_BACKGROUND_RUN_MOEX", "true",
+            ).lower() == "true",
+            run_quote_sync=os.environ.get(
+                "TINVEST_BACKGROUND_RUN_QUOTE_SYNC", "true",
             ).lower() == "true",
         ),
         broker_events=BrokerEventsConfig(
@@ -399,6 +410,16 @@ def load_config() -> AppConfig:
             dry_run=os.environ.get(
                 "TINVEST_DRY_RUN_ENABLED", "false",
             ).lower() == "true",
+        ),
+        quote_sync=QuoteSyncConfig(
+            enabled=os.environ.get(
+                "TINVEST_QUOTE_SYNC_ENABLED", "false",
+            ).lower() == "true",
+            poll_interval_seconds=int(
+                os.environ.get(
+                    "TINVEST_QUOTE_SYNC_POLL_INTERVAL_SECONDS", "60",
+                ),
+            ),
         ),
         moex=MoexConfig(
             enabled=os.environ.get(

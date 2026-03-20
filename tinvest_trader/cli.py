@@ -134,6 +134,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show signal prediction statistics",
     )
 
+    # -- sync-quotes --
+    sync_quotes_parser = subparsers.add_parser(
+        "sync-quotes",
+        help="Bulk-fetch last prices from T-Bank for tracked instruments",
+    )
+    sync_quotes_parser.add_argument(
+        "--limit", type=int, default=0,
+        help="Max instruments to fetch (0 = all)",
+    )
+
     return parser
 
 
@@ -200,6 +210,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 market_status=args.market_status,
                 min_time_to_close=args.min_time_to_close,
             )
+        if args.command == "sync-quotes":
+            return _run_sync_quotes(container, limit=args.limit)
     finally:
         _close_container(container)
 
@@ -582,6 +594,31 @@ def _run_signal_stats(container: Container) -> int:
     by_ticker = repository.get_signal_stats_by_ticker()
     by_type = repository.get_signal_stats_by_type()
     print(format_signal_stats(stats, by_ticker, by_type))
+    return 0
+
+
+def _run_sync_quotes(container: Container, *, limit: int = 0) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.quote_sync import sync_quotes
+
+    result = sync_quotes(
+        client=container.tbank_client,
+        repository=repository,
+        logger=container.logger,
+        limit=limit,
+    )
+    print(f"requested: {result.requested}")
+    print(f"received: {result.received}")
+    print(f"inserted: {result.inserted}")
+    print(f"skipped: {result.skipped}")
+    print(f"failed: {result.failed}")
+    if result.errors:
+        for err in result.errors:
+            print(f"  error: {err}")
     return 0
 
 

@@ -460,3 +460,23 @@ CREATE INDEX IF NOT EXISTS idx_signal_predictions_created
     ON signal_predictions (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_signal_predictions_pending
     ON signal_predictions (created_at) WHERE resolved_at IS NULL;
+
+-- ============================================================
+-- Milestone 12: T-Bank market quote ingestion (last prices)
+-- ============================================================
+
+-- Stores periodic last-price snapshots from T-Bank GetLastPrices bulk API.
+-- One row per (figi, fetched_at) -- append-only for time-series analysis.
+CREATE TABLE IF NOT EXISTS market_quotes (
+    id              BIGSERIAL PRIMARY KEY,
+    ticker          TEXT NOT NULL,
+    figi            TEXT NOT NULL,
+    instrument_uid  TEXT NOT NULL DEFAULT '',
+    price           NUMERIC(20, 9) NOT NULL,
+    source_time     TIMESTAMPTZ,
+    fetched_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_market_quotes_ticker_time
+    ON market_quotes (ticker, fetched_at DESC);
+CREATE INDEX IF NOT EXISTS idx_market_quotes_figi_time
+    ON market_quotes (figi, fetched_at DESC);

@@ -676,6 +676,133 @@ class TradingRepository:
             for r in rows
         ]
 
+    # -- Market quotes (T-Bank last prices) --
+
+    def insert_market_quote(
+        self,
+        ticker: str,
+        figi: str,
+        price: float,
+        instrument_uid: str = "",
+        source_time: datetime | None = None,
+        fetched_at: datetime | None = None,
+    ) -> int | None:
+        """Insert a single market quote. Returns the new row id."""
+        sql = """
+            INSERT INTO market_quotes
+                (ticker, figi, instrument_uid, price, source_time, fetched_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """
+        if fetched_at is None:
+            fetched_at = datetime.now(UTC)
+        try:
+            with self._pool.connection() as conn:
+                row = conn.execute(
+                    sql,
+                    (ticker, figi, instrument_uid or "", price,
+                     source_time, fetched_at),
+                ).fetchone()
+                return row[0] if row else None
+        except Exception:
+            self._logger.exception(
+                "failed to insert market quote",
+                extra={"component": "postgres", "ticker": ticker, "figi": figi},
+            )
+            return None
+
+    def insert_market_quotes_bulk(
+        self, quotes: list[dict],
+    ) -> int:
+        """Bulk-insert market quotes. Returns count of inserted rows."""
+        if not quotes:
+            return 0
+        sql = """
+            INSERT INTO market_quotes
+                (ticker, figi, instrument_uid, price, source_time, fetched_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """
+        now = datetime.now(UTC)
+        inserted = 0
+        try:
+            with self._pool.connection() as conn:
+                for q in quotes:
+                    conn.execute(sql, (
+                        q["ticker"],
+                        q["figi"],
+                        q.get("instrument_uid", ""),
+                        q["price"],
+                        q.get("source_time"),
+                        q.get("fetched_at", now),
+                    ))
+                    inserted += 1
+        except Exception:
+            self._logger.exception(
+                "failed to bulk insert market quotes",
+                extra={"component": "postgres", "attempted": len(quotes)},
+            )
+        return inserted
+
+    def get_latest_quote_by_ticker(self, ticker: str) -> dict | None:
+        """Return the most recent quote for a ticker."""
+        sql = """
+            SELECT id, ticker, figi, instrument_uid, price, source_time, fetched_at
+            FROM market_quotes
+            WHERE ticker = %s
+            ORDER BY fetched_at DESC
+            LIMIT 1
+        """
+        try:
+            with self._pool.connection() as conn:
+                row = conn.execute(sql, (ticker,)).fetchone()
+        except Exception:
+            self._logger.exception(
+                "failed to get latest quote by ticker",
+                extra={"component": "postgres", "ticker": ticker},
+            )
+            return None
+        if not row:
+            return None
+        return {
+            "id": row[0],
+            "ticker": row[1],
+            "figi": row[2],
+            "instrument_uid": row[3],
+            "price": float(row[4]),
+            "source_time": row[5],
+            "fetched_at": row[6],
+        }
+
+    def get_latest_quote_by_figi(self, figi: str) -> dict | None:
+        """Return the most recent quote for a FIGI."""
+        sql = """
+            SELECT id, ticker, figi, instrument_uid, price, source_time, fetched_at
+            FROM market_quotes
+            WHERE figi = %s
+            ORDER BY fetched_at DESC
+            LIMIT 1
+        """
+        try:
+            with self._pool.connection() as conn:
+                row = conn.execute(sql, (figi,)).fetchone()
+        except Exception:
+            self._logger.exception(
+                "failed to get latest quote by figi",
+                extra={"component": "postgres", "figi": figi},
+            )
+            return None
+        if not row:
+            return None
+        return {
+            "id": row[0],
+            "ticker": row[1],
+            "figi": row[2],
+            "instrument_uid": row[3],
+            "price": float(row[4]),
+            "source_time": row[5],
+            "fetched_at": row[6],
+        }
+
     # -- Market data --
 
     def insert_market_snapshot(self, snap: MarketSnapshot) -> None:
