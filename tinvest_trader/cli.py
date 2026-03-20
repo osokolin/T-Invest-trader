@@ -83,6 +83,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Exit with code 1 if any issues detected",
     )
 
+    binding_parser = subparsers.add_parser(
+        "market-binding-debug",
+        help="Debug market binding for a ticker",
+    )
+    binding_parser.add_argument("ticker", help="Ticker to bind (e.g. SBER)")
+    binding_parser.add_argument(
+        "--min-score", type=float, default=0.5,
+        help="Minimum score threshold (default 0.5)",
+    )
+    binding_parser.add_argument(
+        "--min-gap", type=float, default=0.2,
+        help="Minimum gap between top candidates (default 0.2)",
+    )
+    binding_parser.add_argument(
+        "--no-exact-ticker", action="store_true",
+        help="Allow non-exact ticker matches",
+    )
+
     return parser
 
 
@@ -129,6 +147,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 stale_seconds=args.stale_seconds,
                 alert=args.alert,
                 fail_on_issues=args.fail_on_issues,
+            )
+        if args.command == "market-binding-debug":
+            return _run_market_binding_debug(
+                container,
+                ticker=args.ticker,
+                min_score=args.min_score,
+                min_gap=args.min_gap,
+                require_exact=not args.no_exact_ticker,
             )
     finally:
         _close_container(container)
@@ -402,6 +428,45 @@ def _run_broker_fetch_policy_status(
 
     if fail_on_issues and report.has_issues:
         return 1
+    return 0
+
+
+def _run_market_binding_debug(
+    container: Container,
+    *,
+    ticker: str,
+    min_score: float = 0.5,
+    min_gap: float = 0.2,
+    require_exact: bool = True,
+) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.market_binding import (
+        BindingConfig,
+        bind_market,
+        format_binding_debug,
+    )
+
+    instruments = repository.list_all_instruments()
+    if not instruments:
+        print("no instruments in database")
+        return 1
+
+    config = BindingConfig(
+        min_score=min_score,
+        min_gap=min_gap,
+        require_exact_ticker=require_exact,
+    )
+    result = bind_market(
+        query_ticker=ticker,
+        instruments=instruments,
+        config=config,
+        logger=container.logger,
+    )
+    print(format_binding_debug(result, ticker))
     return 0
 
 
