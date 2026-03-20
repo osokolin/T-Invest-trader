@@ -93,7 +93,10 @@ class Container:
             account_id=self.config.broker.account_id,
         )
         self.portfolio = PortfolioState()
-        self.trading_service = TradingService(logger=self.logger)
+        self.trading_service = TradingService(
+            logger=self.logger,
+            repository=self.repository,
+        )
 
         # Sentiment pipeline (optional, disabled by default)
         if self.config.sentiment.enabled:
