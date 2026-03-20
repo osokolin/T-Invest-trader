@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 
 from tinvest_trader.cbr.models import CbrEvent, CbrFeedItem
 from tinvest_trader.domain.models import (
@@ -486,6 +486,195 @@ class TradingRepository:
             "recent_failures": row[3],
             "max_error_count": row[4] or 0,
         }
+
+    # -- Signal predictions --
+
+    def insert_signal_prediction(
+        self,
+        ticker: str,
+        signal_type: str,
+        price_at_signal: float | None,
+        confidence: float | None = None,
+        source: str = "fusion",
+        features_json: dict | None = None,
+        created_at: datetime | None = None,
+    ) -> int | None:
+        """Insert a signal prediction. Returns the new row id."""
+        import json as _json
+
+        sql = """
+            INSERT INTO signal_predictions
+                (ticker, signal_type, confidence, source, features_json,
+                 price_at_signal, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """
+        if created_at is None:
+            created_at = datetime.now(UTC)
+        features = (
+            _json.dumps(features_json, default=str)
+            if features_json
+            else None
+        )
+        try:
+            with self._pool.connection() as conn:
+                row = conn.execute(
+                    sql,
+                    (
+                        ticker, signal_type, confidence, source,
+                        features, price_at_signal, created_at,
+                    ),
+                ).fetchone()
+                return row[0] if row else None
+        except Exception:
+            self._logger.exception(
+                "failed to insert signal prediction",
+                extra={"component": "postgres", "ticker": ticker},
+            )
+            return None
+
+    def list_pending_predictions(
+        self, before: datetime,
+    ) -> list[dict]:
+        """List unresolved predictions created before the given time."""
+        sql = """
+            SELECT id, ticker, signal_type, price_at_signal, created_at
+            FROM signal_predictions
+            WHERE resolved_at IS NULL
+              AND created_at < %s
+            ORDER BY created_at
+        """
+        with self._pool.connection() as conn:
+            rows = conn.execute(sql, (before,)).fetchall()
+        return [
+            {
+                "id": r[0],
+                "ticker": r[1],
+                "signal_type": r[2],
+                "price_at_signal": float(r[3]) if r[3] is not None else None,
+                "created_at": r[4],
+            }
+            for r in rows
+        ]
+
+    def resolve_prediction(
+        self,
+        prediction_id: int,
+        price_at_outcome: float,
+        return_pct: float,
+        outcome_label: str,
+        resolved_at: datetime,
+    ) -> None:
+        """Update a prediction with outcome data."""
+        sql = """
+            UPDATE signal_predictions
+            SET price_at_outcome = %s,
+                return_pct = %s,
+                outcome_label = %s,
+                resolved_at = %s
+            WHERE id = %s
+              AND resolved_at IS NULL
+        """
+        try:
+            with self._pool.connection() as conn:
+                conn.execute(
+                    sql,
+                    (
+                        price_at_outcome, return_pct, outcome_label,
+                        resolved_at, prediction_id,
+                    ),
+                )
+        except Exception:
+            self._logger.exception(
+                "failed to resolve prediction",
+                extra={
+                    "component": "postgres",
+                    "prediction_id": prediction_id,
+                },
+            )
+
+    def get_signal_stats(self) -> dict:
+        """Aggregate signal prediction statistics."""
+        sql = """
+            SELECT
+                count(*) AS total,
+                count(resolved_at) AS resolved,
+                count(*) FILTER (WHERE outcome_label = 'win') AS wins,
+                count(*) FILTER (WHERE outcome_label = 'loss') AS losses,
+                count(*) FILTER (WHERE outcome_label = 'neutral') AS neutrals,
+                avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL)
+                    AS avg_return
+            FROM signal_predictions
+        """
+        with self._pool.connection() as conn:
+            row = conn.execute(sql).fetchone()
+        if not row:
+            return {
+                "total": 0, "resolved": 0, "wins": 0, "losses": 0,
+                "neutrals": 0, "avg_return": None,
+            }
+        return {
+            "total": row[0],
+            "resolved": row[1],
+            "wins": row[2],
+            "losses": row[3],
+            "neutrals": row[4],
+            "avg_return": float(row[5]) if row[5] is not None else None,
+        }
+
+    def get_signal_stats_by_ticker(self) -> list[dict]:
+        """Aggregate signal prediction statistics grouped by ticker."""
+        sql = """
+            SELECT
+                ticker,
+                count(*) AS total,
+                count(resolved_at) AS resolved,
+                count(*) FILTER (WHERE outcome_label = 'win') AS wins,
+                avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL)
+                    AS avg_return
+            FROM signal_predictions
+            GROUP BY ticker
+            ORDER BY total DESC
+        """
+        with self._pool.connection() as conn:
+            rows = conn.execute(sql).fetchall()
+        return [
+            {
+                "ticker": r[0],
+                "total": r[1],
+                "resolved": r[2],
+                "wins": r[3],
+                "avg_return": float(r[4]) if r[4] is not None else None,
+            }
+            for r in rows
+        ]
+
+    def get_signal_stats_by_type(self) -> list[dict]:
+        """Aggregate signal prediction statistics grouped by signal_type."""
+        sql = """
+            SELECT
+                signal_type,
+                count(*) AS total,
+                count(resolved_at) AS resolved,
+                count(*) FILTER (WHERE outcome_label = 'win') AS wins,
+                avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL)
+                    AS avg_return
+            FROM signal_predictions
+            GROUP BY signal_type
+            ORDER BY signal_type
+        """
+        with self._pool.connection() as conn:
+            rows = conn.execute(sql).fetchall()
+        return [
+            {
+                "signal_type": r[0],
+                "total": r[1],
+                "resolved": r[2],
+                "wins": r[3],
+                "avg_return": float(r[4]) if r[4] is not None else None,
+            }
+            for r in rows
+        ]
 
     # -- Market data --
 

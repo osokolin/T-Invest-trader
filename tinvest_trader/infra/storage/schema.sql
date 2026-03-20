@@ -432,3 +432,31 @@ CREATE TABLE IF NOT EXISTS broker_event_fetch_state (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_broker_event_fetch_state_unique
     ON broker_event_fetch_state (figi, event_type);
+
+-- ============================================================
+-- Milestone 11: Signal prediction tracking + calibration
+-- ============================================================
+
+-- Each row is a prediction: "ticker will go up/down".
+-- Outcome fields are filled later by the resolution service.
+CREATE TABLE IF NOT EXISTS signal_predictions (
+    id              BIGSERIAL PRIMARY KEY,
+    ticker          TEXT NOT NULL,
+    signal_type     TEXT NOT NULL,          -- up, down
+    confidence      NUMERIC(8, 6),
+    source          TEXT NOT NULL DEFAULT 'fusion',
+    features_json   JSONB,
+    price_at_signal NUMERIC(20, 9),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Outcome (filled by resolution service)
+    price_at_outcome NUMERIC(20, 9),
+    return_pct       NUMERIC(12, 6),
+    outcome_label    TEXT,                  -- win, loss, neutral
+    resolved_at      TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_signal_predictions_ticker
+    ON signal_predictions (ticker);
+CREATE INDEX IF NOT EXISTS idx_signal_predictions_created
+    ON signal_predictions (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_signal_predictions_pending
+    ON signal_predictions (created_at) WHERE resolved_at IS NULL;
