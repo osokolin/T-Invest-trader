@@ -36,6 +36,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Max instruments to enrich (0 = all)",
     )
 
+    health_parser = subparsers.add_parser(
+        "instrument-health",
+        help="Check data quality of tracked instruments",
+    )
+    health_parser.add_argument(
+        "--fail-on-issues", action="store_true",
+        help="Exit with code 1 if any issues detected",
+    )
+
     return parser
 
 
@@ -64,6 +73,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_untrack(container, args.ticker)
         if args.command == "enrich-instruments":
             return _run_enrich_instruments(container, args.limit)
+        if args.command == "instrument-health":
+            return _run_instrument_health(
+                container, fail_on_issues=args.fail_on_issues,
+            )
     finally:
         _close_container(container)
 
@@ -190,6 +203,34 @@ def _run_untrack(container: Container, ticker: str) -> int:
         print(f"untracked: {ticker}")
     else:
         print(f"not found: {ticker}")
+    return 0
+
+
+def _run_instrument_health(
+    container: Container,
+    *,
+    fail_on_issues: bool,
+) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.instrument_health import evaluate_instrument_health
+
+    report = evaluate_instrument_health(repository)
+    print(f"tracked_total: {report.total_tracked}")
+    print(f"complete: {report.complete}")
+    print(f"placeholder_figi: {report.placeholder_figi_count}")
+    print(f"missing_metadata: {report.missing_metadata_count}")
+    print(f"stale_gt_7d: {report.stale_count}")
+    if report.instruments_with_issues:
+        print("issues:")
+        for item in report.instruments_with_issues:
+            print(f"  {item.ticker}: {', '.join(item.issues)}")
+
+    if fail_on_issues and report.has_issues:
+        return 1
     return 0
 
 
