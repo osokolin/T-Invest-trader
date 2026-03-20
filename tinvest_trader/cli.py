@@ -109,6 +109,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="Allow non-exact ticker matches",
     )
 
+    # -- execution-safety-debug --
+    safety_parser = subparsers.add_parser(
+        "execution-safety-debug",
+        help="Debug execution safety checks for a ticker",
+    )
+    safety_parser.add_argument("ticker", help="Ticker (e.g. SBER)")
+    safety_parser.add_argument(
+        "--close-minutes", type=int, default=None,
+        help="Simulated minutes until market close (default: no close time)",
+    )
+    safety_parser.add_argument(
+        "--market-status", type=str, default=None,
+        help="Simulated market status (open, closed, expired)",
+    )
+    safety_parser.add_argument(
+        "--min-time-to-close", type=int, default=90,
+        help="Min seconds before close to allow execution (default 90)",
+    )
+
     return parser
 
 
@@ -165,6 +184,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 min_score=args.min_score,
                 min_gap=args.min_gap,
                 require_exact=not args.no_exact_ticker,
+            )
+        if args.command == "execution-safety-debug":
+            return _run_execution_safety_debug(
+                ticker=args.ticker,
+                close_minutes=args.close_minutes,
+                market_status=args.market_status,
+                min_time_to_close=args.min_time_to_close,
             )
     finally:
         _close_container(container)
@@ -497,6 +523,42 @@ def _run_market_binding_debug(
     print("\n".join(lines))
 
     print(format_binding_debug(result, ticker))
+    return 0
+
+
+def _run_execution_safety_debug(
+    *,
+    ticker: str,
+    close_minutes: int | None = None,
+    market_status: str | None = None,
+    min_time_to_close: int = 90,
+) -> int:
+    from datetime import UTC, datetime, timedelta
+
+    from tinvest_trader.services.execution_safety import (
+        ExecutionSafetyConfig,
+        check_pre_execution,
+        format_safety_debug,
+    )
+
+    now = datetime.now(UTC)
+    close_time = None
+    if close_minutes is not None:
+        close_time = now + timedelta(minutes=close_minutes)
+
+    config = ExecutionSafetyConfig(
+        enabled=True,
+        min_time_to_close_seconds=min_time_to_close,
+    )
+
+    pre = check_pre_execution(
+        close_time=close_time,
+        market_status=market_status,
+        config=config,
+        now=now,
+    )
+
+    print(format_safety_debug(ticker, pre, close_time, config, now))
     return 0
 
 

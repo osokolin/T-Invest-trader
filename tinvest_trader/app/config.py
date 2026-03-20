@@ -122,6 +122,12 @@ class MoexConfig:
 
 
 @dataclass(frozen=True)
+class ExecutionSafetyEnvConfig:
+    enabled: bool = True
+    min_time_to_close_seconds: int = 90
+
+
+@dataclass(frozen=True)
 class LoggingConfig:
     level: str = "INFO"
     json_output: bool = True
@@ -140,6 +146,9 @@ class AppConfig:
     fusion: FusionConfig = field(default_factory=FusionConfig)
     cbr: CbrConfig = field(default_factory=CbrConfig)
     moex: MoexConfig = field(default_factory=MoexConfig)
+    execution_safety: ExecutionSafetyEnvConfig = field(
+        default_factory=ExecutionSafetyEnvConfig,
+    )
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     environment: str = "sandbox"
 
@@ -357,6 +366,16 @@ def load_config() -> AppConfig:
             store_raw_payloads=os.environ.get(
                 "TINVEST_CBR_STORE_RAW_PAYLOADS", "true",
             ).lower() == "true",
+        ),
+        execution_safety=ExecutionSafetyEnvConfig(
+            enabled=os.environ.get(
+                "TINVEST_EXECUTION_SAFETY_ENABLED", "true",
+            ).lower() == "true",
+            min_time_to_close_seconds=int(
+                os.environ.get(
+                    "TINVEST_EXECUTION_MIN_TIME_TO_CLOSE_SECONDS", "90",
+                ),
+            ),
         ),
         moex=MoexConfig(
             enabled=os.environ.get(
