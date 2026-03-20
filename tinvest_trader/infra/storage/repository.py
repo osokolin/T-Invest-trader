@@ -697,7 +697,7 @@ class TradingRepository:
         if fetched_at is None:
             fetched_at = datetime.now(UTC)
         try:
-            with self._pool.connection() as conn:
+            with self._pool.get_connection() as conn:
                 row = conn.execute(
                     sql,
                     (ticker, figi, instrument_uid or "", price,
@@ -725,7 +725,7 @@ class TradingRepository:
         now = datetime.now(UTC)
         inserted = 0
         try:
-            with self._pool.connection() as conn:
+            with self._pool.get_connection() as conn:
                 for q in quotes:
                     conn.execute(sql, (
                         q["ticker"],
@@ -753,7 +753,7 @@ class TradingRepository:
             LIMIT 1
         """
         try:
-            with self._pool.connection() as conn:
+            with self._pool.get_connection() as conn:
                 row = conn.execute(sql, (ticker,)).fetchone()
         except Exception:
             self._logger.exception(
@@ -783,7 +783,7 @@ class TradingRepository:
             LIMIT 1
         """
         try:
-            with self._pool.connection() as conn:
+            with self._pool.get_connection() as conn:
                 row = conn.execute(sql, (figi,)).fetchone()
         except Exception:
             self._logger.exception(
