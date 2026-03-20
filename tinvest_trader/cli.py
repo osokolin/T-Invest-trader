@@ -18,6 +18,23 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("ingest-sentiment", help="Run sentiment ingestion once")
     subparsers.add_parser("observe", help="Run observation aggregation once")
     subparsers.add_parser("db-summary", help="Show operational database counts")
+    subparsers.add_parser("list-instruments", help="List all instruments in DB")
+    subparsers.add_parser("list-tracked", help="List tracked instruments")
+
+    track_parser = subparsers.add_parser("track", help="Mark a ticker as tracked")
+    track_parser.add_argument("ticker", help="Ticker to track (e.g. SBER)")
+
+    untrack_parser = subparsers.add_parser("untrack", help="Unmark a ticker as tracked")
+    untrack_parser.add_argument("ticker", help="Ticker to untrack (e.g. SBER)")
+
+    enrich_parser = subparsers.add_parser(
+        "enrich-instruments",
+        help="Enrich tracked instruments with T-Bank API data",
+    )
+    enrich_parser.add_argument(
+        "--limit", type=int, default=0,
+        help="Max instruments to enrich (0 = all)",
+    )
 
     return parser
 
@@ -37,6 +54,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_observe(container)
         if args.command == "db-summary":
             return _run_db_summary(container)
+        if args.command == "list-instruments":
+            return _run_list_instruments(container)
+        if args.command == "list-tracked":
+            return _run_list_tracked(container)
+        if args.command == "track":
+            return _run_track(container, args.ticker)
+        if args.command == "untrack":
+            return _run_untrack(container, args.ticker)
+        if args.command == "enrich-instruments":
+            return _run_enrich_instruments(container, args.limit)
     finally:
         _close_container(container)
 
@@ -87,6 +114,106 @@ def _run_db_summary(container: Container) -> int:
     summary = repository.fetch_operational_summary()
     for key, value in summary.items():
         print(f"{key}: {value}")
+    return 0
+
+
+def _run_list_instruments(container: Container) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 0
+
+    instruments = repository.list_all_instruments()
+    if not instruments:
+        print("no instruments in database")
+        return 0
+
+    print(f"{'TICKER':<10} {'FIGI':<20} {'TRACKED':<9} {'ENABLED':<9} {'MOEX_SECID':<12} {'NAME'}")
+    for inst in instruments:
+        print(
+            f"{inst['ticker']:<10} "
+            f"{inst['figi']:<20} "
+            f"{'yes' if inst['tracked'] else 'no':<9} "
+            f"{'yes' if inst['enabled'] else 'no':<9} "
+            f"{inst['moex_secid']:<12} "
+            f"{inst['name']}"
+        )
+    print(f"\ntotal: {len(instruments)}")
+    return 0
+
+
+def _run_list_tracked(container: Container) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 0
+
+    tracked = repository.list_tracked_instruments()
+    if not tracked:
+        print("no tracked instruments")
+        return 0
+
+    print(f"{'TICKER':<10} {'FIGI':<20} {'MOEX_SECID':<12} {'NAME'}")
+    for inst in tracked:
+        print(
+            f"{inst['ticker']:<10} "
+            f"{inst['figi']:<20} "
+            f"{inst['moex_secid']:<12} "
+            f"{inst['name']}"
+        )
+    print(f"\ntracked: {len(tracked)}")
+    return 0
+
+
+def _run_track(container: Container, ticker: str) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    ticker = ticker.upper()
+    # Ensure instrument exists and set tracked
+    repository.ensure_instrument(ticker=ticker, tracked=True)
+    print(f"tracked: {ticker}")
+    return 0
+
+
+def _run_untrack(container: Container, ticker: str) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    ticker = ticker.upper()
+    updated = repository.set_tracked_status(ticker=ticker, tracked=False)
+    if updated:
+        print(f"untracked: {ticker}")
+    else:
+        print(f"not found: {ticker}")
+    return 0
+
+
+def _run_enrich_instruments(container: Container, limit: int) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.instrument_enrichment import enrich_instruments
+
+    result = enrich_instruments(
+        repository=repository,
+        client=container.tbank_client,
+        logger=container.logger,
+        limit=limit,
+    )
+    print(f"processed: {result.processed}")
+    print(f"updated: {result.updated}")
+    print(f"skipped: {result.skipped}")
+    print(f"failed: {result.failed}")
+    if result.errors:
+        for err in result.errors:
+            print(f"  error: {err}")
     return 0
 
 

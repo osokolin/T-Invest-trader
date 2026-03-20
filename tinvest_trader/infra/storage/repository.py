@@ -44,20 +44,40 @@ class TradingRepository:
         lot: int | None = None,
         currency: str | None = None,
     ) -> None:
+        """Upsert instrument using ticker as the canonical conflict key.
+
+        When a bootstrap placeholder row exists (figi='TICKER:SBER'), this
+        replaces the placeholder figi with the real one. Non-empty incoming
+        fields always win over empty/placeholder values.
+        """
         sql = """
             INSERT INTO instrument_catalog
                 (figi, instrument_uid, ticker, name, lot, currency, tracked, enabled, updated_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now())
-            ON CONFLICT (figi)
-            DO UPDATE SET ticker = EXCLUDED.ticker, name = EXCLUDED.name,
-                          instrument_uid = EXCLUDED.instrument_uid,
-                          lot = EXCLUDED.lot, currency = EXCLUDED.currency,
-                          tracked = EXCLUDED.tracked, enabled = EXCLUDED.enabled,
-                          updated_at = now()
+            ON CONFLICT (ticker)
+            DO UPDATE SET
+                figi = CASE
+                    WHEN EXCLUDED.figi != '' AND NOT EXCLUDED.figi LIKE 'TICKER:%%'
+                    THEN EXCLUDED.figi
+                    ELSE instrument_catalog.figi
+                END,
+                instrument_uid = COALESCE(
+                    EXCLUDED.instrument_uid,
+                    instrument_catalog.instrument_uid
+                ),
+                name = CASE
+                    WHEN EXCLUDED.name != '' THEN EXCLUDED.name
+                    ELSE instrument_catalog.name
+                END,
+                lot = COALESCE(EXCLUDED.lot, instrument_catalog.lot),
+                currency = COALESCE(EXCLUDED.currency, instrument_catalog.currency),
+                tracked = EXCLUDED.tracked,
+                enabled = EXCLUDED.enabled,
+                updated_at = now()
         """
         with self._pool.get_connection() as conn:
             conn.execute(sql, (
-                inst.figi, instrument_uid, inst.ticker, inst.name,
+                inst.figi, instrument_uid, inst.ticker.upper(), inst.name,
                 lot, currency, tracked, enabled,
             ))
             conn.commit()
@@ -73,6 +93,158 @@ class TradingRepository:
             cur = conn.execute(sql, (figi,))
             row = cur.fetchone()
         return row[0] if row else None
+
+    def list_tracked_instruments(self) -> list[dict]:
+        """Return all instruments with tracked=True."""
+        sql = """
+            SELECT ticker, figi, instrument_uid, name, isin, moex_secid,
+                   lot, currency, enabled, updated_at
+            FROM instrument_catalog
+            WHERE tracked = TRUE
+            ORDER BY ticker
+        """
+        columns = (
+            "ticker", "figi", "instrument_uid", "name", "isin", "moex_secid",
+            "lot", "currency", "enabled", "updated_at",
+        )
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql)
+            return [dict(zip(columns, row, strict=True)) for row in cur.fetchall()]
+
+    def list_all_instruments(self) -> list[dict]:
+        """Return all instruments."""
+        sql = """
+            SELECT ticker, figi, instrument_uid, name, isin, moex_secid,
+                   lot, currency, tracked, enabled, updated_at
+            FROM instrument_catalog
+            ORDER BY ticker
+        """
+        columns = (
+            "ticker", "figi", "instrument_uid", "name", "isin", "moex_secid",
+            "lot", "currency", "tracked", "enabled", "updated_at",
+        )
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql)
+            return [dict(zip(columns, row, strict=True)) for row in cur.fetchall()]
+
+    def get_instrument_by_ticker(self, ticker: str) -> dict | None:
+        """Look up instrument by ticker. Returns dict or None."""
+        sql = """
+            SELECT ticker, figi, instrument_uid, name, isin, moex_secid,
+                   lot, currency, tracked, enabled, updated_at
+            FROM instrument_catalog
+            WHERE ticker = %s
+            LIMIT 1
+        """
+        columns = (
+            "ticker", "figi", "instrument_uid", "name", "isin", "moex_secid",
+            "lot", "currency", "tracked", "enabled", "updated_at",
+        )
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, (ticker.upper(),))
+            row = cur.fetchone()
+        if row is None:
+            return None
+        return dict(zip(columns, row, strict=True))
+
+    def set_tracked_status(self, ticker: str, tracked: bool) -> bool:
+        """Set tracked status for a ticker. Returns True if row was updated."""
+        sql = """
+            UPDATE instrument_catalog
+            SET tracked = %s, updated_at = now()
+            WHERE ticker = %s
+            RETURNING id
+        """
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, (tracked, ticker.upper()))
+            updated = cur.fetchone() is not None
+            conn.commit()
+        return updated
+
+    def update_instrument_uid(self, ticker: str, instrument_uid: str) -> None:
+        """Set instrument_uid for a ticker if not already set."""
+        sql = """
+            UPDATE instrument_catalog
+            SET instrument_uid = %s, updated_at = now()
+            WHERE ticker = %s
+              AND (instrument_uid IS NULL OR instrument_uid = '')
+        """
+        with self._pool.get_connection() as conn:
+            conn.execute(sql, (instrument_uid, ticker.upper()))
+            conn.commit()
+
+    def ensure_instrument(
+        self,
+        ticker: str,
+        tracked: bool = False,
+        figi: str = "",
+        name: str = "",
+        isin: str = "",
+        moex_secid: str = "",
+    ) -> None:
+        """Insert instrument if not exists, or update tracked status if exists.
+
+        Uses ticker as the conflict key. If the instrument already exists,
+        only upgrades tracked (to True if requested), replaces placeholder figi
+        with real one, and fills metadata fields only when non-empty.
+        """
+        sql = """
+            INSERT INTO instrument_catalog
+                (figi, ticker, name, isin, moex_secid, tracked, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, now())
+            ON CONFLICT (ticker)
+            DO UPDATE SET
+                tracked = instrument_catalog.tracked OR EXCLUDED.tracked,
+                figi = CASE
+                    WHEN EXCLUDED.figi != '' AND NOT EXCLUDED.figi LIKE 'TICKER:%%'
+                    THEN EXCLUDED.figi
+                    ELSE instrument_catalog.figi
+                END,
+                name = CASE
+                    WHEN EXCLUDED.name != '' THEN EXCLUDED.name
+                    ELSE instrument_catalog.name
+                END,
+                moex_secid = CASE
+                    WHEN EXCLUDED.moex_secid != '' THEN EXCLUDED.moex_secid
+                    ELSE instrument_catalog.moex_secid
+                END,
+                isin = CASE
+                    WHEN EXCLUDED.isin != '' THEN EXCLUDED.isin
+                    ELSE instrument_catalog.isin
+                END,
+                updated_at = now()
+        """
+        effective_figi = figi if figi else f"TICKER:{ticker.upper()}"
+        with self._pool.get_connection() as conn:
+            conn.execute(sql, (
+                effective_figi, ticker.upper(), name, isin,
+                moex_secid if moex_secid else ticker.upper(), tracked,
+            ))
+            conn.commit()
+
+    def count_tracked_instruments(self) -> int:
+        """Return count of tracked instruments."""
+        sql = "SELECT count(*) FROM instrument_catalog WHERE tracked = TRUE"
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql)
+            row = cur.fetchone()
+        return int(row[0]) if row else 0
+
+    def bootstrap_tracked_instruments(self, tickers: tuple[str, ...]) -> int:
+        """Seed instrument_catalog from env tickers if DB tracked set is empty.
+
+        Returns number of instruments seeded. Does nothing if tracked rows exist.
+        """
+        if self.count_tracked_instruments() > 0:
+            return 0
+        seeded = 0
+        for ticker in tickers:
+            t = ticker.strip().upper()
+            if not t:
+                continue
+            self.ensure_instrument(ticker=t, tracked=True)
+            seeded += 1
+        return seeded
 
     # -- Market data --
 
