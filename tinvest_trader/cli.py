@@ -27,6 +27,15 @@ def build_parser() -> argparse.ArgumentParser:
     untrack_parser = subparsers.add_parser("untrack", help="Unmark a ticker as tracked")
     untrack_parser.add_argument("ticker", help="Ticker to untrack (e.g. SBER)")
 
+    enrich_parser = subparsers.add_parser(
+        "enrich-instruments",
+        help="Enrich tracked instruments with T-Bank API data",
+    )
+    enrich_parser.add_argument(
+        "--limit", type=int, default=0,
+        help="Max instruments to enrich (0 = all)",
+    )
+
     return parser
 
 
@@ -53,6 +62,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_track(container, args.ticker)
         if args.command == "untrack":
             return _run_untrack(container, args.ticker)
+        if args.command == "enrich-instruments":
+            return _run_enrich_instruments(container, args.limit)
     finally:
         _close_container(container)
 
@@ -179,6 +190,30 @@ def _run_untrack(container: Container, ticker: str) -> int:
         print(f"untracked: {ticker}")
     else:
         print(f"not found: {ticker}")
+    return 0
+
+
+def _run_enrich_instruments(container: Container, limit: int) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.instrument_enrichment import enrich_instruments
+
+    result = enrich_instruments(
+        repository=repository,
+        client=container.tbank_client,
+        logger=container.logger,
+        limit=limit,
+    )
+    print(f"processed: {result.processed}")
+    print(f"updated: {result.updated}")
+    print(f"skipped: {result.skipped}")
+    print(f"failed: {result.failed}")
+    if result.errors:
+        for err in result.errors:
+            print(f"  error: {err}")
     return 0
 
 

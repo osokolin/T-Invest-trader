@@ -80,6 +80,50 @@ class TBankClient:
             "uid": instrument.get("uid") or instrument.get("instrumentUid"),
         }
 
+    def get_instrument_by_ticker(
+        self,
+        ticker: str,
+        class_code: str = "TQBR",
+    ) -> dict | None:
+        """Look up instrument by ticker via T-Bank API.
+
+        Returns dict with figi, ticker, name, uid, isin or None.
+        Falls back to stub when token is not configured.
+        """
+        if not self._has_token():
+            self._logger.info(
+                "get_instrument_by_ticker (stub)",
+                extra={"component": "tbank_client", "ticker": ticker},
+            )
+            return None
+
+        try:
+            response = self._post_instruments_service(
+                method_name="GetInstrumentBy",
+                payload={
+                    "idType": "INSTRUMENT_ID_TYPE_TICKER",
+                    "classCode": class_code,
+                    "id": ticker,
+                },
+            )
+        except Exception:
+            self._logger.exception(
+                "get_instrument_by_ticker failed",
+                extra={"component": "tbank_client", "ticker": ticker},
+            )
+            return None
+
+        instrument = response.get("instrument", {})
+        if not instrument:
+            return None
+        return {
+            "figi": instrument.get("figi", ""),
+            "ticker": instrument.get("ticker", ticker),
+            "name": instrument.get("name", ""),
+            "uid": instrument.get("uid") or instrument.get("instrumentUid", ""),
+            "isin": instrument.get("isin", ""),
+        }
+
     def get_trading_status(self, figi: str) -> str:
         """Return broker-shaped trading status string (stub)."""
         self._logger.info(

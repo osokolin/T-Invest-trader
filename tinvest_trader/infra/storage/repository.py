@@ -161,6 +161,18 @@ class TradingRepository:
             conn.commit()
         return updated
 
+    def update_instrument_uid(self, ticker: str, instrument_uid: str) -> None:
+        """Set instrument_uid for a ticker if not already set."""
+        sql = """
+            UPDATE instrument_catalog
+            SET instrument_uid = %s, updated_at = now()
+            WHERE ticker = %s
+              AND (instrument_uid IS NULL OR instrument_uid = '')
+        """
+        with self._pool.get_connection() as conn:
+            conn.execute(sql, (instrument_uid, ticker.upper()))
+            conn.commit()
+
     def ensure_instrument(
         self,
         ticker: str,
