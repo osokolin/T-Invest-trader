@@ -44,20 +44,40 @@ class TradingRepository:
         lot: int | None = None,
         currency: str | None = None,
     ) -> None:
+        """Upsert instrument using ticker as the canonical conflict key.
+
+        When a bootstrap placeholder row exists (figi='TICKER:SBER'), this
+        replaces the placeholder figi with the real one. Non-empty incoming
+        fields always win over empty/placeholder values.
+        """
         sql = """
             INSERT INTO instrument_catalog
                 (figi, instrument_uid, ticker, name, lot, currency, tracked, enabled, updated_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now())
-            ON CONFLICT (figi)
-            DO UPDATE SET ticker = EXCLUDED.ticker, name = EXCLUDED.name,
-                          instrument_uid = EXCLUDED.instrument_uid,
-                          lot = EXCLUDED.lot, currency = EXCLUDED.currency,
-                          tracked = EXCLUDED.tracked, enabled = EXCLUDED.enabled,
-                          updated_at = now()
+            ON CONFLICT (ticker)
+            DO UPDATE SET
+                figi = CASE
+                    WHEN EXCLUDED.figi != '' AND NOT EXCLUDED.figi LIKE 'TICKER:%%'
+                    THEN EXCLUDED.figi
+                    ELSE instrument_catalog.figi
+                END,
+                instrument_uid = COALESCE(
+                    EXCLUDED.instrument_uid,
+                    instrument_catalog.instrument_uid
+                ),
+                name = CASE
+                    WHEN EXCLUDED.name != '' THEN EXCLUDED.name
+                    ELSE instrument_catalog.name
+                END,
+                lot = COALESCE(EXCLUDED.lot, instrument_catalog.lot),
+                currency = COALESCE(EXCLUDED.currency, instrument_catalog.currency),
+                tracked = EXCLUDED.tracked,
+                enabled = EXCLUDED.enabled,
+                updated_at = now()
         """
         with self._pool.get_connection() as conn:
             conn.execute(sql, (
-                inst.figi, instrument_uid, inst.ticker, inst.name,
+                inst.figi, instrument_uid, inst.ticker.upper(), inst.name,
                 lot, currency, tracked, enabled,
             ))
             conn.commit()
@@ -153,7 +173,8 @@ class TradingRepository:
         """Insert instrument if not exists, or update tracked status if exists.
 
         Uses ticker as the conflict key. If the instrument already exists,
-        only updates tracked (to True if requested) and metadata if non-empty.
+        only upgrades tracked (to True if requested), replaces placeholder figi
+        with real one, and fills metadata fields only when non-empty.
         """
         sql = """
             INSERT INTO instrument_catalog
@@ -162,6 +183,15 @@ class TradingRepository:
             ON CONFLICT (ticker)
             DO UPDATE SET
                 tracked = instrument_catalog.tracked OR EXCLUDED.tracked,
+                figi = CASE
+                    WHEN EXCLUDED.figi != '' AND NOT EXCLUDED.figi LIKE 'TICKER:%%'
+                    THEN EXCLUDED.figi
+                    ELSE instrument_catalog.figi
+                END,
+                name = CASE
+                    WHEN EXCLUDED.name != '' THEN EXCLUDED.name
+                    ELSE instrument_catalog.name
+                END,
                 moex_secid = CASE
                     WHEN EXCLUDED.moex_secid != '' THEN EXCLUDED.moex_secid
                     ELSE instrument_catalog.moex_secid

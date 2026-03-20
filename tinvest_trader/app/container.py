@@ -123,30 +123,40 @@ class Container:
             self._wire_background_runner()
 
     def _resolve_tracked_tickers(self) -> frozenset[str]:
-        """Resolve tracked tickers from DB, falling back to env config.
+        """Resolve tracked tickers from DB, bootstrapping from env if empty.
 
-        Priority: DB tracked instruments > TINVEST_SENTIMENT_TRACKED_TICKERS > empty.
+        Flow:
+        1. If DB has tracked instruments -> return those (DB wins)
+        2. If DB is empty -> bootstrap from TINVEST_SENTIMENT_TRACKED_TICKERS,
+           then return newly seeded tickers from DB
+        3. If no DB -> fall back to env directly
         """
         if self.repository is not None:
             try:
                 db_tracked = self.repository.list_tracked_instruments()
                 if db_tracked:
                     tickers = frozenset(row["ticker"] for row in db_tracked)
-                    self.logger.info(
-                        "tracked tickers resolved from database",
-                        extra={
-                            "component": "container",
-                            "count": len(tickers),
-                        },
-                    )
                     return tickers
+
+                # DB is empty -- bootstrap from env once
+                env_tickers = self.config.sentiment.tracked_tickers
+                if env_tickers:
+                    seeded = self.repository.bootstrap_tracked_instruments(env_tickers)
+                    if seeded > 0:
+                        self.logger.info(
+                            "bootstrapped tracked instruments from env",
+                            extra={"component": "instruments", "seeded": seeded},
+                        )
+                        db_tracked = self.repository.list_tracked_instruments()
+                        if db_tracked:
+                            return frozenset(row["ticker"] for row in db_tracked)
             except Exception:
                 self.logger.exception(
                     "failed to resolve tracked tickers from DB, using env fallback",
                     extra={"component": "container"},
                 )
 
-        # Fallback: env-based sentiment tracked tickers
+        # Fallback: env-based sentiment tracked tickers (no DB available)
         if self.config.sentiment.tracked_tickers:
             return frozenset(self.config.sentiment.tracked_tickers)
         return frozenset()
@@ -222,11 +232,21 @@ class Container:
     def _wire_broker_events(self) -> None:
         """Wire broker-side structured event ingestion when enabled."""
         cfg = self.config.broker_events
-        tracked_figis = (
-            cfg.tracked_figis_override
-            if cfg.tracked_figis_override
-            else self.config.market_data.tracked_instruments
-        )
+        # Broker API requires FIGIs. Override takes priority, then try DB, then env.
+        if cfg.tracked_figis_override:
+            tracked_figis: tuple[str, ...] = cfg.tracked_figis_override
+        elif self.repository is not None:
+            try:
+                db_tracked = self.repository.list_tracked_instruments()
+                db_figis = tuple(
+                    row["figi"] for row in db_tracked
+                    if row["figi"] and not row["figi"].startswith("TICKER:")
+                )
+                tracked_figis = db_figis or self.config.market_data.tracked_instruments
+            except Exception:
+                tracked_figis = self.config.market_data.tracked_instruments
+        else:
+            tracked_figis = self.config.market_data.tracked_instruments
 
         self.broker_event_ingestion_service = BrokerEventIngestionService(
             client=self.tbank_client,

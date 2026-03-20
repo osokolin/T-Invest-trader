@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS instrument_catalog (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Additive migration: add columns that may be missing on existing deployments
+ALTER TABLE instrument_catalog ADD COLUMN IF NOT EXISTS isin TEXT NOT NULL DEFAULT '';
+ALTER TABLE instrument_catalog ADD COLUMN IF NOT EXISTS moex_secid TEXT NOT NULL DEFAULT '';
 CREATE UNIQUE INDEX IF NOT EXISTS idx_instrument_catalog_ticker
     ON instrument_catalog (ticker);
 
