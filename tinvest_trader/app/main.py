@@ -33,6 +33,25 @@ def main() -> None:
             sys.exit(1)
         logger.info("database connected and schema ready")
 
+        # Bootstrap tracked instruments from env if DB is empty
+        if container.repository is not None:
+            bootstrap_tickers = config.sentiment.tracked_tickers
+            if bootstrap_tickers:
+                seeded = container.repository.bootstrap_tracked_instruments(bootstrap_tickers)
+                if seeded > 0:
+                    logger.info(
+                        "bootstrapped tracked instruments from env",
+                        extra={"component": "instruments", "seeded": seeded},
+                    )
+                else:
+                    logger.info(
+                        "tracked instruments already in database",
+                        extra={
+                            "component": "instruments",
+                            "count": container.repository.count_tracked_instruments(),
+                        },
+                    )
+
     # Broker startup
     container.tbank_client.connect()
     healthy = container.tbank_client.health_check()

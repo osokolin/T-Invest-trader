@@ -122,6 +122,35 @@ class Container:
         if self.config.background.enabled:
             self._wire_background_runner()
 
+    def _resolve_tracked_tickers(self) -> frozenset[str]:
+        """Resolve tracked tickers from DB, falling back to env config.
+
+        Priority: DB tracked instruments > TINVEST_SENTIMENT_TRACKED_TICKERS > empty.
+        """
+        if self.repository is not None:
+            try:
+                db_tracked = self.repository.list_tracked_instruments()
+                if db_tracked:
+                    tickers = frozenset(row["ticker"] for row in db_tracked)
+                    self.logger.info(
+                        "tracked tickers resolved from database",
+                        extra={
+                            "component": "container",
+                            "count": len(tickers),
+                        },
+                    )
+                    return tickers
+            except Exception:
+                self.logger.exception(
+                    "failed to resolve tracked tickers from DB, using env fallback",
+                    extra={"component": "container"},
+                )
+
+        # Fallback: env-based sentiment tracked tickers
+        if self.config.sentiment.tracked_tickers:
+            return frozenset(self.config.sentiment.tracked_tickers)
+        return frozenset()
+
     def _wire_sentiment(self) -> None:
         """Wire sentiment components when enabled."""
         cfg = self.config.sentiment
@@ -137,12 +166,8 @@ class Container:
         # Scorer
         scorer = StubSentimentScorer(model_name=cfg.model_name)
 
-        # Tracked tickers: sentiment config takes precedence, else fall back
-        tracked_tickers: frozenset[str]
-        if cfg.tracked_tickers:
-            tracked_tickers = frozenset(cfg.tracked_tickers)
-        else:
-            tracked_tickers = frozenset(self.config.market_data.tracked_instruments)
+        # Tracked tickers: DB preferred, then env fallback
+        tracked_tickers = self._resolve_tracked_tickers()
 
         mapper = InstrumentMapper(
             ticker_to_figi={},  # populated from instrument_catalog in future
@@ -173,14 +198,8 @@ class Container:
         cfg = self.config.observation
         windows = parse_windows(cfg.windows)
 
-        # Tracked tickers precedence: observation > sentiment > market_data
-        tracked: frozenset[str]
-        if cfg.tracked_tickers:
-            tracked = frozenset(cfg.tracked_tickers)
-        elif self.config.sentiment.tracked_tickers:
-            tracked = frozenset(self.config.sentiment.tracked_tickers)
-        else:
-            tracked = frozenset()  # will discover from DB
+        # Tracked tickers: DB preferred, then env fallback
+        tracked = self._resolve_tracked_tickers()
 
         self.observation_service = ObservationService(
             repository=self.repository,
@@ -242,16 +261,8 @@ class Container:
         cfg = self.config.fusion
         windows = parse_windows(cfg.windows)
 
-        # Tracked tickers precedence: fusion > observation > sentiment > empty
-        tracked: frozenset[str]
-        if cfg.tracked_tickers:
-            tracked = frozenset(cfg.tracked_tickers)
-        elif self.config.observation.tracked_tickers:
-            tracked = frozenset(self.config.observation.tracked_tickers)
-        elif self.config.sentiment.tracked_tickers:
-            tracked = frozenset(self.config.sentiment.tracked_tickers)
-        else:
-            tracked = frozenset()
+        # Tracked tickers: DB preferred, then env fallback
+        tracked = self._resolve_tracked_tickers()
 
         self.fusion_service = FusionService(
             repository=self.repository,
@@ -296,11 +307,12 @@ class Container:
     def _wire_moex(self) -> None:
         """Wire MOEX ISS ingestion when enabled."""
         cfg = self.config.moex
-        tracked_tickers = (
-            cfg.tracked_tickers_override
-            if cfg.tracked_tickers_override
-            else self.config.market_data.tracked_instruments
-        )
+        # MOEX override takes priority, else DB-backed tracked set
+        if cfg.tracked_tickers_override:
+            tracked_tickers: tuple[str, ...] | frozenset[str] = cfg.tracked_tickers_override
+        else:
+            db_tracked = self._resolve_tracked_tickers()
+            tracked_tickers = tuple(sorted(db_tracked)) if db_tracked else ()
 
         self.moex_ingestion_service = MoexIngestionService(
             repository=self.repository,

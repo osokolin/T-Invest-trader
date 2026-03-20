@@ -3,13 +3,15 @@
 -- No foreign keys: each table is independently queryable.
 -- Prices use NUMERIC(20, 9) to match broker nano precision.
 
--- Instrument catalog: reference data, upserted from broker
+-- Instrument catalog: canonical registry for tracked instruments
 CREATE TABLE IF NOT EXISTS instrument_catalog (
     id              BIGSERIAL PRIMARY KEY,
     figi            TEXT NOT NULL UNIQUE,
     instrument_uid  TEXT,
     ticker          TEXT NOT NULL,
     name            TEXT NOT NULL DEFAULT '',
+    isin            TEXT NOT NULL DEFAULT '',
+    moex_secid      TEXT NOT NULL DEFAULT '',
     lot             INTEGER,
     currency        TEXT,
     tracked         BOOLEAN NOT NULL DEFAULT FALSE,
@@ -17,6 +19,8 @@ CREATE TABLE IF NOT EXISTS instrument_catalog (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_instrument_catalog_ticker
+    ON instrument_catalog (ticker);
 
 -- Market snapshots: one row per (instrument, fetch time)
 CREATE TABLE IF NOT EXISTS market_snapshots (
