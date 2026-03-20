@@ -62,6 +62,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Send alert via Telegram if issues detected",
     )
 
+    fetch_status_parser = subparsers.add_parser(
+        "broker-fetch-policy-status",
+        help="Show broker event fetch policy status",
+    )
+    fetch_status_parser.add_argument(
+        "--limit", type=int, default=10,
+        help="Max examples to show per category (default 10)",
+    )
+    fetch_status_parser.add_argument(
+        "--stale-seconds", type=int, default=172800,
+        help="Stale threshold in seconds (default 172800 = 48h)",
+    )
+    fetch_status_parser.add_argument(
+        "--alert", action="store_true",
+        help="Send alert via Telegram if issues detected",
+    )
+    fetch_status_parser.add_argument(
+        "--fail-on-issues", action="store_true",
+        help="Exit with code 1 if any issues detected",
+    )
+
     return parser
 
 
@@ -99,6 +120,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 container,
                 fail_on_issues=args.fail_on_issues,
                 alert=args.alert,
+            )
+        if args.command == "broker-fetch-policy-status":
+            return _run_broker_fetch_policy_status(
+                container,
+                config,
+                limit=args.limit,
+                stale_seconds=args.stale_seconds,
+                alert=args.alert,
+                fail_on_issues=args.fail_on_issues,
             )
     finally:
         _close_container(container)
@@ -324,6 +354,54 @@ def _run_enrich_instruments(
         report = evaluate_instrument_health(repository)
         send_instrument_health_alert(report)
 
+    return 0
+
+
+def _run_broker_fetch_policy_status(
+    container: Container,
+    config: AppConfig,
+    *,
+    limit: int = 10,
+    stale_seconds: int = 172800,
+    alert: bool = False,
+    fail_on_issues: bool = False,
+) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.broker_fetch_policy_observability import (
+        build_fetch_policy_report,
+        format_report,
+        send_fetch_policy_alert,
+    )
+    from tinvest_trader.services.tbank_event_fetch_policy import FetchPolicyConfig
+
+    cfg = config.broker_events
+    policy_config = FetchPolicyConfig(
+        enabled=cfg.fetch_policy_enabled,
+        dividends_ttl_seconds=cfg.dividends_ttl_seconds,
+        reports_ttl_seconds=cfg.reports_ttl_seconds,
+        insider_deals_ttl_seconds=cfg.insider_deals_ttl_seconds,
+        failure_cooldown_seconds=cfg.fetch_policy_failure_cooldown_seconds,
+        max_consecutive_failures=cfg.fetch_policy_max_consecutive_failures,
+        max_fetches_per_cycle=cfg.fetch_policy_max_fetches_per_cycle,
+    )
+
+    report = build_fetch_policy_report(
+        repository,
+        policy_config,
+        stale_seconds=stale_seconds,
+        limit=limit,
+    )
+    print(format_report(report))
+
+    if alert:
+        send_fetch_policy_alert(report)
+
+    if fail_on_issues and report.has_issues:
+        return 1
     return 0
 
 
