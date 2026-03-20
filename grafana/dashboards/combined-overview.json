@@ -48,7 +48,13 @@
           ],
           "show": false
         },
-        "showHeader": true
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "recorded_at",
+            "desc": true
+          }
+        ]
       },
       "targets": [
         {
@@ -92,7 +98,13 @@
           ],
           "show": false
         },
-        "showHeader": true
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "event_time",
+            "desc": true
+          }
+        ]
       },
       "targets": [
         {
@@ -136,7 +148,13 @@
           ],
           "show": false
         },
-        "showHeader": true
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "published_at",
+            "desc": true
+          }
+        ]
       },
       "targets": [
         {
@@ -180,7 +198,13 @@
           ],
           "show": false
         },
-        "showHeader": true
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "trade_date",
+            "desc": true
+          }
+        ]
       },
       "targets": [
         {
