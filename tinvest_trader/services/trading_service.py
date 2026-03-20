@@ -2,6 +2,9 @@
 
 Integrates market binding as execution gate: we either match
 the correct instrument or we do not trade.
+
+Execution path uses bind_signal() with MarketCandidate list.
+bind_market() is NOT used for execution decisions.
 """
 
 from __future__ import annotations
@@ -12,7 +15,9 @@ from typing import TYPE_CHECKING
 from tinvest_trader.services.market_binding import (
     BindingConfig,
     MarketBindingResult,
-    bind_market,
+    bind_signal,
+    build_signal,
+    candidates_from_instruments,
     require_matched,
 )
 
@@ -23,7 +28,7 @@ if TYPE_CHECKING:
 class TradingService:
     """Orchestrates signal evaluation and order submission.
 
-    Uses market binding as a hard gate before execution.
+    Uses bind_signal() as the ONLY binding path before execution.
     """
 
     def __init__(
@@ -42,11 +47,20 @@ class TradingService:
             extra={"component": "trading_service"},
         )
 
-    def resolve_instrument(self, ticker: str) -> MarketBindingResult:
-        """Resolve a ticker to a bound instrument via market binding.
+    def resolve_instrument(
+        self,
+        ticker: str,
+        direction: str | None = None,
+        window: str | None = None,
+    ) -> MarketBindingResult:
+        """Resolve a ticker to a bound instrument via signal-based binding.
 
-        Returns MarketBindingResult -- caller must check status before
-        proceeding to execution.
+        Constructs a BindingSignal and scores against MarketCandidate list
+        built from instrument catalog. Returns MarketBindingResult -- caller
+        must check status before proceeding to execution.
+
+        Currently uses candidates_from_instruments() as candidate source.
+        When real market API is available, swap candidate construction here.
         """
         instruments: list[dict] = []
         if self._repository is not None:
@@ -58,18 +72,28 @@ class TradingService:
                     extra={"component": "trading_service"},
                 )
 
-        result = bind_market(
-            query_ticker=ticker,
-            instruments=instruments,
+        signal = build_signal(
+            ticker=ticker,
+            direction=direction,
+            window=window,
+        )
+
+        # Convert instrument catalog to MarketCandidate list.
+        # This is the v1 candidate source -- swap with real market API later.
+        market_candidates = candidates_from_instruments(instruments)
+
+        result = bind_signal(
+            signal=signal,
+            market_candidates=market_candidates,
             config=self._binding_config,
             logger=self._logger,
         )
 
         if not require_matched(result, self._logger):
             self._logger.info(
-                "trading_service: instrument binding failed, "
-                "ticker=%s status=%s",
-                ticker, result.status.value,
+                "trading_service: binding rejected, "
+                "ticker=%s status=%s reasons=%s",
+                ticker, result.status.value, result.reasons,
                 extra={"component": "trading_service"},
             )
 
