@@ -28,6 +28,7 @@ from tinvest_trader.services.cbr_ingestion_service import CbrIngestionService
 from tinvest_trader.services.fusion_service import FusionService
 from tinvest_trader.services.moex_ingestion_service import MoexIngestionService
 from tinvest_trader.services.observation_service import ObservationService
+from tinvest_trader.services.tbank_event_fetch_policy import FetchPolicyConfig
 from tinvest_trader.services.telegram_sentiment_service import TelegramSentimentService
 from tinvest_trader.services.trading_service import TradingService
 
@@ -251,6 +252,16 @@ class Container:
         else:
             tracked_figis = self.config.market_data.tracked_instruments
 
+        fetch_policy = FetchPolicyConfig(
+            enabled=cfg.fetch_policy_enabled,
+            dividends_ttl_seconds=cfg.dividends_ttl_seconds,
+            reports_ttl_seconds=cfg.reports_ttl_seconds,
+            insider_deals_ttl_seconds=cfg.insider_deals_ttl_seconds,
+            failure_cooldown_seconds=cfg.fetch_policy_failure_cooldown_seconds,
+            max_consecutive_failures=cfg.fetch_policy_max_consecutive_failures,
+            max_fetches_per_cycle=cfg.fetch_policy_max_fetches_per_cycle,
+        )
+
         self.broker_event_ingestion_service = BrokerEventIngestionService(
             client=self.tbank_client,
             repository=self.repository,
@@ -263,6 +274,7 @@ class Container:
                 "reports": cfg.reports_lookback_days,
                 "insider_deals": cfg.insider_deals_lookback_days,
             },
+            fetch_policy_config=fetch_policy,
         )
 
         self.logger.info(

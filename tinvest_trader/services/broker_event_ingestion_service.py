@@ -9,6 +9,11 @@ from typing import TYPE_CHECKING
 
 from tinvest_trader.domain.models import BrokerEventRaw, Instrument
 from tinvest_trader.infra.tbank.mapper import map_broker_event_feature
+from tinvest_trader.services.tbank_event_fetch_policy import (
+    EligibleFetch,
+    FetchPolicyConfig,
+    select_eligible_fetches,
+)
 
 if TYPE_CHECKING:
     from tinvest_trader.infra.storage.repository import TradingRepository
@@ -41,6 +46,7 @@ class BrokerEventIngestionService:
         tracked_figis: tuple[str, ...],
         event_types: tuple[str, ...],
         lookback_days_by_event_type: dict[str, int],
+        fetch_policy_config: FetchPolicyConfig | None = None,
     ) -> None:
         self._client = client
         self._repository = repository
@@ -49,6 +55,7 @@ class BrokerEventIngestionService:
         self._tracked_figis = tracked_figis
         self._event_types = event_types
         self._lookback_days_by_event_type = dict(lookback_days_by_event_type)
+        self._fetch_policy_config = fetch_policy_config
 
     def ingest_all(self, as_of: datetime | None = None) -> int:
         """Run one full broker structured-event ingestion pass."""
@@ -61,32 +68,86 @@ class BrokerEventIngestionService:
 
         now = as_of or datetime.now(tz=UTC)
         tracked_instruments = self._resolve_tracked_instruments()
-        total_processed = 0
+        instrument_by_figi = {inst.figi: inst for inst in tracked_instruments}
 
-        for event_type in self._event_types:
-            if event_type not in _SOURCE_METHODS:
-                self._logger.warning(
-                    "skipping unsupported broker event type",
-                    extra={"component": "broker_events", "event_type": event_type},
-                )
+        # Apply fetch policy if configured
+        policy = self._fetch_policy_config
+        if policy is not None and policy.enabled:
+            eligible = select_eligible_fetches(
+                config=policy,
+                figis=self._tracked_figis,
+                event_types=self._event_types,
+                repository=self._repository,
+                now=now,
+                logger=self._logger,
+            )
+            fetch_plan: list[EligibleFetch] = eligible
+        else:
+            # No policy -- fetch everything (legacy behavior)
+            fetch_plan = [
+                EligibleFetch(figi=figi, event_type=event_type)
+                for event_type in self._event_types
+                if event_type in _SOURCE_METHODS
+                for figi in self._tracked_figis
+            ]
+
+        total_processed = 0
+        fetch_successes = 0
+        fetch_failures = 0
+
+        for item in fetch_plan:
+            if item.event_type not in _SOURCE_METHODS:
+                continue
+            instrument = instrument_by_figi.get(item.figi)
+            if instrument is None:
                 continue
 
-            for instrument in tracked_instruments:
-                try:
-                    total_processed += self._ingest_event_type_for_instrument(
-                        event_type=event_type,
-                        instrument=instrument,
-                        as_of=now,
-                    )
-                except Exception:
-                    self._logger.exception(
-                        "broker event ingestion failed for instrument",
-                        extra={
-                            "component": "broker_events",
-                            "event_type": event_type,
-                            "figi": instrument.figi,
-                        },
-                    )
+            try:
+                processed = self._ingest_event_type_for_instrument(
+                    event_type=item.event_type,
+                    instrument=instrument,
+                    as_of=now,
+                )
+                total_processed += processed
+                fetch_successes += 1
+                if self._repository is not None and policy is not None and policy.enabled:
+                    try:
+                        self._repository.record_fetch_success(
+                            item.figi, item.event_type, now,
+                        )
+                    except Exception:
+                        self._logger.exception(
+                            "failed to record fetch success",
+                            extra={
+                                "component": "broker_events",
+                                "figi": item.figi,
+                                "event_type": item.event_type,
+                            },
+                        )
+            except Exception:
+                fetch_failures += 1
+                self._logger.exception(
+                    "broker event ingestion failed for instrument",
+                    extra={
+                        "component": "broker_events",
+                        "event_type": item.event_type,
+                        "figi": item.figi,
+                    },
+                )
+                if self._repository is not None and policy is not None and policy.enabled:
+                    try:
+                        self._repository.record_fetch_failure(
+                            item.figi, item.event_type, now,
+                        )
+                    except Exception:
+                        self._logger.exception(
+                            "failed to record fetch failure",
+                            extra={
+                                "component": "broker_events",
+                                "figi": item.figi,
+                                "event_type": item.event_type,
+                            },
+                        )
 
         self._logger.info(
             "broker event ingestion complete",
@@ -95,6 +156,9 @@ class BrokerEventIngestionService:
                 "tracked_figis": len(tracked_instruments),
                 "event_types": list(self._event_types),
                 "processed": total_processed,
+                "fetch_successes": fetch_successes,
+                "fetch_failures": fetch_failures,
+                "fetch_plan_size": len(fetch_plan),
             },
         )
         return total_processed

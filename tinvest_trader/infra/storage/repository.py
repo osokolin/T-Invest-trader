@@ -305,6 +305,82 @@ class TradingRepository:
             seeded += 1
         return seeded
 
+    # -- Broker event fetch state --
+
+    def get_fetch_state(self, figi: str, event_type: str) -> dict | None:
+        """Return fetch state for (figi, event_type) or None."""
+        sql = """
+            SELECT last_checked_at, last_success_at, last_error_at, error_count
+            FROM broker_event_fetch_state
+            WHERE figi = %s AND event_type = %s
+        """
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, (figi, event_type))
+            row = cur.fetchone()
+        if row is None:
+            return None
+        return {
+            "last_checked_at": row[0],
+            "last_success_at": row[1],
+            "last_error_at": row[2],
+            "error_count": row[3],
+        }
+
+    def get_all_fetch_states(self) -> list[dict]:
+        """Return all fetch states as list of dicts."""
+        sql = """
+            SELECT figi, event_type, last_checked_at, last_success_at,
+                   last_error_at, error_count
+            FROM broker_event_fetch_state
+        """
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql)
+            rows = cur.fetchall()
+        cols = (
+            "figi", "event_type", "last_checked_at",
+            "last_success_at", "last_error_at", "error_count",
+        )
+        return [dict(zip(cols, row, strict=True)) for row in rows]
+
+    def record_fetch_success(
+        self, figi: str, event_type: str, now: datetime,
+    ) -> None:
+        """Record a successful fetch for (figi, event_type)."""
+        sql = """
+            INSERT INTO broker_event_fetch_state
+                (figi, event_type, last_checked_at, last_success_at, error_count, updated_at)
+            VALUES (%s, %s, %s, %s, 0, %s)
+            ON CONFLICT (figi, event_type)
+            DO UPDATE SET
+                last_checked_at = EXCLUDED.last_checked_at,
+                last_success_at = EXCLUDED.last_success_at,
+                error_count = 0,
+                updated_at = EXCLUDED.updated_at
+        """
+        with self._pool.get_connection() as conn:
+            conn.execute(sql, (figi, event_type, now, now, now))
+            conn.commit()
+
+    def record_fetch_failure(
+        self, figi: str, event_type: str, now: datetime,
+    ) -> None:
+        """Record a failed fetch for (figi, event_type)."""
+        sql = """
+            INSERT INTO broker_event_fetch_state
+                (figi, event_type, last_checked_at, last_error_at,
+                 error_count, updated_at)
+            VALUES (%s, %s, %s, %s, 1, %s)
+            ON CONFLICT (figi, event_type)
+            DO UPDATE SET
+                last_checked_at = EXCLUDED.last_checked_at,
+                last_error_at = EXCLUDED.last_error_at,
+                error_count = broker_event_fetch_state.error_count + 1,
+                updated_at = EXCLUDED.updated_at
+        """
+        with self._pool.get_connection() as conn:
+            conn.execute(sql, (figi, event_type, now, now, now))
+            conn.commit()
+
     # -- Market data --
 
     def insert_market_snapshot(self, snap: MarketSnapshot) -> None:

@@ -413,3 +413,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_moex_history_unique
     ON moex_market_history (secid, boardid, trade_date);
 CREATE INDEX IF NOT EXISTS idx_moex_history_secid_date
     ON moex_market_history (secid, trade_date DESC);
+
+-- ============================================================
+-- Milestone 10: Broker event fetch policy state
+-- ============================================================
+
+-- Tracks when each (figi, event_type) was last fetched and its outcome.
+-- Used by the fetch policy to implement TTL-based selective fetching.
+CREATE TABLE IF NOT EXISTS broker_event_fetch_state (
+    id              BIGSERIAL PRIMARY KEY,
+    figi            TEXT NOT NULL,
+    event_type      TEXT NOT NULL,
+    last_checked_at TIMESTAMPTZ,
+    last_success_at TIMESTAMPTZ,
+    last_error_at   TIMESTAMPTZ,
+    error_count     INTEGER NOT NULL DEFAULT 0,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_broker_event_fetch_state_unique
+    ON broker_event_fetch_state (figi, event_type);
