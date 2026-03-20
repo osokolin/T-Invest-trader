@@ -65,7 +65,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(event_time, recorded_at) AS time, source_method, ticker, event_type, event_direction, event_value, currency, event_uid FROM broker_event_features ORDER BY recorded_at DESC LIMIT 100;",
+          "rawSql": "SELECT COALESCE(event_time, recorded_at) AS time, source_method, ticker, event_type, event_direction, event_value, currency, event_uid FROM broker_event_features ORDER BY COALESCE(event_time, recorded_at) DESC LIMIT 100;",
           "refId": "A"
         }
       ],
@@ -159,7 +159,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(event_time, recorded_at) AS time, ticker, event_direction, event_value, currency, event_uid FROM broker_event_features WHERE event_type = 'insider_deal' ORDER BY recorded_at DESC LIMIT 100;",
+          "rawSql": "SELECT COALESCE(event_time, recorded_at) AS time, ticker, event_direction, event_value, currency, event_uid FROM broker_event_features WHERE event_type = 'insider_deal' ORDER BY COALESCE(event_time, recorded_at) DESC LIMIT 100;",
           "refId": "A"
         }
       ],
@@ -209,7 +209,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(event_time, recorded_at) AS time, ticker, event_value, currency, event_uid FROM broker_event_features WHERE event_type = 'dividend' ORDER BY recorded_at DESC LIMIT 100;",
+          "rawSql": "SELECT COALESCE(event_time, recorded_at) AS time, ticker, event_value, currency, event_uid FROM broker_event_features WHERE event_type = 'dividend' ORDER BY COALESCE(event_time, recorded_at) DESC LIMIT 100;",
           "refId": "A"
         }
       ],
@@ -259,7 +259,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(event_time, recorded_at) AS time, ticker, source_method, event_uid FROM broker_event_features WHERE event_type = 'report' ORDER BY recorded_at DESC LIMIT 100;",
+          "rawSql": "SELECT COALESCE(event_time, recorded_at) AS time, ticker, source_method, event_uid FROM broker_event_features WHERE event_type = 'report' ORDER BY COALESCE(event_time, recorded_at) DESC LIMIT 100;",
           "refId": "A"
         }
       ],
