@@ -35,6 +35,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--limit", type=int, default=0,
         help="Max instruments to enrich (0 = all)",
     )
+    enrich_parser.add_argument(
+        "--alert", action="store_true",
+        help="Send health alert after enrichment if issues remain",
+    )
 
     health_parser = subparsers.add_parser(
         "instrument-health",
@@ -43,6 +47,10 @@ def build_parser() -> argparse.ArgumentParser:
     health_parser.add_argument(
         "--fail-on-issues", action="store_true",
         help="Exit with code 1 if any issues detected",
+    )
+    health_parser.add_argument(
+        "--alert", action="store_true",
+        help="Send alert via Telegram if issues detected",
     )
 
     return parser
@@ -72,10 +80,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "untrack":
             return _run_untrack(container, args.ticker)
         if args.command == "enrich-instruments":
-            return _run_enrich_instruments(container, args.limit)
+            return _run_enrich_instruments(
+                container, args.limit, alert=args.alert,
+            )
         if args.command == "instrument-health":
             return _run_instrument_health(
-                container, fail_on_issues=args.fail_on_issues,
+                container,
+                fail_on_issues=args.fail_on_issues,
+                alert=args.alert,
             )
     finally:
         _close_container(container)
@@ -210,6 +222,7 @@ def _run_instrument_health(
     container: Container,
     *,
     fail_on_issues: bool,
+    alert: bool = False,
 ) -> int:
     repository = container.repository
     if repository is None:
@@ -229,13 +242,24 @@ def _run_instrument_health(
         for item in report.instruments_with_issues:
             print(f"  {item.ticker}: {', '.join(item.issues)}")
 
+    if alert:
+        from tinvest_trader.services.instrument_alerting import (
+            send_instrument_health_alert,
+        )
+        send_instrument_health_alert(report)
+
     if fail_on_issues and report.has_issues:
         return 1
     return 0
 
 
 
-def _run_enrich_instruments(container: Container, limit: int) -> int:
+def _run_enrich_instruments(
+    container: Container,
+    limit: int,
+    *,
+    alert: bool = False,
+) -> int:
     repository = container.repository
     if repository is None:
         print("database is not configured")
@@ -256,6 +280,17 @@ def _run_enrich_instruments(container: Container, limit: int) -> int:
     if result.errors:
         for err in result.errors:
             print(f"  error: {err}")
+
+    if alert:
+        from tinvest_trader.services.instrument_alerting import (
+            send_instrument_health_alert,
+        )
+        from tinvest_trader.services.instrument_health import (
+            evaluate_instrument_health,
+        )
+        report = evaluate_instrument_health(repository)
+        send_instrument_health_alert(report)
+
     return 0
 
 
