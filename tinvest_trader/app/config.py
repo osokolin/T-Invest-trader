@@ -78,6 +78,14 @@ class BrokerEventsConfig:
     reports_lookback_days: int = 365
     insider_deals_lookback_days: int = 3650
     tracked_figis_override: tuple[str, ...] = ()
+    # Fetch policy settings
+    fetch_policy_enabled: bool = True
+    dividends_ttl_seconds: int = 86400
+    reports_ttl_seconds: int = 86400
+    insider_deals_ttl_seconds: int = 86400
+    fetch_policy_failure_cooldown_seconds: int = 3600
+    fetch_policy_max_consecutive_failures: int = 5
+    fetch_policy_max_fetches_per_cycle: int = 0
 
 
 @dataclass(frozen=True)
@@ -255,6 +263,39 @@ def load_config() -> AppConfig:
             ),
             tracked_figis_override=_parse_csv(
                 os.environ.get("TINVEST_BROKER_EVENTS_TRACKED_FIGIS", ""),
+            ),
+            fetch_policy_enabled=os.environ.get(
+                "TINVEST_BROKER_EVENTS_FETCH_POLICY_ENABLED", "true",
+            ).lower() == "true",
+            dividends_ttl_seconds=int(
+                os.environ.get(
+                    "TINVEST_BROKER_EVENTS_DIVIDENDS_TTL_SECONDS", "86400",
+                ),
+            ),
+            reports_ttl_seconds=int(
+                os.environ.get(
+                    "TINVEST_BROKER_EVENTS_REPORTS_TTL_SECONDS", "86400",
+                ),
+            ),
+            insider_deals_ttl_seconds=int(
+                os.environ.get(
+                    "TINVEST_BROKER_EVENTS_INSIDER_DEALS_TTL_SECONDS", "86400",
+                ),
+            ),
+            fetch_policy_failure_cooldown_seconds=int(
+                os.environ.get(
+                    "TINVEST_BROKER_EVENTS_FAILURE_COOLDOWN_SECONDS", "3600",
+                ),
+            ),
+            fetch_policy_max_consecutive_failures=int(
+                os.environ.get(
+                    "TINVEST_BROKER_EVENTS_MAX_CONSECUTIVE_FAILURES", "5",
+                ),
+            ),
+            fetch_policy_max_fetches_per_cycle=int(
+                os.environ.get(
+                    "TINVEST_BROKER_EVENTS_MAX_FETCHES_PER_CYCLE", "0",
+                ),
             ),
         ),
         sentiment=SentimentConfig(
