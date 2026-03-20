@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from enum import Enum
 
 
@@ -22,6 +23,39 @@ class BindingStatus(Enum):
     REJECTED = "rejected"
 
 
+# ---------------------------------------------------------------------------
+# Data structures
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class MarketCandidate:
+    """A real market candidate (e.g. instrument, Polymarket market).
+
+    Represents something we might trade on.
+    """
+
+    id: str  # unique identifier (figi, market_id, etc.)
+    ticker: str
+    name: str
+    status: str = "open"  # "open", "closed", "expired", "unknown"
+    close_time: datetime | None = None
+    metadata: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class BindingSignal:
+    """Signal input for market binding.
+
+    Contains what we want to trade and optional context.
+    """
+
+    ticker: str
+    direction: str | None = None  # "up", "down" (normalized)
+    window: str | None = None  # "5m", "1h", etc. (normalized)
+    figi_hint: str | None = None  # optional FIGI from instrument catalog
+
+
 @dataclass(frozen=True)
 class CandidateScore:
     """A scored candidate instrument from discovery."""
@@ -30,6 +64,7 @@ class CandidateScore:
     figi: str
     name: str
     score: float
+    candidate_id: str = ""
     reasons: list[str] = field(default_factory=list)
 
 
@@ -50,6 +85,7 @@ class MarketBindingResult:
     status: BindingStatus
     selected_ticker: str | None = None
     selected_figi: str | None = None
+    selected_candidate_id: str | None = None
     candidates: list[CandidateScore] = field(default_factory=list)
     validations: list[ValidationResult] = field(default_factory=list)
     reasons: list[str] = field(default_factory=list)
@@ -63,6 +99,7 @@ class BindingConfig:
     min_gap: float = 0.2
     require_exact_ticker: bool = True
     require_trading_enabled: bool = True
+    require_market_open: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -101,8 +138,60 @@ def normalize_window(raw: str) -> str:
     return _WINDOW_ALIASES.get(key, key)
 
 
+def build_signal(
+    ticker: str,
+    direction: str | None = None,
+    window: str | None = None,
+    figi_hint: str | None = None,
+) -> BindingSignal:
+    """Build a normalized BindingSignal from raw inputs."""
+    return BindingSignal(
+        ticker=normalize_ticker(ticker),
+        direction=normalize_direction(direction) if direction else None,
+        window=normalize_window(window) if window else None,
+        figi_hint=figi_hint,
+    )
+
+
 # ---------------------------------------------------------------------------
-# Candidate scoring (wraps existing registry data)
+# Market candidate helpers
+# ---------------------------------------------------------------------------
+
+def is_market_open(candidate: MarketCandidate, now: datetime | None = None) -> bool:
+    """Check if a market candidate is open for trading."""
+    if candidate.status in ("closed", "expired"):
+        return False
+    if candidate.close_time is not None:
+        if now is None:
+            now = datetime.now(UTC)
+        if candidate.close_time <= now:
+            return False
+    return True
+
+
+def candidates_from_instruments(instruments: list[dict]) -> list[MarketCandidate]:
+    """Convert instrument catalog dicts to MarketCandidate list."""
+    result: list[MarketCandidate] = []
+    for inst in instruments:
+        ticker = (inst.get("ticker") or "").upper()
+        figi = inst.get("figi") or ""
+        if not ticker or figi.startswith("TICKER:"):
+            continue
+        result.append(MarketCandidate(
+            id=figi,
+            ticker=ticker,
+            name=inst.get("name") or "",
+            status="open",
+            metadata={
+                k: v for k, v in inst.items()
+                if k not in ("ticker", "figi", "name")
+            },
+        ))
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Candidate scoring
 # ---------------------------------------------------------------------------
 
 def score_candidates(
@@ -146,10 +235,57 @@ def score_candidates(
             figi=figi,
             name=name,
             score=score,
+            candidate_id=figi,
             reasons=reasons,
         ))
 
     # Sort by score descending, then by ticker for determinism
+    results.sort(key=lambda c: (-c.score, c.ticker))
+    return results
+
+
+def score_market_candidates(
+    signal: BindingSignal,
+    candidates: list[MarketCandidate],
+) -> list[CandidateScore]:
+    """Score MarketCandidate list against a signal.
+
+    Same deterministic scoring as score_candidates, but operates on
+    MarketCandidate objects.
+    """
+    query = signal.ticker
+    if not query:
+        return []
+
+    results: list[CandidateScore] = []
+    for cand in candidates:
+        ticker = cand.ticker.upper()
+        score = 0.0
+        reasons: list[str] = []
+
+        if ticker == query:
+            score = 1.0
+            reasons.append("exact_ticker_match")
+        elif ticker.startswith(query) or query.startswith(ticker):
+            score = 0.3
+            reasons.append("prefix_match")
+        else:
+            continue
+
+        # Bonus: FIGI hint match
+        if signal.figi_hint and cand.id == signal.figi_hint:
+            score = min(score + 0.1, 1.0)
+            reasons.append("figi_hint_match")
+
+        results.append(CandidateScore(
+            ticker=ticker,
+            figi=cand.id,
+            name=cand.name,
+            score=score,
+            candidate_id=cand.id,
+            reasons=reasons,
+        ))
+
     results.sort(key=lambda c: (-c.score, c.ticker))
     return results
 
@@ -206,61 +342,78 @@ def validate_candidate(
     )
 
 
+def validate_market_candidate(
+    scored: CandidateScore,
+    signal: BindingSignal,
+    market: MarketCandidate | None,
+    config: BindingConfig,
+    now: datetime | None = None,
+) -> ValidationResult:
+    """Validate a scored candidate against signal and market state.
+
+    Applies all hard rules:
+    1. Ticker match
+    2. Real FIGI
+    3. Score threshold
+    4. Market open/not expired
+    """
+    passed: list[str] = []
+    failed: list[str] = []
+
+    # Rule 1: Ticker must match exactly (if required)
+    if config.require_exact_ticker:
+        if scored.ticker == signal.ticker:
+            passed.append("exact_ticker")
+        else:
+            failed.append("ticker_mismatch")
+    else:
+        passed.append("ticker_check_skipped")
+
+    # Rule 2: FIGI must be real
+    if scored.figi and not scored.figi.startswith("TICKER:"):
+        passed.append("real_figi")
+    else:
+        failed.append("placeholder_or_missing_figi")
+
+    # Rule 3: Score threshold
+    if scored.score >= config.min_score:
+        passed.append("score_above_threshold")
+    else:
+        failed.append(
+            f"score_below_threshold({scored.score:.2f}<{config.min_score:.2f})",
+        )
+
+    # Rule 4: Market must be open (if we have market data)
+    if config.require_market_open and market is not None:
+        if is_market_open(market, now=now):
+            passed.append("market_open")
+        else:
+            failed.append(f"market_closed_or_expired(status={market.status})")
+    elif market is None:
+        passed.append("market_status_unknown_soft")
+
+    return ValidationResult(
+        candidate=scored,
+        valid=len(failed) == 0,
+        checks_passed=passed,
+        checks_failed=failed,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Binding engine
 # ---------------------------------------------------------------------------
 
-def bind_market(
-    query_ticker: str,
-    instruments: list[dict],
-    config: BindingConfig | None = None,
-    logger: logging.Logger | None = None,
+def _classify(
+    candidates: list[CandidateScore],
+    validations: list[ValidationResult],
+    config: BindingConfig,
+    query: str,
+    logger: logging.Logger,
 ) -> MarketBindingResult:
-    """Attempt to bind a signal to a specific market instrument.
-
-    Flow: score candidates -> validate -> classify -> bind OR reject.
-    """
-    if config is None:
-        config = BindingConfig()
-    if logger is None:
-        logger = logging.getLogger(__name__)
-
-    query = normalize_ticker(query_ticker)
-    if not query:
-        return MarketBindingResult(
-            status=BindingStatus.NO_MATCH,
-            reasons=["empty_query_ticker"],
-        )
-
-    # Step 1: Score candidates
-    candidates = score_candidates(query, instruments)
-
-    if not candidates:
-        logger.info(
-            "market_binding: ticker=%s status=no_match candidates=0",
-            query,
-            extra={"component": "market_binding"},
-        )
-        return MarketBindingResult(
-            status=BindingStatus.NO_MATCH,
-            candidates=[],
-            reasons=["no_candidates_found"],
-        )
-
-    # Step 2: Validate each candidate
-    validations: list[ValidationResult] = []
-    for cand in candidates:
-        # Find instrument details for this ticker
-        details = None
-        for inst in instruments:
-            if (inst.get("ticker") or "").upper() == cand.ticker:
-                details = inst
-                break
-        validations.append(validate_candidate(cand, query, details, config))
-
+    """Classify scored+validated candidates into a binding result."""
     valid_candidates = [v for v in validations if v.valid]
 
-    # Step 3: Classify result
     if not valid_candidates:
         reasons = []
         for v in validations:
@@ -279,16 +432,15 @@ def bind_market(
         )
 
     if len(valid_candidates) > 1:
-        # Check if gap between top two is significant enough
         top_score = valid_candidates[0].candidate.score
         second_score = valid_candidates[1].candidate.score
         gap = top_score - second_score
 
         if gap >= config.min_gap:
-            # Gap is significant -- take the top one
             selected = valid_candidates[0]
             logger.info(
-                "market_binding: ticker=%s status=matched figi=%s score=%.2f gap=%.2f",
+                "market_binding: ticker=%s status=matched figi=%s "
+                "score=%.2f gap=%.2f",
                 query, selected.candidate.figi, top_score, gap,
                 extra={"component": "market_binding"},
             )
@@ -296,14 +448,15 @@ def bind_market(
                 status=BindingStatus.MATCHED,
                 selected_ticker=selected.candidate.ticker,
                 selected_figi=selected.candidate.figi,
+                selected_candidate_id=selected.candidate.candidate_id,
                 candidates=candidates,
                 validations=validations,
                 reasons=[f"top_candidate_gap_sufficient({gap:.2f})"],
             )
 
-        # Ambiguous -- multiple valid candidates with similar scores
         logger.info(
-            "market_binding: ticker=%s status=ambiguous candidates=%d gap=%.2f",
+            "market_binding: ticker=%s status=ambiguous candidates=%d "
+            "gap=%.2f",
             query, len(valid_candidates), gap,
             extra={"component": "market_binding"},
         )
@@ -317,7 +470,6 @@ def bind_market(
             ],
         )
 
-    # Exactly one valid candidate -- matched
     selected = valid_candidates[0]
     logger.info(
         "market_binding: ticker=%s status=matched figi=%s score=%.2f",
@@ -328,10 +480,137 @@ def bind_market(
         status=BindingStatus.MATCHED,
         selected_ticker=selected.candidate.ticker,
         selected_figi=selected.candidate.figi,
+        selected_candidate_id=selected.candidate.candidate_id,
         candidates=candidates,
         validations=validations,
         reasons=["single_valid_candidate"],
     )
+
+
+def bind_market(
+    query_ticker: str,
+    instruments: list[dict],
+    config: BindingConfig | None = None,
+    logger: logging.Logger | None = None,
+) -> MarketBindingResult:
+    """Bind a ticker to an instrument from catalog (dict-based).
+
+    Legacy entry point. For signal-based binding, use bind_signal().
+    """
+    if config is None:
+        config = BindingConfig()
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
+    query = normalize_ticker(query_ticker)
+    if not query:
+        return MarketBindingResult(
+            status=BindingStatus.NO_MATCH,
+            reasons=["empty_query_ticker"],
+        )
+
+    candidates = score_candidates(query, instruments)
+
+    if not candidates:
+        logger.info(
+            "market_binding: ticker=%s status=no_match candidates=0",
+            query,
+            extra={"component": "market_binding"},
+        )
+        return MarketBindingResult(
+            status=BindingStatus.NO_MATCH,
+            candidates=[],
+            reasons=["no_candidates_found"],
+        )
+
+    validations: list[ValidationResult] = []
+    for cand in candidates:
+        details = None
+        for inst in instruments:
+            if (inst.get("ticker") or "").upper() == cand.ticker:
+                details = inst
+                break
+        validations.append(validate_candidate(cand, query, details, config))
+
+    return _classify(candidates, validations, config, query, logger)
+
+
+def bind_signal(
+    signal: BindingSignal,
+    market_candidates: list[MarketCandidate],
+    config: BindingConfig | None = None,
+    logger: logging.Logger | None = None,
+    now: datetime | None = None,
+) -> MarketBindingResult:
+    """Bind a signal to a market candidate. Execution-grade entry point.
+
+    Flow: score candidates -> validate (incl. market state) -> classify.
+    """
+    if config is None:
+        config = BindingConfig()
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
+    if not signal.ticker:
+        return MarketBindingResult(
+            status=BindingStatus.NO_MATCH,
+            reasons=["empty_signal_ticker"],
+        )
+
+    scored = score_market_candidates(signal, market_candidates)
+
+    if not scored:
+        logger.info(
+            "market_binding: ticker=%s status=no_match candidates=0",
+            signal.ticker,
+            extra={"component": "market_binding"},
+        )
+        return MarketBindingResult(
+            status=BindingStatus.NO_MATCH,
+            candidates=[],
+            reasons=["no_candidates_found"],
+        )
+
+    # Build lookup for MarketCandidate by id
+    market_by_id: dict[str, MarketCandidate] = {
+        c.id: c for c in market_candidates
+    }
+
+    validations: list[ValidationResult] = []
+    for s in scored:
+        market = market_by_id.get(s.candidate_id)
+        validations.append(
+            validate_market_candidate(s, signal, market, config, now=now),
+        )
+
+    return _classify(scored, validations, config, signal.ticker, logger)
+
+
+# ---------------------------------------------------------------------------
+# Execution gate
+# ---------------------------------------------------------------------------
+
+def require_matched(
+    result: MarketBindingResult,
+    logger: logging.Logger | None = None,
+) -> bool:
+    """Check if a binding result is safe for execution.
+
+    Returns True only if status == MATCHED and we have a selected FIGI.
+    Logs a warning for non-matched results.
+    """
+    if result.status == BindingStatus.MATCHED and result.selected_figi:
+        return True
+
+    if logger is None:
+        logger = logging.getLogger(__name__)
+    logger.warning(
+        "market_binding: execution blocked, status=%s reasons=%s",
+        result.status.value,
+        result.reasons,
+        extra={"component": "market_binding"},
+    )
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -349,13 +628,19 @@ def format_binding_debug(result: MarketBindingResult, query: str) -> str:
         lines.append(f"selected_ticker: {result.selected_ticker}")
     if result.selected_figi:
         lines.append(f"selected_figi: {result.selected_figi}")
+    if result.selected_candidate_id:
+        lines.append(f"selected_candidate_id: {result.selected_candidate_id}")
 
     lines.append(f"candidates: {len(result.candidates)}")
 
     if result.candidates:
         lines.append("scoring:")
         for c in result.candidates:
-            lines.append(f"  {c.ticker} figi={c.figi} score={c.score:.2f} {c.reasons}")
+            cid = f" id={c.candidate_id}" if c.candidate_id else ""
+            lines.append(
+                f"  {c.ticker} figi={c.figi}{cid} "
+                f"score={c.score:.2f} {c.reasons}",
+            )
 
     if result.validations:
         lines.append("validation:")

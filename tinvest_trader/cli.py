@@ -89,6 +89,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     binding_parser.add_argument("ticker", help="Ticker to bind (e.g. SBER)")
     binding_parser.add_argument(
+        "--direction", type=str, default=None,
+        help="Signal direction (e.g. up, down, buy, sell)",
+    )
+    binding_parser.add_argument(
+        "--window", type=str, default=None,
+        help="Signal window/timeframe (e.g. 5m, 1h, day)",
+    )
+    binding_parser.add_argument(
         "--min-score", type=float, default=0.5,
         help="Minimum score threshold (default 0.5)",
     )
@@ -152,6 +160,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_market_binding_debug(
                 container,
                 ticker=args.ticker,
+                direction=args.direction,
+                window=args.window,
                 min_score=args.min_score,
                 min_gap=args.min_gap,
                 require_exact=not args.no_exact_ticker,
@@ -435,6 +445,8 @@ def _run_market_binding_debug(
     container: Container,
     *,
     ticker: str,
+    direction: str | None = None,
+    window: str | None = None,
     min_score: float = 0.5,
     min_gap: float = 0.2,
     require_exact: bool = True,
@@ -446,7 +458,9 @@ def _run_market_binding_debug(
 
     from tinvest_trader.services.market_binding import (
         BindingConfig,
-        bind_market,
+        bind_signal,
+        build_signal,
+        candidates_from_instruments,
         format_binding_debug,
     )
 
@@ -455,17 +469,33 @@ def _run_market_binding_debug(
         print("no instruments in database")
         return 1
 
+    signal = build_signal(
+        ticker=ticker,
+        direction=direction,
+        window=window,
+    )
+    candidates = candidates_from_instruments(instruments)
     config = BindingConfig(
         min_score=min_score,
         min_gap=min_gap,
         require_exact_ticker=require_exact,
+        require_market_open=False,  # CLI debug -- don't check market state
     )
-    result = bind_market(
-        query_ticker=ticker,
-        instruments=instruments,
+    result = bind_signal(
+        signal=signal,
+        market_candidates=candidates,
         config=config,
         logger=container.logger,
     )
+
+    # Show signal info
+    lines = [f"signal: ticker={signal.ticker}"]
+    if signal.direction:
+        lines.append(f"  direction={signal.direction}")
+    if signal.window:
+        lines.append(f"  window={signal.window}")
+    print("\n".join(lines))
+
     print(format_binding_debug(result, ticker))
     return 0
 
