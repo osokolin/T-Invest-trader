@@ -9,7 +9,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from tinvest_trader.app.config import BackgroundConfig
+    from tinvest_trader.app.config import BackgroundConfig, QuoteSyncConfig
     from tinvest_trader.services.broker_event_ingestion_service import (
         BrokerEventIngestionService,
     )
@@ -33,6 +33,8 @@ class BackgroundRunner:
         fusion_service: FusionService | None = None,
         cbr_ingestion_service: CbrIngestionService | None = None,
         moex_ingestion_service: MoexIngestionService | None = None,
+        quote_sync_config: QuoteSyncConfig | None = None,
+        quote_sync_fn: Callable[[], object] | None = None,
         sentiment_channels: tuple[str, ...] = (),
         broker_event_interval_seconds: int = 1800,
         cbr_interval_seconds: int = 3600,
@@ -47,6 +49,8 @@ class BackgroundRunner:
         self._fusion_service = fusion_service
         self._cbr_ingestion_service = cbr_ingestion_service
         self._moex_ingestion_service = moex_ingestion_service
+        self._quote_sync_config = quote_sync_config
+        self._quote_sync_fn = quote_sync_fn
         self._sentiment_channels = sentiment_channels
         self._broker_event_interval_seconds = broker_event_interval_seconds
         self._cbr_interval_seconds = cbr_interval_seconds
@@ -186,6 +190,7 @@ class BackgroundRunner:
             or self._fusion_is_runnable()
             or self._cbr_is_runnable()
             or self._moex_is_runnable()
+            or self._quote_sync_is_runnable()
         )
 
     def _sentiment_is_runnable(self) -> bool:
@@ -205,6 +210,14 @@ class BackgroundRunner:
 
     def _moex_is_runnable(self) -> bool:
         return self._config.run_moex and self._moex_ingestion_service is not None
+
+    def _quote_sync_is_runnable(self) -> bool:
+        return (
+            self._config.run_quote_sync
+            and self._quote_sync_config is not None
+            and self._quote_sync_config.enabled
+            and self._quote_sync_fn is not None
+        )
 
     def run_broker_event_cycle(self) -> None:
         """Run one broker structured-event ingestion cycle safely."""
@@ -308,6 +321,26 @@ class BackgroundRunner:
                 extra={"component": "background_runner"},
             )
 
+    def run_quote_sync_cycle(self) -> None:
+        """Run one quote sync cycle safely."""
+        if not self._quote_sync_is_runnable():
+            return
+
+        try:
+            result = self._quote_sync_fn()
+            self._logger.info(
+                "background quote sync cycle complete",
+                extra={
+                    "component": "background_runner",
+                    "result": str(result),
+                },
+            )
+        except Exception:
+            self._logger.exception(
+                "background quote sync cycle failed",
+                extra={"component": "background_runner"},
+            )
+
     def _run_loop(self) -> None:
         next_sentiment_run = self._time_fn()
         next_observation_run = self._time_fn()
@@ -315,6 +348,7 @@ class BackgroundRunner:
         next_fusion_run = self._time_fn()
         next_cbr_run = self._time_fn()
         next_moex_run = self._time_fn()
+        next_quote_sync_run = self._time_fn()
 
         while not self._stop_event.is_set():
             now = self._time_fn()
@@ -391,6 +425,18 @@ class BackgroundRunner:
                     moex_wait
                     if next_wait is None
                     else min(next_wait, moex_wait)
+                )
+
+            if self._quote_sync_is_runnable():
+                if now >= next_quote_sync_run:
+                    self.run_quote_sync_cycle()
+                    interval = self._quote_sync_config.poll_interval_seconds
+                    next_quote_sync_run = self._time_fn() + max(1, interval)
+                quote_sync_wait = max(0.0, next_quote_sync_run - self._time_fn())
+                next_wait = (
+                    quote_sync_wait
+                    if next_wait is None
+                    else min(next_wait, quote_sync_wait)
                 )
 
             if next_wait is None:

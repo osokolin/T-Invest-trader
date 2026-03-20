@@ -122,6 +122,9 @@ class Container:
         if self.config.moex.enabled:
             self._wire_moex()
 
+        # Quote sync callable (used by background runner and CLI)
+        self._quote_sync_fn = self._build_quote_sync_fn()
+
         # Background runner (optional, disabled by default)
         if self.config.background.enabled:
             self._wire_background_runner()
@@ -378,6 +381,31 @@ class Container:
             },
         )
 
+    def _build_quote_sync_fn(self):
+        """Build a callable for quote sync if prerequisites are met."""
+        if not self.config.quote_sync.enabled:
+            return None
+        if self.repository is None:
+            return None
+
+        from tinvest_trader.services.quote_sync import sync_quotes
+
+        def _sync():
+            return sync_quotes(
+                client=self.tbank_client,
+                repository=self.repository,
+                logger=self.logger,
+            )
+
+        self.logger.info(
+            "quote sync initialized",
+            extra={
+                "component": "quote_sync",
+                "poll_interval_seconds": self.config.quote_sync.poll_interval_seconds,
+            },
+        )
+        return _sync
+
     def _wire_background_runner(self) -> None:
         """Wire background runner when enabled."""
         self.background_runner = BackgroundRunner(
@@ -389,6 +417,8 @@ class Container:
             fusion_service=self.fusion_service,
             cbr_ingestion_service=self.cbr_ingestion_service,
             moex_ingestion_service=self.moex_ingestion_service,
+            quote_sync_config=self.config.quote_sync,
+            quote_sync_fn=self._quote_sync_fn,
             sentiment_channels=self.config.sentiment.channels,
             broker_event_interval_seconds=self.config.broker_events.poll_interval_seconds,
             cbr_interval_seconds=self.config.cbr.poll_interval_seconds,

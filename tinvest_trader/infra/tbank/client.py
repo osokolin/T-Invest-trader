@@ -18,6 +18,10 @@ _INSTRUMENTS_SERVICE_BASE_URL = (
     "https://invest-public-api.tbank.ru/rest/"
     "tinkoff.public.invest.api.contract.v1.InstrumentsService"
 )
+_MARKET_DATA_SERVICE_BASE_URL = (
+    "https://invest-public-api.tbank.ru/rest/"
+    "tinkoff.public.invest.api.contract.v1.MarketDataService"
+)
 _HTTP_TIMEOUT_SECONDS = 15.0
 
 
@@ -196,6 +200,65 @@ class TBankClient:
             "units": 100,
             "nano": 500_000_000,
         }
+
+    def get_last_prices(self, instrument_ids: list[str]) -> list[dict]:
+        """Bulk-fetch last prices via MarketDataService/GetLastPrices.
+
+        Returns a list of dicts with instrument_uid, price, and source_time.
+        Falls back to empty list when token is not configured.
+        """
+        if not instrument_ids:
+            return []
+
+        if not self._has_token():
+            self._logger.info(
+                "get_last_prices (stub): no token",
+                extra={"component": "tbank_client", "count": len(instrument_ids)},
+            )
+            return []
+
+        try:
+            response = self._post_market_data_service(
+                method_name="GetLastPrices",
+                payload={
+                    "instrumentId": instrument_ids,
+                },
+            )
+        except Exception:
+            self._logger.exception(
+                "get_last_prices failed",
+                extra={"component": "tbank_client", "requested": len(instrument_ids)},
+            )
+            return []
+
+        raw_prices = response.get("lastPrices", [])
+        result = []
+        for item in raw_prices:
+            if not isinstance(item, dict):
+                continue
+            price_obj = item.get("price")
+            if not isinstance(price_obj, dict):
+                continue
+            units = int(price_obj.get("units", 0) or 0)
+            nano = int(price_obj.get("nano", 0) or 0)
+            price = units + nano / 1_000_000_000
+            if price <= 0:
+                continue
+            result.append({
+                "instrument_uid": item.get("instrumentUid", ""),
+                "price": price,
+                "source_time": item.get("time", ""),
+            })
+
+        self._logger.info(
+            "get_last_prices fetched",
+            extra={
+                "component": "tbank_client",
+                "requested": len(instrument_ids),
+                "received": len(result),
+            },
+        )
+        return result
 
     def get_recent_candles(self, figi: str, interval: str) -> list[dict]:
         """Return broker-shaped candle list (stub)."""
@@ -500,6 +563,70 @@ class TBankClient:
         except json.JSONDecodeError as exc:
             self._logger.exception(
                 "tbank instruments api invalid json response",
+                extra={
+                    "component": "tbank_client",
+                    "method_name": method_name,
+                },
+            )
+            raise TBankApiError(f"{method_name} returned invalid JSON") from exc
+
+        if not isinstance(parsed, dict):
+            raise TBankApiError(f"{method_name} returned unexpected response payload")
+        return parsed
+
+    def _post_market_data_service(self, method_name: str, payload: dict) -> dict:
+        if not self._has_token():
+            raise TBankApiError(
+                f"{method_name} requires TINVEST_TOKEN to be configured",
+            )
+
+        request_body = json.dumps(payload).encode("utf-8")
+        request = urllib_request.Request(
+            url=f"{_MARKET_DATA_SERVICE_BASE_URL}/{method_name}",
+            data=request_body,
+            headers={
+                "Authorization": f"Bearer {self._config.token}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": self._config.app_name or "tinvest_trader",
+            },
+            method="POST",
+        )
+        try:
+            with urllib_request.urlopen(
+                request,
+                timeout=_HTTP_TIMEOUT_SECONDS,
+            ) as response:
+                raw_body = response.read().decode("utf-8")
+        except urllib_error.HTTPError as exc:
+            error_body = exc.read().decode("utf-8", errors="replace")
+            self._logger.exception(
+                "tbank market data api http error",
+                extra={
+                    "component": "tbank_client",
+                    "method_name": method_name,
+                    "status_code": exc.code,
+                    "response_body": error_body,
+                },
+            )
+            raise TBankApiError(
+                f"{method_name} failed with HTTP {exc.code}",
+            ) from exc
+        except urllib_error.URLError as exc:
+            self._logger.exception(
+                "tbank market data api transport error",
+                extra={
+                    "component": "tbank_client",
+                    "method_name": method_name,
+                },
+            )
+            raise TBankApiError(f"{method_name} transport error") from exc
+
+        try:
+            parsed = json.loads(raw_body)
+        except json.JSONDecodeError as exc:
+            self._logger.exception(
+                "tbank market data api invalid json response",
                 extra={
                     "component": "tbank_client",
                     "method_name": method_name,
