@@ -48,7 +48,13 @@
           ],
           "show": false
         },
-        "showHeader": true
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "time",
+            "desc": true
+          }
+        ]
       },
       "targets": [
         {
