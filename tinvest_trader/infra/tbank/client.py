@@ -124,6 +124,59 @@ class TBankClient:
             "isin": instrument.get("isin", ""),
         }
 
+    def list_all_shares(self) -> list[dict]:
+        """Fetch full share catalog via Shares(INSTRUMENT_STATUS_ALL).
+
+        Returns a list of normalized dicts with figi, ticker, name, uid, isin,
+        lot, currency. Falls back to empty list when token is not configured.
+        """
+        if not self._has_token():
+            self._logger.info(
+                "list_all_shares (stub): no token",
+                extra={"component": "tbank_client"},
+            )
+            return []
+
+        try:
+            response = self._post_instruments_service(
+                method_name="Shares",
+                payload={
+                    "instrumentStatus": "INSTRUMENT_STATUS_ALL",
+                },
+            )
+        except Exception:
+            self._logger.exception(
+                "list_all_shares failed",
+                extra={"component": "tbank_client"},
+            )
+            return []
+
+        instruments = response.get("instruments", [])
+        result = []
+        for inst in instruments:
+            ticker = (inst.get("ticker") or "").strip()
+            figi = (inst.get("figi") or "").strip()
+            if not ticker or not figi:
+                continue
+            result.append({
+                "figi": figi,
+                "ticker": ticker.upper(),
+                "name": inst.get("name", ""),
+                "uid": inst.get("uid") or inst.get("instrumentUid", ""),
+                "isin": inst.get("isin", ""),
+                "lot": inst.get("lot"),
+                "currency": inst.get("currency", ""),
+            })
+
+        self._logger.info(
+            "list_all_shares fetched",
+            extra={
+                "component": "tbank_client",
+                "total_shares": len(result),
+            },
+        )
+        return result
+
     def get_trading_status(self, figi: str) -> str:
         """Return broker-shaped trading status string (stub)."""
         self._logger.info(
