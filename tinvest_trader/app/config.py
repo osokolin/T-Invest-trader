@@ -128,6 +128,13 @@ class ExecutionSafetyEnvConfig:
 
 
 @dataclass(frozen=True)
+class SignalCalibrationConfig:
+    enabled: bool = False
+    eval_window_seconds: int = 300
+    dry_run: bool = False
+
+
+@dataclass(frozen=True)
 class LoggingConfig:
     level: str = "INFO"
     json_output: bool = True
@@ -148,6 +155,9 @@ class AppConfig:
     moex: MoexConfig = field(default_factory=MoexConfig)
     execution_safety: ExecutionSafetyEnvConfig = field(
         default_factory=ExecutionSafetyEnvConfig,
+    )
+    signal_calibration: SignalCalibrationConfig = field(
+        default_factory=SignalCalibrationConfig,
     )
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     environment: str = "sandbox"
@@ -376,6 +386,19 @@ def load_config() -> AppConfig:
                     "TINVEST_EXECUTION_MIN_TIME_TO_CLOSE_SECONDS", "90",
                 ),
             ),
+        ),
+        signal_calibration=SignalCalibrationConfig(
+            enabled=os.environ.get(
+                "TINVEST_SIGNAL_CALIBRATION_ENABLED", "false",
+            ).lower() == "true",
+            eval_window_seconds=int(
+                os.environ.get(
+                    "TINVEST_SIGNAL_EVAL_WINDOW_SECONDS", "300",
+                ),
+            ),
+            dry_run=os.environ.get(
+                "TINVEST_DRY_RUN_ENABLED", "false",
+            ).lower() == "true",
         ),
         moex=MoexConfig(
             enabled=os.environ.get(

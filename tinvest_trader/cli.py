@@ -128,6 +128,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Min seconds before close to allow execution (default 90)",
     )
 
+    # -- signal-stats --
+    subparsers.add_parser(
+        "signal-stats",
+        help="Show signal prediction statistics",
+    )
+
     return parser
 
 
@@ -175,6 +181,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 alert=args.alert,
                 fail_on_issues=args.fail_on_issues,
             )
+        if args.command == "signal-stats":
+            return _run_signal_stats(container)
         if args.command == "market-binding-debug":
             return _run_market_binding_debug(
                 container,
@@ -559,6 +567,21 @@ def _run_execution_safety_debug(
     )
 
     print(format_safety_debug(ticker, pre, close_time, config, now))
+    return 0
+
+
+def _run_signal_stats(container: Container) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.signal_outcome import format_signal_stats
+
+    stats = repository.get_signal_stats()
+    by_ticker = repository.get_signal_stats_by_ticker()
+    by_type = repository.get_signal_stats_by_type()
+    print(format_signal_stats(stats, by_ticker, by_type))
     return 0
 
 
