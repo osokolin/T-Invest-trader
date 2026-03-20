@@ -624,9 +624,13 @@ class TradingRepository:
                  broker_latest_report_time, broker_latest_insider_deal_time,
                  last_dividend_at, last_report_at, last_insider_deal_at,
                  days_since_last_dividend, days_since_last_report,
-                 days_since_last_insider_deal)
+                 days_since_last_insider_deal,
+                 moex_latest_close, moex_latest_volume, moex_latest_numtrades,
+                 moex_last_trade_date, moex_days_since_last_trade,
+                 moex_price_change_1d_pct, moex_range_pct)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s)
         """
         with self._pool.get_connection() as conn:
             conn.execute(sql, (
@@ -656,8 +660,44 @@ class TradingRepository:
                 feature.days_since_last_dividend,
                 feature.days_since_last_report,
                 feature.days_since_last_insider_deal,
+                feature.moex_latest_close,
+                feature.moex_latest_volume,
+                feature.moex_latest_numtrades,
+                feature.moex_last_trade_date,
+                feature.moex_days_since_last_trade,
+                feature.moex_price_change_1d_pct,
+                feature.moex_range_pct,
             ))
             conn.commit()
+
+    def fetch_moex_market_context(self, ticker: str) -> dict | None:
+        """Fetch latest + previous MOEX market history rows for a ticker.
+
+        Returns dict with keys: latest (dict|None), previous_close (float|None).
+        Returns None if no data available.
+        """
+        sql = """
+            SELECT trade_date, open, high, low, close, volume, num_trades
+            FROM moex_market_history
+            WHERE secid = %s
+            ORDER BY trade_date DESC
+            LIMIT 2
+        """
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, (ticker.upper(),))
+            rows = cur.fetchall()
+
+        if not rows:
+            return None
+
+        columns = ("trade_date", "open", "high", "low", "close", "volume", "num_trades")
+        latest = dict(zip(columns, rows[0], strict=True))
+        previous_close = None
+        if len(rows) > 1:
+            prev = dict(zip(columns, rows[1], strict=True))
+            previous_close = prev.get("close")
+
+        return {"latest": latest, "previous_close": previous_close}
 
     # -- CBR events --
 
