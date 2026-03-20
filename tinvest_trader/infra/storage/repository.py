@@ -381,6 +381,112 @@ class TradingRepository:
             conn.execute(sql, (figi, event_type, now, now, now))
             conn.commit()
 
+    def list_broker_fetch_failures(
+        self, *, min_error_count: int = 1, limit: int = 50,
+    ) -> list[dict]:
+        """Return fetch states with error_count >= min_error_count."""
+        sql = """
+            SELECT fs.figi, fs.event_type, fs.last_checked_at,
+                   fs.last_success_at, fs.last_error_at, fs.error_count,
+                   ic.ticker
+            FROM broker_event_fetch_state fs
+            LEFT JOIN instrument_catalog ic ON ic.figi = fs.figi
+            WHERE fs.error_count >= %s
+            ORDER BY fs.error_count DESC, fs.last_error_at DESC
+            LIMIT %s
+        """
+        cols = (
+            "figi", "event_type", "last_checked_at",
+            "last_success_at", "last_error_at", "error_count", "ticker",
+        )
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, (min_error_count, limit))
+            return [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
+
+    def list_broker_fetch_never_succeeded(
+        self, *, limit: int = 50,
+    ) -> list[dict]:
+        """Return fetch states that have never succeeded."""
+        sql = """
+            SELECT fs.figi, fs.event_type, fs.last_checked_at,
+                   fs.last_error_at, fs.error_count, ic.ticker
+            FROM broker_event_fetch_state fs
+            LEFT JOIN instrument_catalog ic ON ic.figi = fs.figi
+            WHERE fs.last_success_at IS NULL
+            ORDER BY fs.error_count DESC, fs.last_checked_at DESC
+            LIMIT %s
+        """
+        cols = (
+            "figi", "event_type", "last_checked_at",
+            "last_error_at", "error_count", "ticker",
+        )
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, (limit,))
+            return [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
+
+    def list_broker_fetch_stale(
+        self, *, stale_seconds: int = 172800, limit: int = 50,
+    ) -> list[dict]:
+        """Return fetch states considered stale.
+
+        Stale means: last_success_at is older than stale_seconds,
+        or last_success_at is NULL and last_checked_at is older than stale_seconds.
+        """
+        sql = """
+            SELECT fs.figi, fs.event_type, fs.last_checked_at,
+                   fs.last_success_at, fs.last_error_at, fs.error_count,
+                   ic.ticker
+            FROM broker_event_fetch_state fs
+            LEFT JOIN instrument_catalog ic ON ic.figi = fs.figi
+            WHERE (
+                fs.last_success_at IS NOT NULL
+                AND fs.last_success_at < now() - make_interval(secs => %s)
+            ) OR (
+                fs.last_success_at IS NULL
+                AND fs.last_checked_at IS NOT NULL
+                AND fs.last_checked_at < now() - make_interval(secs => %s)
+            )
+            ORDER BY COALESCE(fs.last_success_at, fs.last_checked_at) ASC
+            LIMIT %s
+        """
+        cols = (
+            "figi", "event_type", "last_checked_at",
+            "last_success_at", "last_error_at", "error_count", "ticker",
+        )
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, (stale_seconds, stale_seconds, limit))
+            return [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
+
+    def get_broker_fetch_policy_summary(self) -> dict:
+        """Return aggregate summary of broker fetch state."""
+        sql = """
+            SELECT
+                count(*) AS total_states,
+                count(*) FILTER (WHERE last_success_at IS NOT NULL) AS succeeded_ever,
+                count(*) FILTER (WHERE last_success_at IS NULL) AS never_succeeded,
+                count(*) FILTER (WHERE error_count > 0) AS recent_failures,
+                max(error_count) AS max_error_count
+            FROM broker_event_fetch_state
+        """
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql)
+            row = cur.fetchone()
+        if row is None:
+            return {
+                "total_states": 0,
+                "succeeded_ever": 0,
+                "never_succeeded": 0,
+                "recent_failures": 0,
+                "max_error_count": 0,
+            }
+        return {
+            "total_states": row[0],
+            "succeeded_ever": row[1],
+            "never_succeeded": row[2],
+            "recent_failures": row[3],
+            "max_error_count": row[4] or 0,
+        }
+
     # -- Market data --
 
     def insert_market_snapshot(self, snap: MarketSnapshot) -> None:
