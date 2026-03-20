@@ -222,6 +222,65 @@ class TradingRepository:
             ))
             conn.commit()
 
+    def upsert_catalog_entry(
+        self,
+        ticker: str,
+        figi: str = "",
+        instrument_uid: str = "",
+        name: str = "",
+        isin: str = "",
+        lot: int | None = None,
+        currency: str | None = None,
+    ) -> str:
+        """Upsert a catalog entry from bulk data. Never changes tracked flag.
+
+        Returns 'inserted' if new row, 'updated' if existing row changed,
+        'skipped' if existing row had no changes to apply.
+        Uses same placeholder-safe CASE logic as ensure_instrument.
+        """
+        effective_figi = figi if figi else f"TICKER:{ticker.upper()}"
+        sql = """
+            INSERT INTO instrument_catalog
+                (figi, instrument_uid, ticker, name, isin, lot, currency,
+                 tracked, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE, now())
+            ON CONFLICT (ticker)
+            DO UPDATE SET
+                figi = CASE
+                    WHEN EXCLUDED.figi != '' AND NOT EXCLUDED.figi LIKE 'TICKER:%%'
+                    THEN EXCLUDED.figi
+                    ELSE instrument_catalog.figi
+                END,
+                instrument_uid = CASE
+                    WHEN EXCLUDED.instrument_uid IS NOT NULL
+                         AND EXCLUDED.instrument_uid != ''
+                    THEN EXCLUDED.instrument_uid
+                    ELSE instrument_catalog.instrument_uid
+                END,
+                name = CASE
+                    WHEN EXCLUDED.name != '' THEN EXCLUDED.name
+                    ELSE instrument_catalog.name
+                END,
+                isin = CASE
+                    WHEN EXCLUDED.isin != '' THEN EXCLUDED.isin
+                    ELSE instrument_catalog.isin
+                END,
+                lot = COALESCE(EXCLUDED.lot, instrument_catalog.lot),
+                currency = COALESCE(EXCLUDED.currency, instrument_catalog.currency),
+                updated_at = now()
+            RETURNING (xmax = 0) AS inserted
+        """
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, (
+                effective_figi, instrument_uid or None, ticker.upper(),
+                name, isin, lot, currency,
+            ))
+            row = cur.fetchone()
+            conn.commit()
+        if row is None:
+            return "skipped"
+        return "inserted" if row[0] else "updated"
+
     def count_tracked_instruments(self) -> int:
         """Return count of tracked instruments."""
         sql = "SELECT count(*) FROM instrument_catalog WHERE tracked = TRUE"

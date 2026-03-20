@@ -40,6 +40,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Send health alert after enrichment if issues remain",
     )
 
+    sync_parser = subparsers.add_parser(
+        "sync-share-catalog",
+        help="Bulk-sync T-Bank share catalog into local DB",
+    )
+    sync_parser.add_argument(
+        "--limit", type=int, default=0,
+        help="Max shares to sync (0 = all)",
+    )
+
     health_parser = subparsers.add_parser(
         "instrument-health",
         help="Check data quality of tracked instruments",
@@ -79,6 +88,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_track(container, args.ticker)
         if args.command == "untrack":
             return _run_untrack(container, args.ticker)
+        if args.command == "sync-share-catalog":
+            return _run_sync_share_catalog(container, args.limit)
         if args.command == "enrich-instruments":
             return _run_enrich_instruments(
                 container, args.limit, alert=args.alert,
@@ -252,6 +263,28 @@ def _run_instrument_health(
         return 1
     return 0
 
+
+
+def _run_sync_share_catalog(container: Container, limit: int) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.share_catalog_sync import sync_share_catalog
+
+    result = sync_share_catalog(
+        repository=repository,
+        client=container.tbank_client,
+        logger=container.logger,
+        limit=limit,
+    )
+    print(f"synced: {result.synced}")
+    print(f"inserted: {result.inserted}")
+    print(f"updated: {result.updated}")
+    print(f"skipped: {result.skipped}")
+    print(f"failed: {result.failed}")
+    return 0
 
 
 def _run_enrich_instruments(
