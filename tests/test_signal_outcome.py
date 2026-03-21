@@ -13,6 +13,7 @@ from tinvest_trader.services.signal_outcome import (
 )
 
 NOW = datetime(2026, 3, 20, 12, 0, 0, tzinfo=UTC)
+SIGNAL_TIME = NOW - timedelta(minutes=10)
 
 
 def _make_prediction(
@@ -27,7 +28,7 @@ def _make_prediction(
         "ticker": ticker,
         "signal_type": signal_type,
         "price_at_signal": price_at_signal,
-        "created_at": created_at or NOW - timedelta(minutes=10),
+        "created_at": created_at or SIGNAL_TIME,
     }
 
 
@@ -35,21 +36,18 @@ def _make_prediction(
 
 class TestClassifyOutcome:
     def test_up_signal_price_increased_win(self) -> None:
-        """B. Up signal + price up -> win."""
         assert classify_outcome("up", 0.01) == "win"
 
     def test_up_signal_price_decreased_loss(self) -> None:
         assert classify_outcome("up", -0.01) == "loss"
 
     def test_down_signal_price_decreased_win(self) -> None:
-        """B. Down signal + price down -> win."""
         assert classify_outcome("down", -0.01) == "win"
 
     def test_down_signal_price_increased_loss(self) -> None:
         assert classify_outcome("down", 0.01) == "loss"
 
     def test_neutral_small_return(self) -> None:
-        """B. Near-zero return -> neutral."""
         assert classify_outcome("up", 0.0001) == "neutral"
         assert classify_outcome("down", -0.0001) == "neutral"
         assert classify_outcome("up", 0.0) == "neutral"
@@ -62,7 +60,6 @@ class TestClassifyOutcome:
 
 class TestReturnCalculation:
     def test_correct_return_pct(self) -> None:
-        """C. Correct return calculation."""
         price_signal = 100.0
         price_outcome = 105.0
         ret = (price_outcome - price_signal) / price_signal
@@ -85,132 +82,182 @@ class TestReturnCalculation:
 
 class TestResolvePendingSignals:
     def _mock_repo(
-        self, pending: list[dict] | None = None,
+        self,
+        pending: list[dict] | None = None,
+        quote_map: dict[str, dict] | None = None,
     ) -> MagicMock:
         repo = MagicMock()
         repo.list_pending_predictions.return_value = pending or []
+
+        def _get_first_quote(ticker: str, after: datetime) -> dict | None:
+            if quote_map and ticker in quote_map:
+                return quote_map[ticker]
+            return None
+
+        repo.get_first_quote_after.side_effect = _get_first_quote
         return repo
 
     def test_no_pending_returns_zero(self) -> None:
         repo = self._mock_repo([])
         count = resolve_pending_signals(
-            repo, lambda t: 100.0, logging.getLogger("test"),
-            now=NOW,
+            repo, logging.getLogger("test"), now=NOW,
         )
         assert count == 0
 
     def test_resolves_up_win(self) -> None:
-        """A+B. Up signal, price went up -> win."""
+        """Up signal, price went up -> win. Uses local quote."""
         pred = _make_prediction(signal_type="up", price_at_signal=100.0)
-        repo = self._mock_repo([pred])
+        quote_time = SIGNAL_TIME + timedelta(minutes=2)
+        repo = self._mock_repo(
+            [pred],
+            {"SBER": {"price": 105.0, "source_time": quote_time}},
+        )
 
         count = resolve_pending_signals(
-            repo, lambda t: 105.0, logging.getLogger("test"),
+            repo, logging.getLogger("test"),
             eval_window_seconds=300, now=NOW,
         )
 
         assert count == 1
         repo.resolve_prediction.assert_called_once()
-        call_kwargs = repo.resolve_prediction.call_args
-        assert call_kwargs[1]["outcome_label"] == "win"
-        assert call_kwargs[1]["return_pct"] > 0
+        call_kwargs = repo.resolve_prediction.call_args[1]
+        assert call_kwargs["outcome_label"] == "win"
+        assert call_kwargs["return_pct"] > 0
+        assert call_kwargs["price_at_outcome"] == 105.0
 
     def test_resolves_down_win(self) -> None:
         pred = _make_prediction(signal_type="down", price_at_signal=100.0)
-        repo = self._mock_repo([pred])
+        quote_time = SIGNAL_TIME + timedelta(minutes=2)
+        repo = self._mock_repo(
+            [pred],
+            {"SBER": {"price": 95.0, "source_time": quote_time}},
+        )
 
         count = resolve_pending_signals(
-            repo, lambda t: 95.0, logging.getLogger("test"),
-            now=NOW,
+            repo, logging.getLogger("test"), now=NOW,
         )
 
         assert count == 1
-        call_kwargs = repo.resolve_prediction.call_args
-        assert call_kwargs[1]["outcome_label"] == "win"
-        assert call_kwargs[1]["return_pct"] < 0
+        call_kwargs = repo.resolve_prediction.call_args[1]
+        assert call_kwargs["outcome_label"] == "win"
+        assert call_kwargs["return_pct"] < 0
 
     def test_resolves_loss(self) -> None:
         pred = _make_prediction(signal_type="up", price_at_signal=100.0)
-        repo = self._mock_repo([pred])
+        quote_time = SIGNAL_TIME + timedelta(minutes=2)
+        repo = self._mock_repo(
+            [pred],
+            {"SBER": {"price": 95.0, "source_time": quote_time}},
+        )
 
         count = resolve_pending_signals(
-            repo, lambda t: 95.0, logging.getLogger("test"),
-            now=NOW,
+            repo, logging.getLogger("test"), now=NOW,
         )
 
         assert count == 1
-        call_kwargs = repo.resolve_prediction.call_args
-        assert call_kwargs[1]["outcome_label"] == "loss"
+        call_kwargs = repo.resolve_prediction.call_args[1]
+        assert call_kwargs["outcome_label"] == "loss"
 
     def test_neutral_tiny_return(self) -> None:
         pred = _make_prediction(signal_type="up", price_at_signal=100.0)
-        repo = self._mock_repo([pred])
+        quote_time = SIGNAL_TIME + timedelta(minutes=2)
+        repo = self._mock_repo(
+            [pred],
+            {"SBER": {"price": 100.004, "source_time": quote_time}},
+        )
 
         count = resolve_pending_signals(
-            repo, lambda t: 100.004, logging.getLogger("test"),
-            now=NOW,
+            repo, logging.getLogger("test"), now=NOW,
         )
 
         assert count == 1
-        call_kwargs = repo.resolve_prediction.call_args
-        assert call_kwargs[1]["outcome_label"] == "neutral"
+        call_kwargs = repo.resolve_prediction.call_args[1]
+        assert call_kwargs["outcome_label"] == "neutral"
 
     def test_skips_no_signal_price(self) -> None:
         pred = _make_prediction(price_at_signal=None)
-        repo = self._mock_repo([pred])
+        repo = self._mock_repo(
+            [pred],
+            {"SBER": {"price": 105.0, "source_time": NOW}},
+        )
 
         count = resolve_pending_signals(
-            repo, lambda t: 105.0, logging.getLogger("test"),
-            now=NOW,
+            repo, logging.getLogger("test"), now=NOW,
         )
 
         assert count == 0
         repo.resolve_prediction.assert_not_called()
 
-    def test_skips_no_outcome_price(self) -> None:
+    def test_skips_no_quote_available(self) -> None:
+        """No local quote for ticker -> skip (wait for next cycle)."""
         pred = _make_prediction(price_at_signal=100.0)
-        repo = self._mock_repo([pred])
+        repo = self._mock_repo([pred], quote_map={})
 
         count = resolve_pending_signals(
-            repo, lambda t: None, logging.getLogger("test"),
-            now=NOW,
+            repo, logging.getLogger("test"), now=NOW,
         )
 
         assert count == 0
         repo.resolve_prediction.assert_not_called()
-
-    def test_handles_price_fetch_exception(self) -> None:
-        pred = _make_prediction(price_at_signal=100.0)
-        repo = self._mock_repo([pred])
-
-        def raise_err(t: str) -> float:
-            msg = "network error"
-            raise ConnectionError(msg)
-
-        count = resolve_pending_signals(
-            repo, raise_err, logging.getLogger("test"),
-            now=NOW,
+        repo.get_first_quote_after.assert_called_once_with(
+            "SBER", SIGNAL_TIME,
         )
 
-        assert count == 0
-        repo.resolve_prediction.assert_not_called()
+    def test_uses_earliest_quote_after_signal(self) -> None:
+        """Multiple quotes -> repository returns earliest via ORDER BY ASC."""
+        pred = _make_prediction(signal_type="up", price_at_signal=100.0)
+        earliest_time = SIGNAL_TIME + timedelta(seconds=30)
+        repo = self._mock_repo(
+            [pred],
+            {"SBER": {"price": 101.0, "source_time": earliest_time}},
+        )
+
+        count = resolve_pending_signals(
+            repo, logging.getLogger("test"), now=NOW,
+        )
+
+        assert count == 1
+        repo.get_first_quote_after.assert_called_once_with(
+            "SBER", SIGNAL_TIME,
+        )
+        call_kwargs = repo.resolve_prediction.call_args[1]
+        assert call_kwargs["price_at_outcome"] == 101.0
+
+    def test_no_external_api_calls(self) -> None:
+        """Resolution uses only repository, no price_fn or external calls."""
+        pred = _make_prediction(signal_type="up", price_at_signal=100.0)
+        quote_time = SIGNAL_TIME + timedelta(minutes=1)
+        repo = self._mock_repo(
+            [pred],
+            {"SBER": {"price": 102.0, "source_time": quote_time}},
+        )
+
+        resolve_pending_signals(
+            repo, logging.getLogger("test"), now=NOW,
+        )
+
+        # Only repository methods called, no external API
+        repo.list_pending_predictions.assert_called_once()
+        repo.get_first_quote_after.assert_called_once()
+        repo.resolve_prediction.assert_called_once()
 
     def test_idempotent_no_double_resolve(self) -> None:
-        """F. Idempotency: only resolves once via WHERE resolved_at IS NULL."""
         pred = _make_prediction(price_at_signal=100.0)
-        repo = self._mock_repo([pred])
+        quote_time = SIGNAL_TIME + timedelta(minutes=2)
+        repo = self._mock_repo(
+            [pred],
+            {"SBER": {"price": 105.0, "source_time": quote_time}},
+        )
 
         # First resolve
         resolve_pending_signals(
-            repo, lambda t: 105.0, logging.getLogger("test"),
-            now=NOW,
+            repo, logging.getLogger("test"), now=NOW,
         )
 
         # Second call with empty pending (already resolved)
         repo.list_pending_predictions.return_value = []
         count = resolve_pending_signals(
-            repo, lambda t: 110.0, logging.getLogger("test"),
-            now=NOW,
+            repo, logging.getLogger("test"), now=NOW,
         )
         assert count == 0
 
@@ -219,23 +266,24 @@ class TestResolvePendingSignals:
             _make_prediction(1, "SBER", "up", 100.0),
             _make_prediction(2, "GAZP", "down", 200.0),
         ]
-        repo = self._mock_repo(preds)
-        prices = {"SBER": 105.0, "GAZP": 190.0}
+        quote_time = SIGNAL_TIME + timedelta(minutes=2)
+        repo = self._mock_repo(preds, {
+            "SBER": {"price": 105.0, "source_time": quote_time},
+            "GAZP": {"price": 190.0, "source_time": quote_time},
+        })
 
         count = resolve_pending_signals(
-            repo, lambda t: prices[t], logging.getLogger("test"),
-            now=NOW,
+            repo, logging.getLogger("test"), now=NOW,
         )
 
         assert count == 2
         assert repo.resolve_prediction.call_count == 2
 
     def test_cutoff_uses_eval_window(self) -> None:
-        """Cutoff is now - eval_window_seconds."""
         repo = self._mock_repo([])
 
         resolve_pending_signals(
-            repo, lambda t: 100.0, logging.getLogger("test"),
+            repo, logging.getLogger("test"),
             eval_window_seconds=600, now=NOW,
         )
 
@@ -244,12 +292,42 @@ class TestResolvePendingSignals:
             before=expected_cutoff,
         )
 
+    def test_partial_resolution_some_without_quotes(self) -> None:
+        """One ticker has quote, another doesn't -> partial resolution."""
+        preds = [
+            _make_prediction(1, "SBER", "up", 100.0),
+            _make_prediction(2, "GAZP", "down", 200.0),
+        ]
+        quote_time = SIGNAL_TIME + timedelta(minutes=2)
+        repo = self._mock_repo(preds, {
+            "SBER": {"price": 105.0, "source_time": quote_time},
+            # GAZP has no quote
+        })
+
+        count = resolve_pending_signals(
+            repo, logging.getLogger("test"), now=NOW,
+        )
+
+        assert count == 1
+        assert repo.resolve_prediction.call_count == 1
+
+    def test_missing_ticker_skipped_safely(self) -> None:
+        """Ticker not in market_quotes at all -> skip without error."""
+        pred = _make_prediction(ticker="UNKNOWN", price_at_signal=50.0)
+        repo = self._mock_repo([pred], quote_map={})
+
+        count = resolve_pending_signals(
+            repo, logging.getLogger("test"), now=NOW,
+        )
+
+        assert count == 0
+        repo.resolve_prediction.assert_not_called()
+
 
 # -- Stats formatting -------------------------------------------------------
 
 class TestFormatSignalStats:
     def test_basic_stats(self) -> None:
-        """D. Stats aggregation."""
         stats = {
             "total": 100, "resolved": 80, "wins": 44,
             "losses": 30, "neutrals": 6, "avg_return": 0.0012,
@@ -307,16 +385,11 @@ class TestFormatSignalStats:
 
 class TestDryRunMode:
     def test_dry_run_config_exists(self) -> None:
-        """E. Dry-run config is available."""
         from tinvest_trader.app.config import SignalCalibrationConfig
         config = SignalCalibrationConfig(dry_run=True)
         assert config.dry_run is True
 
     def test_dry_run_does_not_affect_prediction_recording(self) -> None:
-        """E. Predictions are recorded regardless of dry_run flag."""
-        # dry_run only gates execution, not prediction recording
-        # This is verified by the fact that insert_signal_prediction
-        # has no dry_run parameter
         from tinvest_trader.app.config import SignalCalibrationConfig
         config = SignalCalibrationConfig(dry_run=True, enabled=True)
         assert config.enabled is True

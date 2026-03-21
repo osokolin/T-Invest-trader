@@ -803,6 +803,54 @@ class TradingRepository:
             "fetched_at": row[6],
         }
 
+    def get_first_quote_after(
+        self, ticker: str, after: datetime,
+    ) -> dict | None:
+        """Return the earliest quote for ticker with source_time >= after."""
+        sql = """
+            SELECT price, source_time
+            FROM market_quotes
+            WHERE ticker = %s AND source_time >= %s
+            ORDER BY source_time ASC
+            LIMIT 1
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                row = conn.execute(sql, (ticker, after)).fetchone()
+        except Exception:
+            self._logger.exception(
+                "failed to get first quote after timestamp",
+                extra={"component": "postgres", "ticker": ticker},
+            )
+            return None
+        if not row:
+            return None
+        return {"price": float(row[0]), "source_time": row[1]}
+
+    def get_latest_quote_before(
+        self, ticker: str, before: datetime,
+    ) -> dict | None:
+        """Return the latest quote for ticker with source_time < before."""
+        sql = """
+            SELECT price, source_time
+            FROM market_quotes
+            WHERE ticker = %s AND source_time < %s
+            ORDER BY source_time DESC
+            LIMIT 1
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                row = conn.execute(sql, (ticker, before)).fetchone()
+        except Exception:
+            self._logger.exception(
+                "failed to get latest quote before timestamp",
+                extra={"component": "postgres", "ticker": ticker},
+            )
+            return None
+        if not row:
+            return None
+        return {"price": float(row[0]), "source_time": row[1]}
+
     # -- Market data --
 
     def insert_market_snapshot(self, snap: MarketSnapshot) -> None:
