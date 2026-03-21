@@ -265,9 +265,21 @@ def analyze_signal(
             error=error_msg,
         )
 
-    # Cache result
+    # Cache result + persist structured AI fields
     if repository is not None and signal_id:
         repository.insert_ai_analysis(signal_id, analysis_text, model)
+
+        # Parse structured fields and compute divergence
+        _persist_structured_fields(
+            signal=signal,
+            analysis_text=analysis_text,
+            repository=repository,
+            signal_id=signal_id,
+            ticker_stats=ticker_stats,
+            type_stats=type_stats,
+            source_stats=source_stats,
+            logger=logger,
+        )
 
     if logger:
         logger.info(
@@ -285,3 +297,77 @@ def analyze_signal(
         analysis_text=analysis_text,
         model=model,
     )
+
+
+def _persist_structured_fields(
+    *,
+    signal: dict,
+    analysis_text: str,
+    repository: TradingRepository,
+    signal_id: int,
+    ticker_stats: dict | None = None,
+    type_stats: dict | None = None,
+    source_stats: dict | None = None,
+    logger: logging.Logger | None = None,
+) -> None:
+    """Parse AI output and persist structured divergence fields.
+
+    Failure is logged but never raised -- this is measurement, not critical path.
+    """
+    from tinvest_trader.services.ai_divergence import (
+        classify_ai_divergence,
+        parse_ai_actionability,
+        parse_ai_bias,
+        parse_ai_confidence,
+    )
+    from tinvest_trader.services.signal_severity import (
+        classify_signal_severity,
+    )
+
+    try:
+        ai_confidence = parse_ai_confidence(analysis_text)
+        ai_actionability = parse_ai_actionability(analysis_text)
+        ai_bias = parse_ai_bias(analysis_text)
+
+        # Snapshot system severity at analysis time
+        severity = classify_signal_severity(
+            signal,
+            ticker_stats=ticker_stats,
+            type_stats=type_stats,
+            source_stats=source_stats,
+        )
+        system_severity = severity.level
+
+        bucket = classify_ai_divergence(
+            system_severity, ai_confidence, ai_actionability,
+        )
+
+        repository.update_signal_ai_structured_fields(
+            signal_id=signal_id,
+            ai_confidence=ai_confidence,
+            ai_actionability=ai_actionability,
+            ai_bias=ai_bias,
+            system_severity=system_severity,
+            divergence_bucket=bucket,
+        )
+
+        if logger:
+            logger.info(
+                "ai divergence tracked",
+                extra={
+                    "component": "ai_divergence",
+                    "signal_id": signal_id,
+                    "system_severity": system_severity,
+                    "ai_confidence": ai_confidence,
+                    "bucket": bucket,
+                },
+            )
+    except Exception:
+        if logger:
+            logger.exception(
+                "failed to persist structured ai fields",
+                extra={
+                    "component": "ai_divergence",
+                    "signal_id": signal_id,
+                },
+            )
