@@ -208,6 +208,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Confidence value (default 0.65)",
     )
 
+    # -- signal-divergence-report --
+    subparsers.add_parser(
+        "signal-divergence-report",
+        help="Show signal pipeline funnel and divergence analysis",
+    )
+
     # -- sync-quotes --
     sync_quotes_parser = subparsers.add_parser(
         "sync-quotes",
@@ -314,6 +320,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 direction=args.direction,
                 confidence=args.confidence,
             )
+        if args.command == "signal-divergence-report":
+            return _run_signal_divergence_report(container)
     finally:
         _close_container(container)
 
@@ -954,6 +962,22 @@ def _run_preview_signal_message(
         for r in severity.reasons:
             print(f"  - {r}")
     print(f"\n{text}")
+    return 0
+
+
+def _run_signal_divergence_report(container: Container) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.signal_divergence import (
+        build_divergence_report,
+        format_divergence_report,
+    )
+
+    report = build_divergence_report(repository)
+    print(format_divergence_report(report))
     return 0
 
 

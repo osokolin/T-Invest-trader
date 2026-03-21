@@ -259,6 +259,7 @@ def deliver_signal(
 
     if repository is not None:
         repository.mark_signal_delivered(signal_id)
+        repository.update_signal_stage(signal_id, "delivered")
 
     if logger:
         logger.info(

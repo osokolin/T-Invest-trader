@@ -510,8 +510,9 @@ class TradingRepository:
             INSERT INTO signal_predictions
                 (ticker, signal_type, confidence, source, features_json,
                  price_at_signal, created_at,
-                 source_channel, source_message_id, source_message_db_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 source_channel, source_message_id, source_message_db_id,
+                 pipeline_stage)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'generated')
             RETURNING id
         """
         if created_at is None:
@@ -843,6 +844,132 @@ class TradingRepository:
                 },
             )
             return False
+
+    # -- Pipeline stage tracking --
+
+    def update_signal_stage(
+        self,
+        prediction_id: int,
+        stage: str,
+        reason: str | None = None,
+    ) -> bool:
+        """Update the pipeline stage (and optional rejection reason) for a signal."""
+        sql = """
+            UPDATE signal_predictions
+            SET pipeline_stage = %s,
+                rejection_reason = %s
+            WHERE id = %s
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                cur = conn.execute(sql, (stage, reason, prediction_id))
+                return cur.rowcount > 0
+        except Exception:
+            self._logger.exception(
+                "failed to update signal stage",
+                extra={
+                    "component": "postgres",
+                    "prediction_id": prediction_id,
+                    "stage": stage,
+                },
+            )
+            return False
+
+    def get_divergence_stats(self) -> dict:
+        """Aggregate signal counts by pipeline stage."""
+        sql = """
+            SELECT
+                count(*) AS total,
+                count(*) FILTER (
+                    WHERE pipeline_stage = 'generated') AS generated,
+                count(*) FILTER (
+                    WHERE pipeline_stage = 'rejected_calibration'
+                ) AS rejected_calibration,
+                count(*) FILTER (
+                    WHERE pipeline_stage = 'rejected_binding'
+                ) AS rejected_binding,
+                count(*) FILTER (
+                    WHERE pipeline_stage = 'rejected_safety'
+                ) AS rejected_safety,
+                count(*) FILTER (
+                    WHERE pipeline_stage = 'delivered') AS delivered,
+                count(*) FILTER (
+                    WHERE pipeline_stage IS NULL) AS untracked
+            FROM signal_predictions
+        """
+        with self._pool.get_connection() as conn:
+            row = conn.execute(sql).fetchone()
+        if not row:
+            return {}
+        return {
+            "total": row[0],
+            "generated": row[1],
+            "rejected_calibration": row[2],
+            "rejected_binding": row[3],
+            "rejected_safety": row[4],
+            "delivered": row[5],
+            "untracked": row[6],
+        }
+
+    def get_divergence_stats_by_stage(self) -> list[dict]:
+        """Per-stage stats with win rate and avg return."""
+        sql = """
+            SELECT
+                pipeline_stage,
+                count(*) AS total,
+                count(resolved_at) AS resolved,
+                count(*) FILTER (WHERE outcome_label = 'win') AS wins,
+                count(*) FILTER (WHERE outcome_label = 'loss') AS losses,
+                count(*) FILTER (WHERE outcome_label = 'neutral') AS neutrals,
+                avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL) AS avg_return
+            FROM signal_predictions
+            WHERE pipeline_stage IS NOT NULL
+            GROUP BY pipeline_stage
+            ORDER BY pipeline_stage
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql).fetchall()
+        return [
+            {
+                "stage": r[0],
+                "total": r[1],
+                "resolved": r[2],
+                "wins": r[3],
+                "losses": r[4],
+                "neutrals": r[5],
+                "avg_return": float(r[6]) if r[6] is not None else None,
+            }
+            for r in rows
+        ]
+
+    def get_rejected_signals(
+        self, stage: str, limit: int = 20,
+    ) -> list[dict]:
+        """List rejected signals for a specific stage."""
+        sql = """
+            SELECT id, ticker, signal_type, confidence,
+                   rejection_reason, created_at,
+                   return_pct, outcome_label
+            FROM signal_predictions
+            WHERE pipeline_stage = %s
+            ORDER BY created_at DESC
+            LIMIT %s
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql, (stage, limit)).fetchall()
+        return [
+            {
+                "id": r[0],
+                "ticker": r[1],
+                "signal_type": r[2],
+                "confidence": float(r[3]) if r[3] is not None else None,
+                "rejection_reason": r[4],
+                "created_at": r[5],
+                "return_pct": float(r[6]) if r[6] is not None else None,
+                "outcome_label": r[7],
+            }
+            for r in rows
+        ]
 
     # -- Market quotes (T-Bank last prices) --
 
