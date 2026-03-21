@@ -1070,12 +1070,18 @@ class TradingRepository:
 
     # -- Telegram sentiment ingestion --
 
-    def insert_telegram_message_raw(self, msg: TelegramMessage) -> bool:
+    def insert_telegram_message_raw(
+        self,
+        msg: TelegramMessage,
+        normalized_text: str | None = None,
+        dedup_hash: str | None = None,
+    ) -> bool:
         """Insert raw Telegram message. Returns True if newly inserted, False if duplicate."""
         sql = """
             INSERT INTO telegram_messages_raw
-                (channel_name, message_id, published_at, message_text, source_payload)
-            VALUES (%s, %s, %s, %s, %s)
+                (channel_name, message_id, published_at, message_text,
+                 source_payload, normalized_text, dedup_hash)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (channel_name, message_id) DO NOTHING
             RETURNING id
         """
@@ -1086,10 +1092,82 @@ class TradingRepository:
                 msg.published_at,
                 msg.message_text,
                 json.dumps(msg.source_payload) if msg.source_payload else None,
+                normalized_text,
+                dedup_hash,
             ))
             inserted = cur.fetchone() is not None
             conn.commit()
         return inserted
+
+    def check_dedup_hash_exists(self, dedup_hash: str) -> bool:
+        """Check if a dedup hash already exists in telegram_messages_raw."""
+        sql = """
+            SELECT 1 FROM telegram_messages_raw
+            WHERE dedup_hash = %s
+            LIMIT 1
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                row = conn.execute(sql, (dedup_hash,)).fetchone()
+            return row is not None
+        except Exception:
+            self._logger.exception(
+                "failed to check dedup hash",
+                extra={"component": "postgres"},
+            )
+            return False
+
+    def get_latest_message_id_by_channel(self, channel_name: str) -> int | None:
+        """Return the highest numeric message_id for a channel, or None."""
+        sql = """
+            SELECT max(message_id::bigint)
+            FROM telegram_messages_raw
+            WHERE channel_name = %s
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                row = conn.execute(sql, (channel_name,)).fetchone()
+            if row and row[0] is not None:
+                return int(row[0])
+        except Exception:
+            self._logger.exception(
+                "failed to get latest message id",
+                extra={"component": "postgres", "channel": channel_name},
+            )
+        return None
+
+    def get_telegram_ingest_status(self) -> list[dict]:
+        """Return per-channel ingestion stats."""
+        sql = """
+            SELECT
+                channel_name,
+                count(*) AS total_messages,
+                max(published_at) AS latest_published,
+                max(recorded_at) AS latest_recorded,
+                max(message_id::bigint) AS max_message_id
+            FROM telegram_messages_raw
+            GROUP BY channel_name
+            ORDER BY channel_name
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                rows = conn.execute(sql).fetchall()
+            return [
+                {
+                    "channel": r[0],
+                    "total_messages": r[1],
+                    "latest_published": r[2],
+                    "latest_recorded": r[3],
+                    "max_message_id": int(r[4]) if r[4] is not None else None,
+                }
+                for r in rows
+            ]
+        except Exception:
+            self._logger.exception(
+                "failed to get telegram ingest status",
+                extra={"component": "postgres"},
+            )
+            return []
 
     def insert_telegram_message_mention(
         self,

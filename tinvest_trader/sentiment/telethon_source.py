@@ -89,10 +89,16 @@ class TelethonMessageSource(MessageSource):
         self._request_timeout_sec = request_timeout_sec
         self._proxy = proxy
 
-    def fetch_recent_messages(self, channel_name: str) -> list[TelegramMessage]:
+    def fetch_recent_messages(
+        self,
+        channel_name: str,
+        min_id: int | None = None,
+    ) -> list[TelegramMessage]:
         normalized = normalize_channel_identifier(channel_name)
         try:
-            return asyncio.run(self._fetch_recent_messages_async(normalized))
+            return asyncio.run(
+                self._fetch_recent_messages_async(normalized, min_id=min_id),
+            )
         except TelethonRuntimeError:
             raise
         except Exception as exc:
@@ -103,6 +109,7 @@ class TelethonMessageSource(MessageSource):
     async def _fetch_recent_messages_async(
         self,
         channel_name: str,
+        min_id: int | None = None,
     ) -> list[TelegramMessage]:
         client = self._build_client()
         try:
@@ -111,8 +118,11 @@ class TelethonMessageSource(MessageSource):
                 raise TelethonRuntimeError(
                     f"Telethon session is not authorized: {self._session_path}",
                 )
+            kwargs: dict = {"limit": self._poll_limit}
+            if min_id is not None:
+                kwargs["min_id"] = min_id
             raw_messages = await self._run_with_timeout(
-                client.get_messages(channel_name, limit=self._poll_limit),
+                client.get_messages(channel_name, **kwargs),
             )
             return [
                 self._map_message(channel_name, raw)
