@@ -303,6 +303,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Min resolved signals per alignment bucket (default 0)",
     )
 
+    # -- sync-global-market-data --
+    subparsers.add_parser(
+        "sync-global-market-data",
+        help="One-shot global market data fetch (Yahoo Finance)",
+    )
+
+    # -- global-market-data-report --
+    subparsers.add_parser(
+        "global-market-data-report",
+        help="Show latest global market data snapshot",
+    )
+
     # -- sync-quotes --
     sync_quotes_parser = subparsers.add_parser(
         "sync-quotes",
@@ -411,6 +423,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 container,
                 min_resolved=args.min_resolved,
             )
+        if args.command == "sync-global-market-data":
+            return _run_sync_global_market_data(container)
+        if args.command == "global-market-data-report":
+            return _run_global_market_data_report(container)
         if args.command == "deliver-signals":
             return _run_deliver_signals(config, container)
         if args.command == "telegram-source-report":
@@ -1365,6 +1381,42 @@ def _run_global_context_impact_report(
         min_resolved=min_resolved,
     )
     print(format_global_context_impact_report(report))
+    return 0
+
+
+def _run_sync_global_market_data(container: Container) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.global_market_data_sync import (
+        sync_global_market_data,
+    )
+
+    result = sync_global_market_data(
+        repository, container.logger,
+    )
+    print(f"requested: {result.requested}")
+    print(f"received: {result.received}")
+    print(f"inserted: {result.inserted}")
+    print(f"failed: {result.failed}")
+    if result.missing_symbols:
+        print(f"missing: {', '.join(result.missing_symbols)}")
+    return 0
+
+
+def _run_global_market_data_report(container: Container) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.global_market_data_sync import (
+        build_global_market_data_report,
+    )
+
+    print(build_global_market_data_report(repository))
     return 0
 
 

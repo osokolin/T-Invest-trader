@@ -48,6 +48,8 @@ class BackgroundRunner:
         cbr_interval_seconds: int = 3600,
         moex_interval_seconds: int = 3600,
         global_context_interval_seconds: int = 120,
+        global_market_data_fn: Callable[[], object] | None = None,
+        global_market_data_interval_seconds: int = 300,
         signal_delivery_config: SignalDeliveryConfig | None = None,
         signal_delivery_fn: Callable[[], int] | None = None,
         callback_handler_fn: Callable[[], None] | None = None,
@@ -69,6 +71,8 @@ class BackgroundRunner:
         self._cbr_interval_seconds = cbr_interval_seconds
         self._moex_interval_seconds = moex_interval_seconds
         self._global_context_interval_seconds = global_context_interval_seconds
+        self._global_market_data_fn = global_market_data_fn
+        self._global_market_data_interval_seconds = global_market_data_interval_seconds
         self._signal_delivery_config = signal_delivery_config
         self._signal_delivery_fn = signal_delivery_fn
         self._callback_handler_fn = callback_handler_fn
@@ -208,6 +212,7 @@ class BackgroundRunner:
             or self._cbr_is_runnable()
             or self._moex_is_runnable()
             or self._global_context_is_runnable()
+            or self._global_market_data_is_runnable()
             or self._quote_sync_is_runnable()
             or self._signal_delivery_is_runnable()
             or self._callback_handler_is_runnable()
@@ -235,6 +240,12 @@ class BackgroundRunner:
         return (
             self._config.run_global_context
             and self._global_context_service is not None
+        )
+
+    def _global_market_data_is_runnable(self) -> bool:
+        return (
+            self._config.run_global_market_data
+            and self._global_market_data_fn is not None
         )
 
     def _quote_sync_is_runnable(self) -> bool:
@@ -382,6 +393,26 @@ class BackgroundRunner:
                 extra={"component": "background_runner"},
             )
 
+    def run_global_market_data_cycle(self) -> None:
+        """Run one global market data sync cycle safely."""
+        if not self._global_market_data_is_runnable():
+            return
+
+        try:
+            result = self._global_market_data_fn()
+            self._logger.info(
+                "background global market data cycle complete",
+                extra={
+                    "component": "background_runner",
+                    "result": str(result),
+                },
+            )
+        except Exception:
+            self._logger.exception(
+                "background global market data cycle failed",
+                extra={"component": "background_runner"},
+            )
+
     def run_quote_sync_cycle(self) -> None:
         """Run one quote sync cycle safely."""
         if not self._quote_sync_is_runnable():
@@ -443,6 +474,7 @@ class BackgroundRunner:
         next_cbr_run = self._time_fn()
         next_moex_run = self._time_fn()
         next_global_context_run = self._time_fn()
+        next_global_market_data_run = self._time_fn()
         next_quote_sync_run = self._time_fn()
         next_signal_delivery_run = self._time_fn()
         next_callback_handler_run = self._time_fn()
@@ -535,6 +567,21 @@ class BackgroundRunner:
                     gc_wait
                     if next_wait is None
                     else min(next_wait, gc_wait)
+                )
+
+            if self._global_market_data_is_runnable():
+                if now >= next_global_market_data_run:
+                    self.run_global_market_data_cycle()
+                    next_global_market_data_run = self._time_fn() + max(
+                        1, self._global_market_data_interval_seconds,
+                    )
+                gmd_wait = max(
+                    0.0, next_global_market_data_run - self._time_fn(),
+                )
+                next_wait = (
+                    gmd_wait
+                    if next_wait is None
+                    else min(next_wait, gmd_wait)
                 )
 
             if self._quote_sync_is_runnable():

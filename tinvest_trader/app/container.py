@@ -132,6 +132,9 @@ class Container:
         if self.config.global_context.enabled:
             self._wire_global_context()
 
+        # Global market data sync callable (used by background runner and CLI)
+        self._global_market_data_fn = self._build_global_market_data_fn()
+
         # Quote sync callable (used by background runner and CLI)
         self._quote_sync_fn = self._build_quote_sync_fn()
 
@@ -425,6 +428,47 @@ class Container:
             },
         )
 
+    def _build_global_market_data_fn(self):
+        """Build a callable for global market data sync."""
+        cfg = self.config.global_market_data
+        if not cfg.enabled:
+            return None
+        if self.repository is None:
+            return None
+
+        from tinvest_trader.infra.market_data.global_api_client import (
+            DEFAULT_SYMBOLS,
+        )
+        from tinvest_trader.services.global_market_data_sync import (
+            sync_global_market_data,
+        )
+
+        # Build symbol map from configured symbols
+        symbol_map = {
+            sym: info
+            for sym, info in DEFAULT_SYMBOLS.items()
+            if sym in cfg.symbols
+        }
+        if not symbol_map:
+            symbol_map = dict(DEFAULT_SYMBOLS)
+
+        def _sync():
+            return sync_global_market_data(
+                repository=self.repository,
+                logger=self.logger,
+                symbols=symbol_map,
+            )
+
+        self.logger.info(
+            "global market data sync initialized",
+            extra={
+                "component": "global_market_data",
+                "symbols": len(symbol_map),
+                "poll_interval_seconds": cfg.poll_interval_seconds,
+            },
+        )
+        return _sync
+
     def _build_quote_sync_fn(self):
         """Build a callable for quote sync if prerequisites are met."""
         if not self.config.quote_sync.enabled:
@@ -541,6 +585,8 @@ class Container:
             moex_interval_seconds=self.config.moex.poll_interval_seconds,
             global_context_service=self.global_context_service,
             global_context_interval_seconds=self.config.global_context.poll_interval_seconds,
+            global_market_data_fn=self._global_market_data_fn,
+            global_market_data_interval_seconds=self.config.global_market_data.poll_interval_seconds,
             signal_delivery_config=self.config.signal_delivery,
             signal_delivery_fn=self._signal_delivery_fn,
             callback_handler_fn=self._callback_handler_fn,
