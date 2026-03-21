@@ -599,3 +599,25 @@ CREATE INDEX IF NOT EXISTS idx_global_context_event_type
 CREATE INDEX IF NOT EXISTS idx_global_context_dedup_hash
     ON global_market_context_events (dedup_hash)
     WHERE dedup_hash IS NOT NULL;
+
+-- ============================================================
+-- Global context -> signal enrichment (shadow mode)
+-- ============================================================
+
+-- Shadow columns for global context alignment on signal_predictions.
+-- global_alignment: aligned / against / neutral / unknown
+-- global_adjustment: confidence adjustment (+0.05, -0.10, 0.0)
+-- global_adjusted_confidence: original_confidence + global_adjustment (shadow only)
+-- global_context_json: lightweight snapshot of context at enrichment time
+ALTER TABLE signal_predictions
+    ADD COLUMN IF NOT EXISTS global_alignment TEXT;
+ALTER TABLE signal_predictions
+    ADD COLUMN IF NOT EXISTS global_adjustment REAL;
+ALTER TABLE signal_predictions
+    ADD COLUMN IF NOT EXISTS global_adjusted_confidence REAL;
+ALTER TABLE signal_predictions
+    ADD COLUMN IF NOT EXISTS global_context_json TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_signal_predictions_global_alignment
+    ON signal_predictions (global_alignment)
+    WHERE global_alignment IS NOT NULL;
