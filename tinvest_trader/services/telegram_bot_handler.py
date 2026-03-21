@@ -60,14 +60,45 @@ def _bot_api_request(
 
 
 def parse_callback_data(data: str) -> tuple[str, int] | None:
-    """Parse callback_data. Returns (action, signal_id) or None."""
-    # Format: ai:signal:<signal_id>
+    """Parse callback_data. Returns (action, signal_id) or None.
+
+    Supported formats:
+      ai:signal:<id>           -> ("ai_analysis", <id>)
+      signal:<id>:details      -> ("signal_details", <id>)
+      signal:<id>:ai           -> ("ai_analysis", <id>)
+      signal:<id>:stats        -> ("signal_stats", <id>)
+      nav:last_signals         -> ("nav_last_signals", 0)
+    """
     parts = data.split(":")
+
+    # Legacy: ai:signal:<id>
     if len(parts) == 3 and parts[0] == "ai" and parts[1] == "signal":
         try:
             return ("ai_analysis", int(parts[2]))
         except ValueError:
             return None
+
+    # New: signal:<id>:<action>
+    if len(parts) == 3 and parts[0] == "signal":
+        try:
+            signal_id = int(parts[1])
+        except ValueError:
+            return None
+        action = parts[2]
+        if action == "details":
+            return ("signal_details", signal_id)
+        if action == "ai":
+            return ("ai_analysis", signal_id)
+        if action == "stats":
+            return ("signal_stats", signal_id)
+        return None
+
+    # Navigation: nav:<target>
+    if len(parts) == 2 and parts[0] == "nav":
+        if parts[1] == "last_signals":
+            return ("nav_last_signals", 0)
+        return None
+
     return None
 
 
@@ -177,19 +208,22 @@ def _send_reply(
     chat_id: str,
     text: str,
     *,
+    reply_markup: dict | None = None,
     proxy_host: str = "",
     proxy_port: int = 0,
     proxy_user: str = "",
     proxy_pass: str = "",
 ) -> bool:
-    """Send a plain text reply message."""
+    """Send a reply message, optionally with inline keyboard."""
+    params: dict = {
+        "chat_id": chat_id,
+        "text": text,
+        "disable_web_page_preview": True,
+    }
+    if reply_markup:
+        params["reply_markup"] = reply_markup
     result = _bot_api_request(
-        bot_token, "sendMessage",
-        {
-            "chat_id": chat_id,
-            "text": text,
-            "disable_web_page_preview": True,
-        },
+        bot_token, "sendMessage", params,
         proxy_host=proxy_host,
         proxy_port=proxy_port,
         proxy_user=proxy_user,
@@ -298,6 +332,12 @@ def _process_callback_query(
     proxy_pass: str = "",
 ) -> None:
     """Route a callback_query update."""
+    from tinvest_trader.services.bot_commands import (
+        handle_last_signals_with_buttons,
+        handle_signal_detail_with_buttons,
+        handle_ticker_stats,
+    )
+
     proxy_kw = {
         "proxy_host": proxy_host,
         "proxy_port": proxy_port,
@@ -329,6 +369,55 @@ def _process_callback_query(
             ai_model=ai_model,
             **proxy_kw,
         )
+        return
+
+    # Acknowledge button immediately for non-AI actions
+    _answer_callback(bot_token, callback_id, "", **proxy_kw)
+
+    try:
+        if action == "signal_details":
+            text, keyboard = handle_signal_detail_with_buttons(
+                repository, signal_id,
+            )
+            markup = {"inline_keyboard": keyboard} if keyboard else None
+            _send_reply(
+                bot_token, chat_id, text,
+                reply_markup=markup, **proxy_kw,
+            )
+
+        elif action == "signal_stats":
+            text = handle_ticker_stats(repository, signal_id)
+            _send_reply(bot_token, chat_id, text, **proxy_kw)
+
+        elif action == "nav_last_signals":
+            text, keyboard = handle_last_signals_with_buttons(
+                repository, "",
+            )
+            markup = {"inline_keyboard": keyboard} if keyboard else None
+            _send_reply(
+                bot_token, chat_id, text,
+                reply_markup=markup, **proxy_kw,
+            )
+
+    except Exception:
+        logger.exception(
+            "callback action failed",
+            extra={"component": "bot_handler", "action": action},
+        )
+        _send_reply(
+            bot_token, chat_id, "Something went wrong", **proxy_kw,
+        )
+        return
+
+    logger.info(
+        "bot_action",
+        extra={
+            "component": "bot_handler",
+            "type": "callback",
+            "action": action,
+            "signal_id": signal_id,
+        },
+    )
 
 
 def _process_message_command(
@@ -357,7 +446,7 @@ def _process_message_command(
 
     from tinvest_trader.services.bot_commands import (
         handle_help,
-        handle_last_signals,
+        handle_last_signals_with_buttons,
         handle_signal,
         handle_stats,
         parse_command,
@@ -373,10 +462,16 @@ def _process_message_command(
     command, args = parse_command(text)
 
     response: str | None = None
+    reply_markup: dict | None = None
 
     try:
         if command == "last_signals":
-            response = handle_last_signals(repository, args)
+            text_resp, keyboard = handle_last_signals_with_buttons(
+                repository, args,
+            )
+            response = text_resp
+            if keyboard:
+                reply_markup = {"inline_keyboard": keyboard}
         elif command == "signal":
             response = handle_signal(repository, args)
         elif command == "ai":
@@ -406,7 +501,10 @@ def _process_message_command(
         response = "Something went wrong"
 
     if response:
-        _send_reply(bot_token, chat_id, response, **proxy_kw)
+        _send_reply(
+            bot_token, chat_id, response,
+            reply_markup=reply_markup, **proxy_kw,
+        )
 
     logger.info(
         "bot_command",

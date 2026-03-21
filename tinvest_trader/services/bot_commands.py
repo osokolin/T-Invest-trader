@@ -197,3 +197,175 @@ def handle_help() -> str:
         "/stats -- quick summary\n"
         "/help -- this message"
     )
+
+
+# -- Inline keyboard builders --
+
+
+def build_signal_list_keyboard(
+    signals: list[dict],
+) -> list[list[dict]]:
+    """Build inline keyboard for signal list (one button per signal).
+
+    Returns list-of-rows for Telegram inline_keyboard.
+    """
+    rows: list[list[dict]] = []
+    for s in signals:
+        sid = s["id"]
+        ticker = s.get("ticker", "?")
+        direction = (s.get("signal_type") or "?").upper()
+        arrow = "\u2191" if direction == "UP" else "\u2193"
+        label = f"{arrow} #{sid} {ticker}"
+        rows.append([
+            {"text": label, "callback_data": f"signal:{sid}:details"},
+        ])
+    return rows
+
+
+def build_signal_detail_keyboard(signal_id: int) -> list[list[dict]]:
+    """Build inline keyboard for signal detail view.
+
+    Row 1: [AI] [Stats]
+    Row 2: [Back]
+    """
+    return [
+        [
+            {
+                "text": "\U0001f916 AI",
+                "callback_data": f"signal:{signal_id}:ai",
+            },
+            {
+                "text": "\U0001f4ca \u0421\u0442\u0430\u0442\u044b",
+                "callback_data": f"signal:{signal_id}:stats",
+            },
+        ],
+        [
+            {
+                "text": "\u2b05\ufe0f \u041d\u0430\u0437\u0430\u0434",
+                "callback_data": "nav:last_signals",
+            },
+        ],
+    ]
+
+
+def build_delivery_keyboard(signal_id: int) -> list[list[dict]]:
+    """Build inline keyboard for delivered signal messages.
+
+    Row 1: [Details] [AI]
+    Row 2: [Stats]
+    """
+    return [
+        [
+            {
+                "text": "\U0001f4c4 \u0414\u0435\u0442\u0430\u043b\u0438",
+                "callback_data": f"signal:{signal_id}:details",
+            },
+            {
+                "text": "\U0001f916 AI",
+                "callback_data": f"signal:{signal_id}:ai",
+            },
+        ],
+        [
+            {
+                "text": "\U0001f4ca \u0421\u0442\u0430\u0442\u044b",
+                "callback_data": f"signal:{signal_id}:stats",
+            },
+        ],
+    ]
+
+
+def handle_last_signals_with_buttons(
+    repository: TradingRepository,
+    args: str,
+) -> tuple[str, list[list[dict]]]:
+    """Handle /last_signals with inline buttons.
+
+    Returns (text, keyboard_rows). If error/empty, keyboard is empty.
+    """
+    limit = 5
+    if args:
+        try:
+            limit = int(args)
+        except ValueError:
+            return ("Usage: /last_signals [N]  (N = 1..10)", [])
+        if limit < 1 or limit > 10:
+            return ("Usage: /last_signals [N]  (N = 1..10)", [])
+
+    signals = repository.list_recent_signals(limit)
+    if not signals:
+        return ("No signals yet", [])
+
+    lines = ["Recent signals:"]
+    for s in signals:
+        direction = (s.get("signal_type") or "?").upper()
+        stage = _fmt_stage(s.get("pipeline_stage"))
+        line = (
+            f"#{s['id']} {s['ticker']} {direction} "
+            f"{stage} conf={_fmt_conf(s.get('confidence'))} "
+            f"{_fmt_time(s.get('created_at'))}"
+        )
+        lines.append(line)
+
+    text = "\n".join(lines)
+    keyboard = build_signal_list_keyboard(signals)
+    return (text, keyboard)
+
+
+def handle_signal_detail_with_buttons(
+    repository: TradingRepository,
+    signal_id: int,
+) -> tuple[str, list[list[dict]]]:
+    """Load signal detail and return (text, keyboard).
+
+    Reuses handle_signal formatting, adds action buttons.
+    """
+    text = handle_signal(repository, str(signal_id))
+    if "not found" in text:
+        return (text, [])
+    keyboard = build_signal_detail_keyboard(signal_id)
+    return (text, keyboard)
+
+
+def handle_ticker_stats(
+    repository: TradingRepository,
+    signal_id: int,
+) -> str:
+    """Return ticker-level stats for a signal."""
+    signal = repository.get_signal_detail(signal_id)
+    if signal is None:
+        return f"Signal #{signal_id} not found"
+
+    ticker = signal.get("ticker", "?")
+
+    try:
+        by_ticker = repository.get_signal_stats_by_ticker()
+    except Exception:
+        return f"Stats unavailable for {ticker}"
+
+    ticker_stats: dict | None = None
+    for row in by_ticker:
+        if row.get("ticker") == ticker:
+            ticker_stats = row
+            break
+
+    if not ticker_stats or ticker_stats.get("total", 0) == 0:
+        return f"No stats for {ticker} yet"
+
+    total = ticker_stats["total"]
+    resolved = ticker_stats.get("resolved", 0)
+    wins = ticker_stats.get("wins", 0)
+    avg_ret = ticker_stats.get("avg_return")
+
+    win_rate_str = "n/a"
+    if resolved > 0:
+        win_rate_str = f"{wins / resolved:.0%}"
+
+    avg_ret_str = _fmt_pct(avg_ret * 100 if avg_ret is not None else None)
+
+    return (
+        f"Stats for {ticker}:\n"
+        f"  total: {total}\n"
+        f"  resolved: {resolved}\n"
+        f"  win rate: {win_rate_str}\n"
+        f"  avg return: {avg_ret_str}"
+    )
