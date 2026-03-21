@@ -498,6 +498,10 @@ class TradingRepository:
         source: str = "fusion",
         features_json: dict | None = None,
         created_at: datetime | None = None,
+        *,
+        source_channel: str | None = None,
+        source_message_id: str | None = None,
+        source_message_db_id: int | None = None,
     ) -> int | None:
         """Insert a signal prediction. Returns the new row id."""
         import json as _json
@@ -505,8 +509,9 @@ class TradingRepository:
         sql = """
             INSERT INTO signal_predictions
                 (ticker, signal_type, confidence, source, features_json,
-                 price_at_signal, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                 price_at_signal, created_at,
+                 source_channel, source_message_id, source_message_db_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
         """
         if created_at is None:
@@ -517,12 +522,14 @@ class TradingRepository:
             else None
         )
         try:
-            with self._pool.connection() as conn:
+            with self._pool.get_connection() as conn:
                 row = conn.execute(
                     sql,
                     (
                         ticker, signal_type, confidence, source,
                         features, price_at_signal, created_at,
+                        source_channel, source_message_id,
+                        source_message_db_id,
                     ),
                 ).fetchone()
                 return row[0] if row else None
@@ -672,6 +679,108 @@ class TradingRepository:
                 "resolved": r[2],
                 "wins": r[3],
                 "avg_return": float(r[4]) if r[4] is not None else None,
+            }
+            for r in rows
+        ]
+
+    # -- Source performance attribution --
+
+    def get_signal_stats_by_source(self) -> list[dict]:
+        """Aggregate signal stats grouped by source_channel."""
+        sql = """
+            SELECT
+                source_channel,
+                count(*) AS total,
+                count(resolved_at) AS resolved,
+                count(*) FILTER (WHERE outcome_label = 'win') AS wins,
+                count(*) FILTER (WHERE outcome_label = 'loss') AS losses,
+                count(*) FILTER (WHERE outcome_label = 'neutral') AS neutrals,
+                avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL)
+                    AS avg_return
+            FROM signal_predictions
+            WHERE source_channel IS NOT NULL
+            GROUP BY source_channel
+            ORDER BY total DESC
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql).fetchall()
+        return [
+            {
+                "source_channel": r[0],
+                "total": r[1],
+                "resolved": r[2],
+                "wins": r[3],
+                "losses": r[4],
+                "neutrals": r[5],
+                "avg_return": float(r[6]) if r[6] is not None else None,
+            }
+            for r in rows
+        ]
+
+    def get_signal_stats_by_source_and_ticker(self) -> list[dict]:
+        """Aggregate signal stats grouped by source_channel + ticker."""
+        sql = """
+            SELECT
+                source_channel,
+                ticker,
+                count(*) AS total,
+                count(resolved_at) AS resolved,
+                count(*) FILTER (WHERE outcome_label = 'win') AS wins,
+                count(*) FILTER (WHERE outcome_label = 'loss') AS losses,
+                count(*) FILTER (WHERE outcome_label = 'neutral') AS neutrals,
+                avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL)
+                    AS avg_return
+            FROM signal_predictions
+            WHERE source_channel IS NOT NULL
+            GROUP BY source_channel, ticker
+            ORDER BY source_channel, total DESC
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql).fetchall()
+        return [
+            {
+                "source_channel": r[0],
+                "ticker": r[1],
+                "total": r[2],
+                "resolved": r[3],
+                "wins": r[4],
+                "losses": r[5],
+                "neutrals": r[6],
+                "avg_return": float(r[7]) if r[7] is not None else None,
+            }
+            for r in rows
+        ]
+
+    def get_signal_stats_by_source_and_type(self) -> list[dict]:
+        """Aggregate signal stats grouped by source_channel + signal_type."""
+        sql = """
+            SELECT
+                source_channel,
+                signal_type,
+                count(*) AS total,
+                count(resolved_at) AS resolved,
+                count(*) FILTER (WHERE outcome_label = 'win') AS wins,
+                count(*) FILTER (WHERE outcome_label = 'loss') AS losses,
+                count(*) FILTER (WHERE outcome_label = 'neutral') AS neutrals,
+                avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL)
+                    AS avg_return
+            FROM signal_predictions
+            WHERE source_channel IS NOT NULL
+            GROUP BY source_channel, signal_type
+            ORDER BY source_channel, signal_type
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql).fetchall()
+        return [
+            {
+                "source_channel": r[0],
+                "signal_type": r[1],
+                "total": r[2],
+                "resolved": r[3],
+                "wins": r[4],
+                "losses": r[5],
+                "neutrals": r[6],
+                "avg_return": float(r[7]) if r[7] is not None else None,
             }
             for r in rows
         ]
