@@ -83,7 +83,7 @@ def _build_socks5_opener(
 
     import socks
 
-    def _create_connection(address: tuple, timeout: float = 10.0, **_kw: object) -> socket.socket:
+    def _create_connection(address: tuple, timeout: float = 10.0, _source_address: object = None, **_kw: object) -> socket.socket:
         sock = socks.socksocket()
         sock.set_proxy(
             socks.SOCKS5, proxy_host, proxy_port,
