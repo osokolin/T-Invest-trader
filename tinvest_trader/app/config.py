@@ -163,6 +163,9 @@ class SignalDeliveryConfig:
     proxy_port: int = 0
     proxy_user: str = ""
     proxy_pass: str = ""
+    max_per_cycle: int = 0
+    high_confidence_threshold: float = 0.6
+    high_ev_threshold: float = 0.02
 
 
 @dataclass(frozen=True)
@@ -501,6 +504,15 @@ def load_config() -> AppConfig:
             ),
             proxy_user=os.environ.get("TINVEST_TELEGRAM_BOT_PROXY_USER", ""),
             proxy_pass=os.environ.get("TINVEST_TELEGRAM_BOT_PROXY_PASS", ""),
+            max_per_cycle=int(
+                os.environ.get("TINVEST_SIGNAL_DELIVERY_MAX_PER_CYCLE", "0"),
+            ),
+            high_confidence_threshold=float(
+                os.environ.get("TINVEST_SIGNAL_HIGH_CONFIDENCE_THRESHOLD", "0.6"),
+            ),
+            high_ev_threshold=float(
+                os.environ.get("TINVEST_SIGNAL_HIGH_EV_THRESHOLD", "0.02"),
+            ),
         ),
         moex=MoexConfig(
             enabled=os.environ.get(

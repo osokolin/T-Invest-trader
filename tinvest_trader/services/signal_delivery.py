@@ -24,7 +24,7 @@ class DeliveryResult:
 
 
 def format_signal_message(signal: dict) -> str:
-    """Format a signal dict into a Telegram-friendly message."""
+    """Format a signal dict into a Telegram-friendly message (legacy)."""
     ticker = signal.get("ticker", "???")
     signal_type = signal.get("signal_type", "???")
     direction = signal_type.upper()
@@ -83,7 +83,10 @@ def _build_socks5_opener(
 
     import socks
 
-    def _create_connection(address: tuple, timeout: float = 10.0, _source_address: object = None, **_kw: object) -> socket.socket:
+    def _create_connection(
+        address: tuple, timeout: float = 10.0,
+        _source_address: object = None, **_kw: object,
+    ) -> socket.socket:
         sock = socks.socksocket()
         sock.set_proxy(
             socks.SOCKS5, proxy_host, proxy_port,
@@ -146,6 +149,50 @@ def send_telegram_message(
         return False
 
 
+def _lookup_stats_for_signal(
+    signal: dict,
+    repository: TradingRepository,
+) -> tuple[dict | None, dict | None, dict | None]:
+    """Fetch ticker/type/source stats for a signal. Never raises."""
+    ticker = signal.get("ticker", "")
+    signal_type = signal.get("signal_type", "")
+    source_channel = signal.get("source_channel")
+
+    ticker_stats: dict | None = None
+    type_stats: dict | None = None
+    source_stats: dict | None = None
+
+    try:
+        by_ticker = repository.get_signal_stats_by_ticker()
+        for row in by_ticker:
+            if row.get("ticker") == ticker:
+                ticker_stats = row
+                break
+    except Exception:
+        pass
+
+    try:
+        by_type = repository.get_signal_stats_by_type()
+        for row in by_type:
+            if row.get("signal_type") == signal_type:
+                type_stats = row
+                break
+    except Exception:
+        pass
+
+    if source_channel:
+        try:
+            by_source = repository.get_signal_stats_by_source()
+            for row in by_source:
+                if row.get("source_channel") == source_channel:
+                    source_stats = row
+                    break
+        except Exception:
+            pass
+
+    return ticker_stats, type_stats, source_stats
+
+
 def deliver_signal(
     signal: dict,
     bot_token: str,
@@ -157,11 +204,42 @@ def deliver_signal(
     proxy_port: int = 0,
     proxy_user: str = "",
     proxy_pass: str = "",
+    severity_config: object | None = None,
 ) -> DeliveryResult:
     """Format, send, and mark a signal as delivered."""
+    from tinvest_trader.services.signal_severity import (
+        SeverityConfig,
+        classify_signal_severity,
+        format_enriched_signal_message,
+    )
+
     signal_id = signal["id"]
 
-    text = format_signal_message(signal)
+    # Compute severity + enriched message
+    ticker_stats: dict | None = None
+    type_stats: dict | None = None
+    source_stats: dict | None = None
+
+    if repository is not None:
+        ticker_stats, type_stats, source_stats = _lookup_stats_for_signal(
+            signal, repository,
+        )
+
+    sev_cfg = severity_config if isinstance(severity_config, SeverityConfig) else None
+    severity = classify_signal_severity(
+        signal,
+        ticker_stats=ticker_stats,
+        type_stats=type_stats,
+        source_stats=source_stats,
+        config=sev_cfg,
+    )
+
+    text = format_enriched_signal_message(
+        signal, severity,
+        ticker_stats=ticker_stats,
+        type_stats=type_stats,
+    )
+
     sent = send_telegram_message(
         bot_token, chat_id, text,
         proxy_host=proxy_host, proxy_port=proxy_port,
@@ -189,6 +267,7 @@ def deliver_signal(
                 "component": "signal_delivery",
                 "signal_id": signal_id,
                 "ticker": signal.get("ticker"),
+                "severity": severity.level,
             },
         )
 
@@ -206,19 +285,54 @@ def deliver_pending_signals(
     proxy_port: int = 0,
     proxy_user: str = "",
     proxy_pass: str = "",
+    max_per_cycle: int = 0,
+    severity_config: object | None = None,
 ) -> int:
-    """Deliver all undelivered resolved signals. Returns count sent."""
+    """Deliver undelivered resolved signals, ordered by severity.
+
+    If max_per_cycle > 0, send at most that many per cycle (HIGH first).
+    """
+    from tinvest_trader.services.signal_severity import (
+        SeverityConfig,
+        classify_signal_severity,
+        severity_sort_key,
+    )
+
     signals = repository.list_undelivered_signals(limit=limit)
     if not signals:
         return 0
 
-    sent_count = 0
+    # Classify + sort by severity (HIGH first)
+    sev_cfg = severity_config if isinstance(severity_config, SeverityConfig) else None
+
+    classified: list[tuple[dict, str]] = []
     for signal in signals:
+        ticker_stats, type_stats, source_stats = _lookup_stats_for_signal(
+            signal, repository,
+        )
+        sev = classify_signal_severity(
+            signal,
+            ticker_stats=ticker_stats,
+            type_stats=type_stats,
+            source_stats=source_stats,
+            config=sev_cfg,
+        )
+        classified.append((signal, sev.level))
+
+    classified.sort(key=lambda x: severity_sort_key(x[1]))
+
+    # Apply max-per-cycle limit
+    if max_per_cycle > 0:
+        classified = classified[:max_per_cycle]
+
+    sent_count = 0
+    for signal, _sev_level in classified:
         result = deliver_signal(
             signal, bot_token, chat_id,
             repository=repository, logger=logger,
             proxy_host=proxy_host, proxy_port=proxy_port,
             proxy_user=proxy_user, proxy_pass=proxy_pass,
+            severity_config=severity_config,
         )
         if result.sent:
             sent_count += 1

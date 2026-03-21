@@ -418,6 +418,12 @@ class Container:
             return None
 
         from tinvest_trader.services.signal_delivery import deliver_pending_signals
+        from tinvest_trader.services.signal_severity import SeverityConfig
+
+        sev_cfg = SeverityConfig(
+            high_confidence=cfg.high_confidence_threshold,
+            high_ev=cfg.high_ev_threshold,
+        )
 
         def _deliver():
             return deliver_pending_signals(
@@ -429,6 +435,8 @@ class Container:
                 proxy_port=cfg.proxy_port,
                 proxy_user=cfg.proxy_user,
                 proxy_pass=cfg.proxy_pass,
+                max_per_cycle=cfg.max_per_cycle,
+                severity_config=sev_cfg,
             )
 
         self.logger.info(

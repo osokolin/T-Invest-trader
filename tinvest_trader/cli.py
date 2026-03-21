@@ -191,6 +191,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Deliver pending undelivered signals to Telegram",
     )
 
+    # -- preview-signal-message --
+    preview_parser = subparsers.add_parser(
+        "preview-signal-message",
+        help="Preview enriched Telegram message for a test signal",
+    )
+    preview_parser.add_argument(
+        "ticker", type=str, help="Ticker symbol (e.g. SBER)",
+    )
+    preview_parser.add_argument(
+        "--direction", type=str, default="up",
+        help="Signal direction: up or down (default up)",
+    )
+    preview_parser.add_argument(
+        "--confidence", type=float, default=0.65,
+        help="Confidence value (default 0.65)",
+    )
+
     # -- sync-quotes --
     sync_quotes_parser = subparsers.add_parser(
         "sync-quotes",
@@ -289,6 +306,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "telegram-source-report":
             return _run_telegram_source_report(
                 container, min_resolved=args.min_resolved,
+            )
+        if args.command == "preview-signal-message":
+            return _run_preview_signal_message(
+                config, container,
+                ticker=args.ticker,
+                direction=args.direction,
+                confidence=args.confidence,
             )
     finally:
         _close_container(container)
@@ -791,9 +815,11 @@ def _run_send_test_signal(
 
     from datetime import UTC, datetime
 
-    from tinvest_trader.services.signal_delivery import (
-        format_signal_message,
-        send_telegram_message,
+    from tinvest_trader.services.signal_delivery import send_telegram_message
+    from tinvest_trader.services.signal_severity import (
+        SeverityConfig,
+        classify_signal_severity,
+        format_enriched_signal_message,
     )
 
     signal = {
@@ -808,7 +834,14 @@ def _run_send_test_signal(
         "return_pct": None,
         "outcome_label": None,
     }
-    text = format_signal_message(signal)
+
+    sev_cfg = SeverityConfig(
+        high_confidence=cfg.high_confidence_threshold,
+        high_ev=cfg.high_ev_threshold,
+    )
+    severity = classify_signal_severity(signal, config=sev_cfg)
+    text = format_enriched_signal_message(signal, severity)
+    print(f"severity: {severity.level}")
     print(f"message:\n{text}\n")
 
     sent = send_telegram_message(
@@ -836,6 +869,12 @@ def _run_deliver_signals(config: AppConfig, container: Container) -> int:
         return 1
 
     from tinvest_trader.services.signal_delivery import deliver_pending_signals
+    from tinvest_trader.services.signal_severity import SeverityConfig
+
+    sev_cfg = SeverityConfig(
+        high_confidence=cfg.high_confidence_threshold,
+        high_ev=cfg.high_ev_threshold,
+    )
 
     sent = deliver_pending_signals(
         bot_token=cfg.bot_token,
@@ -846,8 +885,75 @@ def _run_deliver_signals(config: AppConfig, container: Container) -> int:
         proxy_port=cfg.proxy_port,
         proxy_user=cfg.proxy_user,
         proxy_pass=cfg.proxy_pass,
+        max_per_cycle=cfg.max_per_cycle,
+        severity_config=sev_cfg,
     )
     print(f"delivered: {sent}")
+    return 0
+
+
+def _run_preview_signal_message(
+    config: AppConfig,
+    container: Container,
+    *,
+    ticker: str,
+    direction: str,
+    confidence: float,
+) -> int:
+    from datetime import UTC, datetime
+
+    from tinvest_trader.services.signal_delivery import _lookup_stats_for_signal
+    from tinvest_trader.services.signal_severity import (
+        SeverityConfig,
+        classify_signal_severity,
+        format_enriched_signal_message,
+    )
+
+    cfg = config.signal_delivery
+    signal = {
+        "id": 0,
+        "ticker": ticker,
+        "signal_type": direction,
+        "confidence": confidence,
+        "price_at_signal": None,
+        "created_at": datetime.now(tz=UTC),
+        "source_channel": None,
+        "source": "preview",
+        "return_pct": None,
+        "outcome_label": None,
+    }
+
+    ticker_stats: dict | None = None
+    type_stats: dict | None = None
+    source_stats: dict | None = None
+    if container.repository is not None:
+        ticker_stats, type_stats, source_stats = _lookup_stats_for_signal(
+            signal, container.repository,
+        )
+
+    sev_cfg = SeverityConfig(
+        high_confidence=cfg.high_confidence_threshold,
+        high_ev=cfg.high_ev_threshold,
+    )
+    severity = classify_signal_severity(
+        signal,
+        ticker_stats=ticker_stats,
+        type_stats=type_stats,
+        source_stats=source_stats,
+        config=sev_cfg,
+    )
+
+    text = format_enriched_signal_message(
+        signal, severity,
+        ticker_stats=ticker_stats,
+        type_stats=type_stats,
+    )
+
+    print(f"severity: {severity.level}")
+    if severity.reasons:
+        for r in severity.reasons:
+            print(f"  - {r}")
+    print(f"\n{text}")
     return 0
 
 
