@@ -621,3 +621,27 @@ ALTER TABLE signal_predictions
 CREATE INDEX IF NOT EXISTS idx_signal_predictions_global_alignment
     ON signal_predictions (global_alignment)
     WHERE global_alignment IS NOT NULL;
+
+-- ============================================================
+-- Global market data snapshots (structured price pipeline)
+-- ============================================================
+
+-- Stores periodic price snapshots for global instruments
+-- (indices, oil, FX, volatility) from Yahoo Finance chart API.
+-- Separate from Telegram/news global context ingestion.
+CREATE TABLE IF NOT EXISTS global_market_snapshots (
+    id              BIGSERIAL PRIMARY KEY,
+    symbol          TEXT NOT NULL,
+    category        TEXT NOT NULL DEFAULT 'unknown',
+    price           REAL NOT NULL,
+    change_pct      REAL,
+    source_time     TIMESTAMPTZ,
+    fetched_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    source_name     TEXT NOT NULL DEFAULT 'yahoo_finance',
+    metadata_json   JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_global_market_snapshots_symbol_time
+    ON global_market_snapshots (symbol, source_time DESC);
+CREATE INDEX IF NOT EXISTS idx_global_market_snapshots_category_time
+    ON global_market_snapshots (category, source_time DESC);

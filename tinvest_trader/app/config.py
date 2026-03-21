@@ -74,6 +74,7 @@ class BackgroundConfig:
     run_quote_sync: bool = True
     run_signal_delivery: bool = True
     run_global_context: bool = True
+    run_global_market_data: bool = True
 
 
 @dataclass(frozen=True)
@@ -173,6 +174,15 @@ class SignalDeliveryConfig:
 
 
 @dataclass(frozen=True)
+class GlobalMarketDataConfig:
+    enabled: bool = False
+    poll_interval_seconds: int = 300
+    symbols: tuple[str, ...] = (
+        "^GSPC", "^NDX", "^VIX", "BZ=F", "DX-Y.NYB",
+    )
+
+
+@dataclass(frozen=True)
 class GlobalContextConfig:
     enabled: bool = False
     channels: tuple[str, ...] = (
@@ -213,6 +223,9 @@ class AppConfig:
     )
     global_context: GlobalContextConfig = field(
         default_factory=GlobalContextConfig,
+    )
+    global_market_data: GlobalMarketDataConfig = field(
+        default_factory=GlobalMarketDataConfig,
     )
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     environment: str = "sandbox"
@@ -310,6 +323,9 @@ def load_config() -> AppConfig:
             ).lower() == "true",
             run_global_context=os.environ.get(
                 "TINVEST_BACKGROUND_RUN_GLOBAL_CONTEXT", "true",
+            ).lower() == "true",
+            run_global_market_data=os.environ.get(
+                "TINVEST_BACKGROUND_RUN_GLOBAL_MARKET_DATA", "true",
             ).lower() == "true",
         ),
         broker_events=BrokerEventsConfig(
@@ -563,6 +579,23 @@ def load_config() -> AppConfig:
             fetch_limit_per_source=int(
                 os.environ.get(
                     "TINVEST_GLOBAL_CONTEXT_FETCH_LIMIT_PER_SOURCE", "20",
+                ),
+            ),
+        ),
+        global_market_data=GlobalMarketDataConfig(
+            enabled=os.environ.get(
+                "TINVEST_GLOBAL_MARKET_DATA_ENABLED", "false",
+            ).lower() == "true",
+            poll_interval_seconds=int(
+                os.environ.get(
+                    "TINVEST_GLOBAL_MARKET_DATA_POLL_INTERVAL_SECONDS",
+                    "300",
+                ),
+            ),
+            symbols=_parse_csv(
+                os.environ.get(
+                    "TINVEST_GLOBAL_MARKET_DATA_SYMBOLS",
+                    "^GSPC,^NDX,^VIX,BZ=F,DX-Y.NYB",
                 ),
             ),
         ),

@@ -1192,6 +1192,104 @@ class TradingRepository:
             for r in rows
         ]
 
+    # -- Global market data snapshots --
+
+    def insert_global_market_snapshot(self, snapshot: dict) -> bool:
+        """Insert a global market data snapshot. Returns True on success."""
+        sql = """
+            INSERT INTO global_market_snapshots
+                (symbol, category, price, change_pct,
+                 source_time, source_name, metadata_json)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                row = conn.execute(
+                    sql,
+                    (
+                        snapshot["symbol"],
+                        snapshot.get("category", "unknown"),
+                        snapshot["price"],
+                        snapshot.get("change_pct"),
+                        snapshot.get("source_time"),
+                        snapshot.get("source_name", "yahoo_finance"),
+                        None,
+                    ),
+                ).fetchone()
+                return row is not None
+        except Exception:
+            self._logger.exception(
+                "failed to insert global market snapshot",
+                extra={
+                    "component": "postgres",
+                    "symbol": snapshot.get("symbol"),
+                },
+            )
+            return False
+
+    def get_latest_global_market_snapshots(self) -> list[dict]:
+        """Get most recent snapshot per symbol."""
+        sql = """
+            SELECT DISTINCT ON (symbol)
+                symbol, category, price, change_pct,
+                source_time, fetched_at, source_name
+            FROM global_market_snapshots
+            ORDER BY symbol, fetched_at DESC
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql).fetchall()
+        return [
+            {
+                "symbol": r[0],
+                "category": r[1],
+                "price": float(r[2]) if r[2] is not None else None,
+                "change_pct": float(r[3]) if r[3] is not None else None,
+                "source_time": r[4],
+                "fetched_at": r[5],
+                "source_name": r[6],
+            }
+            for r in rows
+        ]
+
+    def get_global_market_snapshot_history(
+        self, *, symbol: str | None = None, limit: int = 50,
+    ) -> list[dict]:
+        """Get recent global market snapshot history."""
+        if symbol:
+            sql = """
+                SELECT symbol, category, price, change_pct,
+                       source_time, fetched_at, source_name
+                FROM global_market_snapshots
+                WHERE symbol = %s
+                ORDER BY fetched_at DESC
+                LIMIT %s
+            """
+            params: tuple = (symbol, limit)
+        else:
+            sql = """
+                SELECT symbol, category, price, change_pct,
+                       source_time, fetched_at, source_name
+                FROM global_market_snapshots
+                ORDER BY fetched_at DESC
+                LIMIT %s
+            """
+            params = (limit,)
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [
+            {
+                "symbol": r[0],
+                "category": r[1],
+                "price": float(r[2]) if r[2] is not None else None,
+                "change_pct": float(r[3]) if r[3] is not None else None,
+                "source_time": r[4],
+                "fetched_at": r[5],
+                "source_name": r[6],
+            }
+            for r in rows
+        ]
+
     # -- Signal delivery --
 
     def list_undelivered_signals(
