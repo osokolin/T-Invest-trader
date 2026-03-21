@@ -564,3 +564,38 @@ ALTER TABLE signal_predictions ADD COLUMN IF NOT EXISTS weighted_severity TEXT;
 CREATE INDEX IF NOT EXISTS idx_signal_predictions_weighted_conf
     ON signal_predictions (weighted_confidence)
     WHERE weighted_confidence IS NOT NULL;
+
+-- ============================================================
+-- Global market context ingestion (separate pipeline)
+-- ============================================================
+
+-- Stores classified global market context events from external sources
+-- (Telegram channels like financialjuice, oilprice, cointelegraph).
+-- Separate from local signal pipeline -- ingestion + storage only.
+CREATE TABLE IF NOT EXISTS global_market_context_events (
+    id                  BIGSERIAL PRIMARY KEY,
+    source_key          TEXT NOT NULL,
+    source_channel      TEXT NOT NULL,
+    telegram_message_id TEXT,
+    raw_text            TEXT NOT NULL DEFAULT '',
+    normalized_text     TEXT NOT NULL DEFAULT '',
+    event_type          TEXT NOT NULL DEFAULT 'unknown',
+    direction           TEXT NOT NULL DEFAULT 'unknown',
+    confidence          REAL NOT NULL DEFAULT 0.0,
+    event_time          TIMESTAMPTZ,
+    fetched_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    dedup_hash          TEXT,
+    metadata_json       JSONB,
+    UNIQUE (source_key, telegram_message_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_global_context_source_key
+    ON global_market_context_events (source_key);
+CREATE INDEX IF NOT EXISTS idx_global_context_event_time
+    ON global_market_context_events (event_time DESC)
+    WHERE event_time IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_global_context_event_type
+    ON global_market_context_events (event_type);
+CREATE INDEX IF NOT EXISTS idx_global_context_dedup_hash
+    ON global_market_context_events (dedup_hash)
+    WHERE dedup_hash IS NOT NULL;

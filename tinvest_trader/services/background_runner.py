@@ -19,6 +19,9 @@ if TYPE_CHECKING:
     )
     from tinvest_trader.services.cbr_ingestion_service import CbrIngestionService
     from tinvest_trader.services.fusion_service import FusionService
+    from tinvest_trader.services.global_context_ingestion import (
+        GlobalContextIngestionService,
+    )
     from tinvest_trader.services.moex_ingestion_service import MoexIngestionService
     from tinvest_trader.services.observation_service import ObservationService
     from tinvest_trader.services.telegram_sentiment_service import TelegramSentimentService
@@ -37,12 +40,14 @@ class BackgroundRunner:
         fusion_service: FusionService | None = None,
         cbr_ingestion_service: CbrIngestionService | None = None,
         moex_ingestion_service: MoexIngestionService | None = None,
+        global_context_service: GlobalContextIngestionService | None = None,
         quote_sync_config: QuoteSyncConfig | None = None,
         quote_sync_fn: Callable[[], object] | None = None,
         sentiment_channels: tuple[str, ...] = (),
         broker_event_interval_seconds: int = 1800,
         cbr_interval_seconds: int = 3600,
         moex_interval_seconds: int = 3600,
+        global_context_interval_seconds: int = 120,
         signal_delivery_config: SignalDeliveryConfig | None = None,
         signal_delivery_fn: Callable[[], int] | None = None,
         callback_handler_fn: Callable[[], None] | None = None,
@@ -56,12 +61,14 @@ class BackgroundRunner:
         self._fusion_service = fusion_service
         self._cbr_ingestion_service = cbr_ingestion_service
         self._moex_ingestion_service = moex_ingestion_service
+        self._global_context_service = global_context_service
         self._quote_sync_config = quote_sync_config
         self._quote_sync_fn = quote_sync_fn
         self._sentiment_channels = sentiment_channels
         self._broker_event_interval_seconds = broker_event_interval_seconds
         self._cbr_interval_seconds = cbr_interval_seconds
         self._moex_interval_seconds = moex_interval_seconds
+        self._global_context_interval_seconds = global_context_interval_seconds
         self._signal_delivery_config = signal_delivery_config
         self._signal_delivery_fn = signal_delivery_fn
         self._callback_handler_fn = callback_handler_fn
@@ -200,6 +207,7 @@ class BackgroundRunner:
             or self._fusion_is_runnable()
             or self._cbr_is_runnable()
             or self._moex_is_runnable()
+            or self._global_context_is_runnable()
             or self._quote_sync_is_runnable()
             or self._signal_delivery_is_runnable()
             or self._callback_handler_is_runnable()
@@ -222,6 +230,12 @@ class BackgroundRunner:
 
     def _moex_is_runnable(self) -> bool:
         return self._config.run_moex and self._moex_ingestion_service is not None
+
+    def _global_context_is_runnable(self) -> bool:
+        return (
+            self._config.run_global_context
+            and self._global_context_service is not None
+        )
 
     def _quote_sync_is_runnable(self) -> bool:
         return (
@@ -348,6 +362,26 @@ class BackgroundRunner:
                 extra={"component": "background_runner"},
             )
 
+    def run_global_context_cycle(self) -> None:
+        """Run one global context ingestion cycle safely."""
+        if not self._global_context_is_runnable():
+            return
+
+        try:
+            persisted = self._global_context_service.ingest_all()
+            self._logger.info(
+                "background global context cycle complete",
+                extra={
+                    "component": "background_runner",
+                    "persisted": persisted,
+                },
+            )
+        except Exception:
+            self._logger.exception(
+                "background global context cycle failed",
+                extra={"component": "background_runner"},
+            )
+
     def run_quote_sync_cycle(self) -> None:
         """Run one quote sync cycle safely."""
         if not self._quote_sync_is_runnable():
@@ -408,6 +442,7 @@ class BackgroundRunner:
         next_fusion_run = self._time_fn()
         next_cbr_run = self._time_fn()
         next_moex_run = self._time_fn()
+        next_global_context_run = self._time_fn()
         next_quote_sync_run = self._time_fn()
         next_signal_delivery_run = self._time_fn()
         next_callback_handler_run = self._time_fn()
@@ -487,6 +522,19 @@ class BackgroundRunner:
                     moex_wait
                     if next_wait is None
                     else min(next_wait, moex_wait)
+                )
+
+            if self._global_context_is_runnable():
+                if now >= next_global_context_run:
+                    self.run_global_context_cycle()
+                    next_global_context_run = self._time_fn() + max(
+                        1, self._global_context_interval_seconds,
+                    )
+                gc_wait = max(0.0, next_global_context_run - self._time_fn())
+                next_wait = (
+                    gc_wait
+                    if next_wait is None
+                    else min(next_wait, gc_wait)
                 )
 
             if self._quote_sync_is_runnable():

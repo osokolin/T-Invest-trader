@@ -26,6 +26,9 @@ from tinvest_trader.services.broker_event_ingestion_service import (
 )
 from tinvest_trader.services.cbr_ingestion_service import CbrIngestionService
 from tinvest_trader.services.fusion_service import FusionService
+from tinvest_trader.services.global_context_ingestion import (
+    GlobalContextIngestionService,
+)
 from tinvest_trader.services.moex_ingestion_service import MoexIngestionService
 from tinvest_trader.services.observation_service import ObservationService
 from tinvest_trader.services.tbank_event_fetch_policy import FetchPolicyConfig
@@ -57,6 +60,9 @@ class Container:
     fusion_service: FusionService | None = field(init=False, default=None)
     cbr_ingestion_service: CbrIngestionService | None = field(init=False, default=None)
     moex_ingestion_service: MoexIngestionService | None = field(init=False, default=None)
+    global_context_service: GlobalContextIngestionService | None = field(
+        init=False, default=None,
+    )
     background_runner: BackgroundRunner | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
@@ -121,6 +127,10 @@ class Container:
         # MOEX ISS market data ingestion (optional, disabled by default)
         if self.config.moex.enabled:
             self._wire_moex()
+
+        # Global market context ingestion (optional, disabled by default)
+        if self.config.global_context.enabled:
+            self._wire_global_context()
 
         # Quote sync callable (used by background runner and CLI)
         self._quote_sync_fn = self._build_quote_sync_fn()
@@ -387,6 +397,34 @@ class Container:
             },
         )
 
+    def _wire_global_context(self) -> None:
+        """Wire global market context ingestion when enabled."""
+        cfg = self.config.global_context
+
+        # Reuse existing Telegram source infrastructure
+        scfg = self.config.sentiment
+        if scfg.source_backend == "telethon":
+            source = build_telethon_message_source(scfg)
+        else:
+            source = StubMessageSource()
+
+        self.global_context_service = GlobalContextIngestionService(
+            source=source,
+            repository=self.repository,
+            logger=self.logger,
+            channels=cfg.channels,
+            fetch_limit=cfg.fetch_limit_per_source,
+        )
+
+        self.logger.info(
+            "global context pipeline initialized",
+            extra={
+                "component": "global_context",
+                "channels": len(cfg.channels),
+                "poll_interval_seconds": cfg.poll_interval_seconds,
+            },
+        )
+
     def _build_quote_sync_fn(self):
         """Build a callable for quote sync if prerequisites are met."""
         if not self.config.quote_sync.enabled:
@@ -501,6 +539,8 @@ class Container:
             broker_event_interval_seconds=self.config.broker_events.poll_interval_seconds,
             cbr_interval_seconds=self.config.cbr.poll_interval_seconds,
             moex_interval_seconds=self.config.moex.poll_interval_seconds,
+            global_context_service=self.global_context_service,
+            global_context_interval_seconds=self.config.global_context.poll_interval_seconds,
             signal_delivery_config=self.config.signal_delivery,
             signal_delivery_fn=self._signal_delivery_fn,
             callback_handler_fn=self._callback_handler_fn,

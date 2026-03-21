@@ -73,6 +73,7 @@ class BackgroundConfig:
     run_moex: bool = True
     run_quote_sync: bool = True
     run_signal_delivery: bool = True
+    run_global_context: bool = True
 
 
 @dataclass(frozen=True)
@@ -172,6 +173,16 @@ class SignalDeliveryConfig:
 
 
 @dataclass(frozen=True)
+class GlobalContextConfig:
+    enabled: bool = False
+    channels: tuple[str, ...] = (
+        "financialjuice", "oilprice", "cointelegraph",
+    )
+    poll_interval_seconds: int = 120
+    fetch_limit_per_source: int = 20
+
+
+@dataclass(frozen=True)
 class LoggingConfig:
     level: str = "INFO"
     json_output: bool = True
@@ -199,6 +210,9 @@ class AppConfig:
     quote_sync: QuoteSyncConfig = field(default_factory=QuoteSyncConfig)
     signal_delivery: SignalDeliveryConfig = field(
         default_factory=SignalDeliveryConfig,
+    )
+    global_context: GlobalContextConfig = field(
+        default_factory=GlobalContextConfig,
     )
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     environment: str = "sandbox"
@@ -293,6 +307,9 @@ def load_config() -> AppConfig:
             ).lower() == "true",
             run_signal_delivery=os.environ.get(
                 "TINVEST_BACKGROUND_RUN_SIGNAL_DELIVERY", "true",
+            ).lower() == "true",
+            run_global_context=os.environ.get(
+                "TINVEST_BACKGROUND_RUN_GLOBAL_CONTEXT", "true",
             ).lower() == "true",
         ),
         broker_events=BrokerEventsConfig(
@@ -525,6 +542,27 @@ def load_config() -> AppConfig:
             callback_poll_interval_seconds=int(
                 os.environ.get(
                     "TINVEST_CALLBACK_POLL_INTERVAL_SECONDS", "5",
+                ),
+            ),
+        ),
+        global_context=GlobalContextConfig(
+            enabled=os.environ.get(
+                "TINVEST_GLOBAL_CONTEXT_ENABLED", "false",
+            ).lower() == "true",
+            channels=_parse_csv(
+                os.environ.get(
+                    "TINVEST_GLOBAL_CONTEXT_CHANNELS",
+                    "financialjuice,oilprice,cointelegraph",
+                ),
+            ),
+            poll_interval_seconds=int(
+                os.environ.get(
+                    "TINVEST_GLOBAL_CONTEXT_POLL_INTERVAL_SECONDS", "120",
+                ),
+            ),
+            fetch_limit_per_source=int(
+                os.environ.get(
+                    "TINVEST_GLOBAL_CONTEXT_FETCH_LIMIT_PER_SOURCE", "20",
                 ),
             ),
         ),

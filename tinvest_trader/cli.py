@@ -263,6 +263,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Max signals to process (default 500)",
     )
 
+    # -- ingest-global-context --
+    gc_ingest_parser = subparsers.add_parser(
+        "ingest-global-context",
+        help="One-shot global market context ingestion",
+    )
+    gc_ingest_parser.add_argument(
+        "--limit-per-source", type=int, default=0,
+        help="Override fetch limit per source (0 = use config default)",
+    )
+
+    # -- global-context-report --
+    subparsers.add_parser(
+        "global-context-report",
+        help="Show global market context event summary",
+    )
+
     # -- sync-quotes --
     sync_quotes_parser = subparsers.add_parser(
         "sync-quotes",
@@ -356,6 +372,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 direction=args.direction,
                 confidence=args.confidence,
             )
+        if args.command == "ingest-global-context":
+            return _run_ingest_global_context(config, container)
+        if args.command == "global-context-report":
+            return _run_global_context_report(container)
         if args.command == "deliver-signals":
             return _run_deliver_signals(config, container)
         if args.command == "telegram-source-report":
@@ -1211,6 +1231,58 @@ def _run_apply_source_weights(
         repository, container.logger, limit=limit,
     )
     print(f"signals_updated: {updated}")
+    return 0
+
+
+def _run_ingest_global_context(
+    config: AppConfig, container: Container,
+) -> int:
+    service = container.global_context_service
+    if service is None:
+        print("global context pipeline is disabled")
+        return 0
+
+    result = service.ingest_all_detailed()
+    print(f"sources_processed: {result.sources_processed}")
+    print(f"messages_fetched: {result.messages_fetched}")
+    print(f"inserted: {result.inserted}")
+    print(f"classified_events: {result.classified_events}")
+    print(f"hard_duplicates: {result.hard_duplicates}")
+    print(f"soft_duplicates: {result.soft_duplicates}")
+    if result.failed_sources:
+        for src in result.failed_sources:
+            print(f"  failed: {src}")
+    return 0
+
+
+def _run_global_context_report(container: Container) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    summary = repository.get_global_context_summary()
+    recent = repository.get_recent_global_context_events(limit=10)
+
+    print("global context summary:")
+    if not summary:
+        print("  no events yet")
+    else:
+        for row in summary:
+            print(
+                f"  {row['event_type']} / {row['direction']}: {row['count']}",
+            )
+
+    if recent:
+        print()
+        print("recent events:")
+        for ev in recent:
+            snippet = ev["raw_text"][:60].replace("\n", " ")
+            print(
+                f"  {ev['source_key']} / {ev['event_type']} / "
+                f"{ev['direction']} -- {snippet}",
+            )
+
     return 0
 
 
