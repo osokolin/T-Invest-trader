@@ -1,8 +1,8 @@
-"""Telegram Bot callback handler -- polls getUpdates for inline button clicks.
+"""Telegram Bot handler -- polls getUpdates for callbacks and commands.
 
-Handles callback queries from inline keyboard buttons attached to
-signal delivery messages. Currently supports:
-- ai:signal:<signal_id> -- trigger AI analysis for a signal
+Handles:
+- Callback queries from inline keyboard buttons (ai:signal:<id>)
+- Operator commands via plain text messages (/last_signals, /signal, /ai, /stats, /help)
 """
 
 from __future__ import annotations
@@ -96,7 +96,10 @@ def poll_and_handle_callbacks(
         "proxy_pass": proxy_pass,
     }
 
-    params: dict = {"timeout": 1, "allowed_updates": ["callback_query"]}
+    params: dict = {
+        "timeout": 1,
+        "allowed_updates": ["callback_query", "message"],
+    }
     if last_update_id > 0:
         params["offset"] = last_update_id
 
@@ -116,28 +119,28 @@ def poll_and_handle_callbacks(
         update_id = update.get("update_id", 0)
         next_offset = max(next_offset, update_id + 1)
 
+        # -- Callback queries (inline button clicks) --
         callback_query = update.get("callback_query")
-        if not callback_query:
-            continue
-
-        callback_data = callback_query.get("data", "")
-        callback_id = callback_query.get("id", "")
-
-        parsed = parse_callback_data(callback_data)
-        if parsed is None:
-            _answer_callback(
-                bot_token, callback_id, "Unknown action", **proxy_kw,
+        if callback_query:
+            _process_callback_query(
+                callback_query,
+                bot_token=bot_token,
+                chat_id=chat_id,
+                repository=repository,
+                logger=logger,
+                api_key=api_key,
+                ai_model=ai_model,
+                **proxy_kw,
             )
             continue
 
-        action, signal_id = parsed
-
-        if action == "ai_analysis":
-            _handle_ai_callback(
+        # -- Message commands (/last_signals, /signal, etc.) --
+        message = update.get("message")
+        if message:
+            _process_message_command(
+                message,
                 bot_token=bot_token,
                 chat_id=chat_id,
-                callback_id=callback_id,
-                signal_id=signal_id,
                 repository=repository,
                 logger=logger,
                 api_key=api_key,
@@ -278,3 +281,192 @@ def _handle_ai_callback(
             "cached": result.cached,
         },
     )
+
+
+def _process_callback_query(
+    callback_query: dict,
+    *,
+    bot_token: str,
+    chat_id: str,
+    repository: TradingRepository,
+    logger: logging.Logger,
+    api_key: str = "",
+    ai_model: str = "",
+    proxy_host: str = "",
+    proxy_port: int = 0,
+    proxy_user: str = "",
+    proxy_pass: str = "",
+) -> None:
+    """Route a callback_query update."""
+    proxy_kw = {
+        "proxy_host": proxy_host,
+        "proxy_port": proxy_port,
+        "proxy_user": proxy_user,
+        "proxy_pass": proxy_pass,
+    }
+
+    callback_data = callback_query.get("data", "")
+    callback_id = callback_query.get("id", "")
+
+    parsed = parse_callback_data(callback_data)
+    if parsed is None:
+        _answer_callback(
+            bot_token, callback_id, "Unknown action", **proxy_kw,
+        )
+        return
+
+    action, signal_id = parsed
+
+    if action == "ai_analysis":
+        _handle_ai_callback(
+            bot_token=bot_token,
+            chat_id=chat_id,
+            callback_id=callback_id,
+            signal_id=signal_id,
+            repository=repository,
+            logger=logger,
+            api_key=api_key,
+            ai_model=ai_model,
+            **proxy_kw,
+        )
+
+
+def _process_message_command(
+    message: dict,
+    *,
+    bot_token: str,
+    chat_id: str,
+    repository: TradingRepository,
+    logger: logging.Logger,
+    api_key: str = "",
+    ai_model: str = "",
+    proxy_host: str = "",
+    proxy_port: int = 0,
+    proxy_user: str = "",
+    proxy_pass: str = "",
+) -> None:
+    """Route a text message command. Only responds in configured chat."""
+    # Access control: only respond in the configured operator chat
+    msg_chat_id = str(message.get("chat", {}).get("id", ""))
+    if msg_chat_id != str(chat_id):
+        return
+
+    text = message.get("text", "")
+    if not text or not text.startswith("/"):
+        return
+
+    from tinvest_trader.services.bot_commands import (
+        handle_help,
+        handle_last_signals,
+        handle_signal,
+        handle_stats,
+        parse_command,
+    )
+
+    proxy_kw = {
+        "proxy_host": proxy_host,
+        "proxy_port": proxy_port,
+        "proxy_user": proxy_user,
+        "proxy_pass": proxy_pass,
+    }
+
+    command, args = parse_command(text)
+
+    response: str | None = None
+
+    try:
+        if command == "last_signals":
+            response = handle_last_signals(repository, args)
+        elif command == "signal":
+            response = handle_signal(repository, args)
+        elif command == "ai":
+            response = _handle_ai_command(
+                repository=repository,
+                logger=logger,
+                args=args,
+                api_key=api_key,
+                ai_model=ai_model,
+                proxy_host=proxy_host,
+                proxy_port=proxy_port,
+                proxy_user=proxy_user,
+                proxy_pass=proxy_pass,
+            )
+        elif command == "stats":
+            response = handle_stats(repository)
+        elif command == "help" or command == "start":
+            response = handle_help()
+        else:
+            # Unknown command -- ignore silently
+            return
+    except Exception:
+        logger.exception(
+            "bot command failed",
+            extra={"component": "bot_handler", "command": command},
+        )
+        response = "Something went wrong"
+
+    if response:
+        _send_reply(bot_token, chat_id, response, **proxy_kw)
+
+    logger.info(
+        "bot_command",
+        extra={
+            "component": "bot_handler",
+            "command": command,
+            "ok": response is not None,
+        },
+    )
+
+
+def _handle_ai_command(
+    repository: TradingRepository,
+    logger: logging.Logger,
+    args: str,
+    *,
+    api_key: str = "",
+    ai_model: str = "",
+    proxy_host: str = "",
+    proxy_port: int = 0,
+    proxy_user: str = "",
+    proxy_pass: str = "",
+) -> str:
+    """Handle /ai <signal_id> command. Returns response text."""
+    if not args:
+        return "Usage: /ai <id>"
+    try:
+        signal_id = int(args)
+    except ValueError:
+        return "Usage: /ai <id>"
+
+    if not api_key:
+        return "AI analysis unavailable: API key not configured"
+
+    from tinvest_trader.services.signal_ai_analysis import (
+        analyze_signal,
+        format_ai_response,
+    )
+
+    signal = repository.get_signal_prediction(signal_id)
+    if signal is None:
+        return f"Signal #{signal_id} not found"
+
+    model = ai_model or "claude-sonnet-4-20250514"
+    result = analyze_signal(
+        signal, api_key,
+        repository=repository,
+        logger=logger,
+        model=model,
+        proxy_host=proxy_host,
+        proxy_port=proxy_port,
+        proxy_user=proxy_user,
+        proxy_pass=proxy_pass,
+    )
+
+    if result.error:
+        return "AI analysis unavailable right now"
+
+    ticker = signal.get("ticker", "???")
+    reply = format_ai_response(ticker, result.analysis_text)
+    if result.cached:
+        reply += "\n(cached)"
+    return reply
