@@ -92,15 +92,16 @@ def build_signal_context(
 _SYSTEM_PROMPT = """\
 You are a trading signal analyst. Analyze the signal context provided.
 Be concise. Use plain text, no markdown. Keep total response under 800 chars.
+Respond in Russian.
 
 Output EXACTLY this format:
 
-Summary: <1-2 sentences>
-Bull: <1 sentence>
-Bear: <1 sentence>
-Risks: <1 sentence>
-Actionability: <1 sentence>
-AI confidence: <LOW or MEDIUM or HIGH>"""
+Итог: <1-2 предложения>
+Быки: <1 предложение>
+Медведи: <1 предложение>
+Риски: <1 предложение>
+Применимость: <1 предложение>
+Уверенность ИИ: <НИЗКАЯ or СРЕДНЯЯ or ВЫСОКАЯ>"""
 
 
 def build_ai_prompt(context: dict) -> str:
