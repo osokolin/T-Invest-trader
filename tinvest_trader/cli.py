@@ -865,12 +865,21 @@ def _run_send_test_signal(
     print(f"severity: {severity.level}")
     print(f"message:\n{text}\n")
 
+    import json as _json
+
+    keyboard = _json.dumps({
+        "inline_keyboard": [[
+            {"text": "\U0001f50d AI", "callback_data": "ai:signal:0"},
+        ]],
+    })
+
     sent = send_telegram_message(
         cfg.bot_token, cfg.chat_id, text,
         proxy_host=cfg.proxy_host,
         proxy_port=cfg.proxy_port,
         proxy_user=cfg.proxy_user,
         proxy_pass=cfg.proxy_pass,
+        reply_markup=keyboard,
     )
     if sent:
         print("sent: ok")
