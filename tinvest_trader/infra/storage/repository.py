@@ -1108,6 +1108,30 @@ class TradingRepository:
             )
             return False
 
+    def get_ai_snapshot(self, signal_id: int) -> dict | None:
+        """Fetch AI structured fields for a signal (lightweight, no text)."""
+        sql = """
+            SELECT ai_confidence, ai_actionability
+            FROM signal_ai_analyses
+            WHERE signal_id = %s
+              AND ai_confidence IS NOT NULL
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                row = conn.execute(sql, (signal_id,)).fetchone()
+        except Exception:
+            self._logger.exception(
+                "failed to fetch ai snapshot",
+                extra={"component": "postgres", "signal_id": signal_id},
+            )
+            return None
+        if row is None:
+            return None
+        return {
+            "ai_confidence": row[0],
+            "ai_actionability": row[1],
+        }
+
     def get_ai_divergence_stats(self) -> dict:
         """Get aggregate AI divergence stats."""
         sql = """

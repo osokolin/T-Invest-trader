@@ -206,3 +206,71 @@ def format_enriched_signal_message(
         lines.append("Passed: " + " | ".join(shown))
 
     return "\n".join(lines)
+
+
+# -- AI agreement snapshot --
+
+AGREE = "AGREE"
+PARTIAL = "PARTIAL"
+DISAGREE = "DISAGREE"
+NOT_ANALYZED = "NOT_ANALYZED"
+
+_AGREEMENT_EMOJI = {
+    AGREE: "\u2705",       # check mark
+    PARTIAL: "\u2696\ufe0f",  # balance scale
+    DISAGREE: "\u26a0\ufe0f",  # warning
+    NOT_ANALYZED: "\u2139\ufe0f",  # info
+}
+
+# Map severity/confidence labels to a 3-level rank for comparison
+_LEVEL_RANK = {"HIGH": 2, "MEDIUM": 1, "LOW": 0}
+
+
+def classify_agreement(
+    system_severity: str,
+    ai_confidence: str,
+) -> str:
+    """Classify agreement between system severity and AI confidence.
+
+    Returns AGREE / PARTIAL / DISAGREE / NOT_ANALYZED.
+    Deterministic, no side effects.
+    """
+    if not system_severity or not ai_confidence:
+        return NOT_ANALYZED
+    sys_rank = _LEVEL_RANK.get(system_severity.upper(), -1)
+    ai_rank = _LEVEL_RANK.get(ai_confidence.upper(), -1)
+
+    if sys_rank < 0 or ai_rank < 0:
+        return NOT_ANALYZED
+
+    diff = abs(sys_rank - ai_rank)
+    if diff == 0:
+        return AGREE
+    if diff == 1:
+        return PARTIAL
+    return DISAGREE
+
+
+def format_ai_snapshot(
+    ai_snapshot: dict | None,
+    system_severity: str,
+) -> str:
+    """Format a compact AI snapshot block for the signal message.
+
+    Returns 1-2 lines to append. Uses cached data only, never calls AI.
+    """
+    if ai_snapshot is None:
+        emoji = _AGREEMENT_EMOJI[NOT_ANALYZED]
+        return f"{emoji} AI: not analyzed yet"
+
+    confidence = ai_snapshot.get("ai_confidence", "UNKNOWN")
+    actionability = ai_snapshot.get("ai_actionability", "UNKNOWN")
+
+    if not confidence or confidence == "UNKNOWN":
+        emoji = _AGREEMENT_EMOJI[NOT_ANALYZED]
+        return f"{emoji} AI: not analyzed yet"
+
+    agreement = classify_agreement(system_severity, confidence)
+    agr_emoji = _AGREEMENT_EMOJI.get(agreement, "")
+
+    return f"AI: {confidence} / {actionability}\n{agr_emoji} Agreement: {agreement}"

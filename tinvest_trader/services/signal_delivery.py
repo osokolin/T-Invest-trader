@@ -219,6 +219,7 @@ def deliver_signal(
     from tinvest_trader.services.signal_severity import (
         SeverityConfig,
         classify_signal_severity,
+        format_ai_snapshot,
         format_enriched_signal_message,
     )
 
@@ -248,6 +249,15 @@ def deliver_signal(
         ticker_stats=ticker_stats,
         type_stats=type_stats,
     )
+
+    # Append AI agreement snapshot (cached only, never triggers AI)
+    import contextlib
+
+    ai_snapshot: dict | None = None
+    if repository is not None:
+        with contextlib.suppress(Exception):
+            ai_snapshot = repository.get_ai_snapshot(signal_id)
+    text += "\n" + format_ai_snapshot(ai_snapshot, severity.level)
 
     # Inline keyboard with action buttons
     import json as _json
