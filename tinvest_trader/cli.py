@@ -214,6 +214,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show signal pipeline funnel and divergence analysis",
     )
 
+    # -- test-ai-analysis --
+    ai_parser = subparsers.add_parser(
+        "test-ai-analysis",
+        help="Run AI analysis for a signal (by signal_id)",
+    )
+    ai_parser.add_argument(
+        "signal_id", type=int, help="Signal prediction ID",
+    )
+
     # -- sync-quotes --
     sync_quotes_parser = subparsers.add_parser(
         "sync-quotes",
@@ -322,6 +331,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         if args.command == "signal-divergence-report":
             return _run_signal_divergence_report(container)
+        if args.command == "test-ai-analysis":
+            return _run_test_ai_analysis(
+                config, container, signal_id=args.signal_id,
+            )
     finally:
         _close_container(container)
 
@@ -978,6 +991,54 @@ def _run_signal_divergence_report(container: Container) -> int:
 
     report = build_divergence_report(repository)
     print(format_divergence_report(report))
+    return 0
+
+
+def _run_test_ai_analysis(
+    config: AppConfig,
+    container: Container,
+    *,
+    signal_id: int,
+) -> int:
+    cfg = config.signal_delivery
+    if not cfg.anthropic_api_key:
+        print("TINVEST_ANTHROPIC_API_KEY must be set")
+        return 1
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    signal = repository.get_signal_prediction(signal_id)
+    if signal is None:
+        print(f"signal #{signal_id} not found")
+        return 1
+
+    from tinvest_trader.services.signal_ai_analysis import (
+        analyze_signal,
+        format_ai_response,
+    )
+
+    result = analyze_signal(
+        signal, cfg.anthropic_api_key,
+        repository=repository,
+        logger=container.logger,
+        model=cfg.ai_model,
+        proxy_host=cfg.proxy_host,
+        proxy_port=cfg.proxy_port,
+        proxy_user=cfg.proxy_user,
+        proxy_pass=cfg.proxy_pass,
+    )
+
+    if result.error:
+        print(f"error: {result.error}")
+        return 1
+
+    ticker = signal.get("ticker", "???")
+    print(f"model: {result.model}")
+    print(f"cached: {result.cached}")
+    print()
+    print(format_ai_response(ticker, result.analysis_text))
     return 0
 
 

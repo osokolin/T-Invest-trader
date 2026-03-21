@@ -971,6 +971,99 @@ class TradingRepository:
             for r in rows
         ]
 
+    # -- Signal lookup (single prediction) --
+
+    def get_signal_prediction(self, prediction_id: int) -> dict | None:
+        """Fetch a single signal prediction by id."""
+        sql = """
+            SELECT id, ticker, signal_type, confidence, source,
+                   price_at_signal, created_at, source_channel,
+                   return_pct, outcome_label
+            FROM signal_predictions
+            WHERE id = %s
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                row = conn.execute(sql, (prediction_id,)).fetchone()
+        except Exception:
+            self._logger.exception(
+                "failed to fetch signal prediction",
+                extra={
+                    "component": "postgres",
+                    "prediction_id": prediction_id,
+                },
+            )
+            return None
+        if row is None:
+            return None
+        return {
+            "id": row[0],
+            "ticker": row[1],
+            "signal_type": row[2],
+            "confidence": float(row[3]) if row[3] is not None else None,
+            "source": row[4],
+            "price_at_signal": float(row[5]) if row[5] is not None else None,
+            "created_at": row[6],
+            "source_channel": row[7],
+            "return_pct": float(row[8]) if row[8] is not None else None,
+            "outcome_label": row[9],
+        }
+
+    # -- AI analysis cache --
+
+    def get_cached_ai_analysis(self, signal_id: int) -> dict | None:
+        """Fetch cached AI analysis for a signal."""
+        sql = """
+            SELECT analysis_text, model, created_at
+            FROM signal_ai_analyses
+            WHERE signal_id = %s
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                row = conn.execute(sql, (signal_id,)).fetchone()
+        except Exception:
+            self._logger.exception(
+                "failed to fetch ai analysis cache",
+                extra={
+                    "component": "postgres",
+                    "signal_id": signal_id,
+                },
+            )
+            return None
+        if row is None:
+            return None
+        return {
+            "analysis_text": row[0],
+            "model": row[1],
+            "created_at": row[2],
+        }
+
+    def insert_ai_analysis(
+        self,
+        signal_id: int,
+        analysis_text: str,
+        model: str,
+    ) -> bool:
+        """Insert or ignore AI analysis cache entry."""
+        sql = """
+            INSERT INTO signal_ai_analyses (signal_id, analysis_text, model)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (signal_id) DO NOTHING
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                conn.execute(sql, (signal_id, analysis_text, model))
+            return True
+        except Exception:
+            self._logger.exception(
+                "failed to insert ai analysis",
+                extra={
+                    "component": "postgres",
+                    "signal_id": signal_id,
+                },
+            )
+            return False
+
     # -- Market quotes (T-Bank last prices) --
 
     def insert_market_quote(

@@ -166,6 +166,9 @@ class SignalDeliveryConfig:
     max_per_cycle: int = 0
     high_confidence_threshold: float = 0.6
     high_ev_threshold: float = 0.02
+    anthropic_api_key: str = ""
+    ai_model: str = "claude-sonnet-4-20250514"
+    callback_poll_interval_seconds: int = 5
 
 
 @dataclass(frozen=True)
@@ -512,6 +515,17 @@ def load_config() -> AppConfig:
             ),
             high_ev_threshold=float(
                 os.environ.get("TINVEST_SIGNAL_HIGH_EV_THRESHOLD", "0.02"),
+            ),
+            anthropic_api_key=os.environ.get(
+                "TINVEST_ANTHROPIC_API_KEY", "",
+            ),
+            ai_model=os.environ.get(
+                "TINVEST_AI_MODEL", "claude-sonnet-4-20250514",
+            ),
+            callback_poll_interval_seconds=int(
+                os.environ.get(
+                    "TINVEST_CALLBACK_POLL_INTERVAL_SECONDS", "5",
+                ),
             ),
         ),
         moex=MoexConfig(

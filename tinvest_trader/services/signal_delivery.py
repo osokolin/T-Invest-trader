@@ -124,16 +124,25 @@ def send_telegram_message(
     proxy_port: int = 0,
     proxy_user: str = "",
     proxy_pass: str = "",
+    reply_markup: str = "",
 ) -> bool:
     """Send a message via Telegram Bot API. Returns True on success."""
+    import json as _json
+
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    data = urllib.parse.urlencode({
+    payload: dict = {
         "chat_id": chat_id,
         "text": text,
-        "disable_web_page_preview": "true",
-    }).encode("utf-8")
+        "disable_web_page_preview": True,
+    }
+    if reply_markup:
+        payload["reply_markup"] = _json.loads(reply_markup)
 
-    req = urllib.request.Request(url, data=data, method="POST")
+    data = _json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=data, method="POST",
+        headers={"Content-Type": "application/json"},
+    )
     try:
         if proxy_host and proxy_port:
             opener = _build_socks5_opener(
@@ -240,10 +249,20 @@ def deliver_signal(
         type_stats=type_stats,
     )
 
+    # Inline keyboard with AI analysis button
+    import json as _json
+
+    keyboard = _json.dumps({
+        "inline_keyboard": [[
+            {"text": "\U0001f50d AI", "callback_data": f"ai:signal:{signal_id}"},
+        ]],
+    })
+
     sent = send_telegram_message(
         bot_token, chat_id, text,
         proxy_host=proxy_host, proxy_port=proxy_port,
         proxy_user=proxy_user, proxy_pass=proxy_pass,
+        reply_markup=keyboard,
     )
 
     if not sent:

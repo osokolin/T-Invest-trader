@@ -128,6 +128,9 @@ class Container:
         # Signal delivery callable (used by background runner and CLI)
         self._signal_delivery_fn = self._build_signal_delivery_fn()
 
+        # Callback handler callable (used by background runner)
+        self._callback_handler_fn = self._build_callback_handler_fn()
+
         # Background runner (optional, disabled by default)
         if self.config.background.enabled:
             self._wire_background_runner()
@@ -445,6 +448,42 @@ class Container:
         )
         return _deliver
 
+    def _build_callback_handler_fn(self):
+        """Build a callable for Telegram callback polling."""
+        cfg = self.config.signal_delivery
+        if not cfg.enabled or not cfg.bot_token or not cfg.chat_id:
+            return None
+        if self.repository is None:
+            return None
+
+        from tinvest_trader.services.telegram_bot_handler import (
+            poll_and_handle_callbacks,
+        )
+
+        state = {"last_update_id": 0}
+
+        def _poll():
+            state["last_update_id"] = poll_and_handle_callbacks(
+                bot_token=cfg.bot_token,
+                chat_id=cfg.chat_id,
+                repository=self.repository,
+                logger=self.logger,
+                api_key=cfg.anthropic_api_key,
+                ai_model=cfg.ai_model,
+                proxy_host=cfg.proxy_host,
+                proxy_port=cfg.proxy_port,
+                proxy_user=cfg.proxy_user,
+                proxy_pass=cfg.proxy_pass,
+                last_update_id=state["last_update_id"],
+            )
+
+        if cfg.anthropic_api_key:
+            self.logger.info(
+                "callback handler initialized",
+                extra={"component": "bot_handler"},
+            )
+        return _poll
+
     def _wire_background_runner(self) -> None:
         """Wire background runner when enabled."""
         self.background_runner = BackgroundRunner(
@@ -464,6 +503,7 @@ class Container:
             moex_interval_seconds=self.config.moex.poll_interval_seconds,
             signal_delivery_config=self.config.signal_delivery,
             signal_delivery_fn=self._signal_delivery_fn,
+            callback_handler_fn=self._callback_handler_fn,
         )
 
         self.logger.info(
