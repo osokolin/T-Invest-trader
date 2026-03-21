@@ -16,6 +16,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("status", help="Show operational status")
     subparsers.add_parser("ingest-sentiment", help="Run sentiment ingestion once")
+
+    ingest_tg_parser = subparsers.add_parser(
+        "ingest-telegram",
+        help="One-shot Telegram ingestion with detailed stats",
+    )
+    ingest_tg_parser.add_argument(
+        "--limit-per-source", type=int, default=0,
+        help="Override fetch limit per source (0 = use config default)",
+    )
+
+    subparsers.add_parser(
+        "telegram-sources",
+        help="List configured Telegram source channels",
+    )
+    subparsers.add_parser(
+        "telegram-ingest-status",
+        help="Show per-channel Telegram ingestion status",
+    )
     subparsers.add_parser("observe", help="Run observation aggregation once")
     subparsers.add_parser("db-summary", help="Show operational database counts")
     subparsers.add_parser("list-instruments", help="List all instruments in DB")
@@ -164,6 +182,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_status(config, container)
         if args.command == "ingest-sentiment":
             return _run_ingest_sentiment(config, container)
+        if args.command == "ingest-telegram":
+            return _run_ingest_telegram(config, container)
+        if args.command == "telegram-sources":
+            return _run_telegram_sources(config)
+        if args.command == "telegram-ingest-status":
+            return _run_telegram_ingest_status(container)
         if args.command == "observe":
             return _run_observe(container)
         if args.command == "db-summary":
@@ -247,6 +271,61 @@ def _run_ingest_sentiment(config: AppConfig, container: Container) -> int:
 
     processed = service.ingest_all_channels(config.sentiment.channels)
     print(f"sentiment_processed: {processed}")
+    return 0
+
+
+def _run_ingest_telegram(config: AppConfig, container: Container) -> int:
+    service = container.telegram_sentiment_service
+    if service is None:
+        print("sentiment pipeline is disabled")
+        return 0
+
+    result = service.ingest_all_channels_detailed(config.sentiment.channels)
+    print(f"sources_processed: {result.sources_processed}")
+    print(f"messages_fetched: {result.messages_fetched}")
+    print(f"inserted: {result.inserted}")
+    print(f"hard_duplicates: {result.hard_duplicates}")
+    print(f"soft_duplicates: {result.soft_duplicates}")
+    print(f"failed_sources: {len(result.failed_sources)}")
+    if result.failed_sources:
+        for src in result.failed_sources:
+            print(f"  failed: {src}")
+    return 0
+
+
+def _run_telegram_sources(config: AppConfig) -> int:
+    channels = config.sentiment.channels
+    if not channels:
+        print("no telegram channels configured")
+        return 0
+
+    print(f"configured channels ({len(channels)}):")
+    for ch in channels:
+        print(f"  {ch}")
+    print(f"backend: {config.sentiment.source_backend}")
+    print(f"poll_limit: {config.sentiment.telethon_poll_limit}")
+    return 0
+
+
+def _run_telegram_ingest_status(container: Container) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    statuses = repository.get_telegram_ingest_status()
+    if not statuses:
+        print("no telegram messages ingested yet")
+        return 0
+
+    print(f"{'CHANNEL':<20} {'MESSAGES':>10} {'LATEST PUBLISHED':<28} {'MAX MSG ID':>12}")
+    for s in statuses:
+        pub = str(s["latest_published"] or "n/a")[:25]
+        mid = str(s["max_message_id"] or "n/a")
+        print(
+            f"{s['channel']:<20} {s['total_messages']:>10} "
+            f"{pub:<28} {mid:>12}",
+        )
     return 0
 
 

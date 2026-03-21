@@ -131,10 +131,16 @@ CREATE TABLE IF NOT EXISTS telegram_messages_raw (
     message_text    TEXT NOT NULL,
     source_payload  JSONB,
     recorded_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    normalized_text TEXT,
+    dedup_hash      TEXT,
     UNIQUE (channel_name, message_id)
 );
 CREATE INDEX IF NOT EXISTS idx_telegram_raw_channel_time
     ON telegram_messages_raw (channel_name, published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_telegram_raw_channel_msgid
+    ON telegram_messages_raw (channel_name, message_id DESC);
+CREATE INDEX IF NOT EXISTS idx_telegram_raw_dedup_hash
+    ON telegram_messages_raw (dedup_hash) WHERE dedup_hash IS NOT NULL;
 
 -- Ticker mentions extracted from messages
 CREATE TABLE IF NOT EXISTS telegram_message_mentions (

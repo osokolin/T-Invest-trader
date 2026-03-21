@@ -11,7 +11,11 @@ from tinvest_trader.sentiment.models import TelegramMessage
 class MessageSource(Protocol):
     """Protocol for fetching messages from a channel."""
 
-    def fetch_recent_messages(self, channel_name: str) -> list[TelegramMessage]: ...
+    def fetch_recent_messages(
+        self,
+        channel_name: str,
+        min_id: int | None = None,
+    ) -> list[TelegramMessage]: ...
 
 
 class StubMessageSource:
@@ -20,7 +24,11 @@ class StubMessageSource:
     def __init__(self, messages: list[TelegramMessage] | None = None) -> None:
         self._messages = messages
 
-    def fetch_recent_messages(self, channel_name: str) -> list[TelegramMessage]:
+    def fetch_recent_messages(
+        self,
+        channel_name: str,
+        min_id: int | None = None,
+    ) -> list[TelegramMessage]:
         if self._messages is not None:
             return self._messages
         now = datetime.now(tz=UTC)

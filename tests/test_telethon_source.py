@@ -62,7 +62,7 @@ def test_fetch_recent_messages_normalizes_channel_and_maps_messages(monkeypatch)
         SimpleNamespace(id=1002, message="", date=datetime(2026, 3, 18, 12, 5, tzinfo=UTC)),
     ]
 
-    async def fake_fetch(channel_name: str):
+    async def fake_fetch(channel_name: str, min_id: int | None = None):
         captured["channel_name"] = channel_name
         return [source._map_message(channel_name, item) for item in raw_messages if item.message]
 
@@ -85,7 +85,7 @@ def test_fetch_recent_messages_raises_runtime_error_on_failure(monkeypatch):
         session_path="/tmp/test.session",
     )
 
-    async def fake_fetch(channel_name: str):
+    async def fake_fetch(channel_name: str, min_id: int | None = None):
         raise RuntimeError(f"boom: {channel_name}")
 
     monkeypatch.setattr(source, "_fetch_recent_messages_async", fake_fetch)

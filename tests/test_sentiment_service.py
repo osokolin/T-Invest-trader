@@ -12,6 +12,20 @@ from tinvest_trader.sentiment.source import StubMessageSource
 from tinvest_trader.services.telegram_sentiment_service import TelegramSentimentService
 
 
+def _make_repo(**overrides: object) -> MagicMock:
+    repo = MagicMock()
+    repo.insert_telegram_message_raw.return_value = overrides.get(
+        "insert_raw", True,
+    )
+    repo.check_dedup_hash_exists.return_value = overrides.get(
+        "dedup_exists", False,
+    )
+    repo.get_latest_message_id_by_channel.return_value = overrides.get(
+        "latest_msg_id",
+    )
+    return repo
+
+
 def _make_service(
     messages: list[TelegramMessage] | None = None,
     tracked_tickers: frozenset[str] | None = None,
@@ -24,8 +38,7 @@ def _make_service(
         tracked_tickers=tracked_tickers or frozenset(),
     )
     if repository is None:
-        repository = MagicMock()
-        repository.insert_telegram_message_raw.return_value = True
+        repository = _make_repo()
     return TelegramSentimentService(
         source=source,
         parser_fn=extract_tickers,
@@ -33,6 +46,7 @@ def _make_service(
         scorer=scorer,
         repository=repository,
         logger=logging.getLogger("test"),
+        channel_pacing_seconds=0.0,
     )
 
 
@@ -45,16 +59,16 @@ def _msg(message_id: str, text: str) -> TelegramMessage:
     )
 
 
-def test_ingest_channel_returns_count():
+def test_ingest_channel_returns_result():
     messages = [_msg("1", "#SBER рост"), _msg("2", "#GAZP падение")]
     svc = _make_service(messages=messages)
-    count = svc.ingest_channel("TestChannel")
-    assert count == 2
+    result = svc.ingest_channel("TestChannel")
+    assert result.inserted == 2
+    assert result.sources_processed == 1
 
 
 def test_ingest_stores_raw_messages():
-    repo = MagicMock()
-    repo.insert_telegram_message_raw.return_value = True
+    repo = _make_repo()
     messages = [_msg("1", "#SBER рост")]
     svc = _make_service(messages=messages, repository=repo)
     svc.ingest_channel("TestChannel")
@@ -62,8 +76,7 @@ def test_ingest_stores_raw_messages():
 
 
 def test_ingest_stores_mentions():
-    repo = MagicMock()
-    repo.insert_telegram_message_raw.return_value = True
+    repo = _make_repo()
     messages = [_msg("1", "#SBER рост")]
     svc = _make_service(messages=messages, repository=repo)
     svc.ingest_channel("TestChannel")
@@ -71,8 +84,7 @@ def test_ingest_stores_mentions():
 
 
 def test_ingest_stores_sentiment():
-    repo = MagicMock()
-    repo.insert_telegram_message_raw.return_value = True
+    repo = _make_repo()
     messages = [_msg("1", "#SBER рост")]
     svc = _make_service(messages=messages, repository=repo)
     svc.ingest_channel("TestChannel")
@@ -80,19 +92,18 @@ def test_ingest_stores_sentiment():
 
 
 def test_ingest_skips_duplicate_messages():
-    repo = MagicMock()
-    repo.insert_telegram_message_raw.return_value = False  # duplicate
+    repo = _make_repo(insert_raw=False)
     messages = [_msg("1", "#SBER рост")]
     svc = _make_service(messages=messages, repository=repo)
-    count = svc.ingest_channel("TestChannel")
-    assert count == 0
+    result = svc.ingest_channel("TestChannel")
+    assert result.hard_duplicates == 1
+    assert result.inserted == 0
     repo.insert_telegram_message_mention.assert_not_called()
     repo.insert_telegram_sentiment_event.assert_not_called()
 
 
 def test_ingest_filters_by_tracked_tickers():
-    repo = MagicMock()
-    repo.insert_telegram_message_raw.return_value = True
+    repo = _make_repo()
     messages = [_msg("1", "#SBER рост и #UNKNOWN тоже")]
     svc = _make_service(
         messages=messages,
@@ -106,12 +117,11 @@ def test_ingest_filters_by_tracked_tickers():
 
 
 def test_ingest_no_tickers_still_stores_raw():
-    repo = MagicMock()
-    repo.insert_telegram_message_raw.return_value = True
+    repo = _make_repo()
     messages = [_msg("1", "Рынок без изменений")]
     svc = _make_service(messages=messages, repository=repo)
-    count = svc.ingest_channel("TestChannel")
-    assert count == 1
+    result = svc.ingest_channel("TestChannel")
+    assert result.inserted == 1
     repo.insert_telegram_message_raw.assert_called_once()
     repo.insert_telegram_message_mention.assert_not_called()
 
@@ -132,15 +142,15 @@ def test_ingest_works_without_repository():
         repository=None,
         logger=logging.getLogger("test"),
     )
-    count = svc.ingest_channel("TestChannel")
-    assert count == 1
+    result = svc.ingest_channel("TestChannel")
+    assert result.inserted == 1
 
 
 def test_ingest_survives_repository_failure():
-    repo = MagicMock()
+    repo = _make_repo()
     repo.insert_telegram_message_raw.side_effect = RuntimeError("db down")
     messages = [_msg("1", "#SBER рост")]
     svc = _make_service(messages=messages, repository=repo)
-    count = svc.ingest_channel("TestChannel")
-    # Should not crash, processes the message
-    assert count == 1
+    result = svc.ingest_channel("TestChannel")
+    # Should not crash -- _store_raw catches exceptions and returns True
+    assert result.inserted == 1
