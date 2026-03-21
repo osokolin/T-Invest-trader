@@ -1213,6 +1213,124 @@ class TradingRepository:
             for row in rows
         ]
 
+    # -- AI shadow gating --
+
+    def update_signal_ai_gate(
+        self,
+        signal_id: int,
+        decision: str,
+        reason: str,
+    ) -> bool:
+        """Persist shadow AI gating decision on a signal prediction."""
+        sql = """
+            UPDATE signal_predictions
+            SET ai_gate_decision = %s,
+                ai_gate_reason = %s
+            WHERE id = %s
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                conn.execute(sql, (decision, reason, signal_id))
+            return True
+        except Exception:
+            self._logger.exception(
+                "failed to update ai gate decision",
+                extra={
+                    "component": "postgres",
+                    "signal_id": signal_id,
+                },
+            )
+            return False
+
+    def get_ai_gating_stats(self) -> dict:
+        """Get aggregate AI gating decision counts."""
+        sql = """
+            SELECT
+                COUNT(*) AS total_signals,
+                COUNT(ai_gate_decision) AS total_with_gate,
+                COUNT(*) FILTER (WHERE ai_gate_decision = 'BLOCK') AS blocked,
+                COUNT(*) FILTER (WHERE ai_gate_decision = 'CAUTION') AS caution,
+                COUNT(*) FILTER (WHERE ai_gate_decision = 'ALLOW') AS allow
+            FROM signal_predictions
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                row = conn.execute(sql).fetchone()
+        except Exception:
+            self._logger.exception(
+                "failed to fetch ai gating stats",
+                extra={"component": "postgres"},
+            )
+            return {}
+        if row is None:
+            return {}
+        return {
+            "total_signals": row[0],
+            "total_with_gate": row[1],
+            "blocked": row[2],
+            "caution": row[3],
+            "allow": row[4],
+        }
+
+    def get_ai_gating_performance(self) -> dict:
+        """Get outcome stats for baseline, AI-filtered, and blocked groups."""
+        sql = """
+            SELECT
+                'baseline' AS group_label,
+                COUNT(*) AS total,
+                COUNT(outcome_label) AS resolved,
+                COUNT(*) FILTER (WHERE outcome_label = 'win') AS wins,
+                COUNT(*) FILTER (WHERE outcome_label = 'loss') AS losses,
+                COUNT(*) FILTER (WHERE outcome_label = 'neutral') AS neutrals,
+                AVG(return_pct) FILTER (WHERE outcome_label IS NOT NULL)
+                    AS avg_return
+            FROM signal_predictions
+            WHERE ai_gate_decision IS NOT NULL
+            UNION ALL
+            SELECT
+                'ai_filtered',
+                COUNT(*),
+                COUNT(outcome_label),
+                COUNT(*) FILTER (WHERE outcome_label = 'win'),
+                COUNT(*) FILTER (WHERE outcome_label = 'loss'),
+                COUNT(*) FILTER (WHERE outcome_label = 'neutral'),
+                AVG(return_pct) FILTER (WHERE outcome_label IS NOT NULL)
+            FROM signal_predictions
+            WHERE ai_gate_decision IS NOT NULL
+              AND ai_gate_decision != 'BLOCK'
+            UNION ALL
+            SELECT
+                'blocked',
+                COUNT(*),
+                COUNT(outcome_label),
+                COUNT(*) FILTER (WHERE outcome_label = 'win'),
+                COUNT(*) FILTER (WHERE outcome_label = 'loss'),
+                COUNT(*) FILTER (WHERE outcome_label = 'neutral'),
+                AVG(return_pct) FILTER (WHERE outcome_label IS NOT NULL)
+            FROM signal_predictions
+            WHERE ai_gate_decision = 'BLOCK'
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                rows = conn.execute(sql).fetchall()
+        except Exception:
+            self._logger.exception(
+                "failed to fetch ai gating performance",
+                extra={"component": "postgres"},
+            )
+            return {}
+        result: dict = {}
+        for row in rows:
+            result[row[0]] = {
+                "total": row[1],
+                "resolved": row[2],
+                "wins": row[3],
+                "losses": row[4],
+                "neutrals": row[5],
+                "avg_return": float(row[6]) if row[6] is not None else None,
+            }
+        return result
+
     # -- Market quotes (T-Bank last prices) --
 
     def insert_market_quote(

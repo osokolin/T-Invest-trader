@@ -351,6 +351,14 @@ def _persist_structured_fields(
             divergence_bucket=bucket,
         )
 
+        # Shadow gating decision (measurement only, never affects execution)
+        from tinvest_trader.services.ai_gating import decide_ai_gate
+
+        gate = decide_ai_gate(ai_confidence, ai_actionability, bucket)
+        repository.update_signal_ai_gate(
+            signal_id, gate.decision, gate.reason,
+        )
+
         if logger:
             logger.info(
                 "ai divergence tracked",
@@ -360,6 +368,7 @@ def _persist_structured_fields(
                     "system_severity": system_severity,
                     "ai_confidence": ai_confidence,
                     "bucket": bucket,
+                    "ai_gate": gate.decision,
                 },
             )
     except Exception:
