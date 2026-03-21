@@ -14,6 +14,7 @@ dependencies = [
 [project.optional-dependencies]
 telegram = [
     "telethon>=1.36",
+    "pysocks>=1.7",
 ]
 dev = [
     "pytest>=8.0",

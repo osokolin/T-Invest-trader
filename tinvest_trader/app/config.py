@@ -45,6 +45,11 @@ class SentimentConfig:
     telethon_session_path: str = ""
     telethon_poll_limit: int = 50
     telethon_request_timeout_sec: float | None = None
+    telethon_proxy_type: str = ""
+    telethon_proxy_host: str = ""
+    telethon_proxy_port: int = 0
+    telethon_proxy_user: str = ""
+    telethon_proxy_pass: str = ""
 
 
 @dataclass(frozen=True)
@@ -358,6 +363,21 @@ def load_config() -> AppConfig:
                 float(os.environ["TINVEST_SENTIMENT_TELETHON_TIMEOUT_SEC"])
                 if os.environ.get("TINVEST_SENTIMENT_TELETHON_TIMEOUT_SEC", "").strip()
                 else None
+            ),
+            telethon_proxy_type=os.environ.get(
+                "TINVEST_SENTIMENT_TELETHON_PROXY_TYPE", "",
+            ),
+            telethon_proxy_host=os.environ.get(
+                "TINVEST_SENTIMENT_TELETHON_PROXY_HOST", "",
+            ),
+            telethon_proxy_port=int(
+                os.environ.get("TINVEST_SENTIMENT_TELETHON_PROXY_PORT", "0"),
+            ),
+            telethon_proxy_user=os.environ.get(
+                "TINVEST_SENTIMENT_TELETHON_PROXY_USER", "",
+            ),
+            telethon_proxy_pass=os.environ.get(
+                "TINVEST_SENTIMENT_TELETHON_PROXY_PASS", "",
             ),
         ),
         fusion=FusionConfig(

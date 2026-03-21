@@ -34,12 +34,23 @@ def build_telethon_message_source(config: SentimentConfig) -> TelethonMessageSou
             "telethon backend requires: " + ", ".join(missing),
         )
 
+    proxy = None
+    if config.telethon_proxy_type and config.telethon_proxy_host:
+        proxy = (
+            config.telethon_proxy_type,
+            config.telethon_proxy_host,
+            config.telethon_proxy_port,
+            config.telethon_proxy_user or None,
+            config.telethon_proxy_pass or None,
+        )
+
     return TelethonMessageSource(
         api_id=config.telethon_api_id,
         api_hash=config.telethon_api_hash,
         session_path=config.telethon_session_path,
         poll_limit=config.telethon_poll_limit,
         request_timeout_sec=config.telethon_request_timeout_sec,
+        proxy=proxy,
     )
 
 
@@ -69,12 +80,14 @@ class TelethonMessageSource(MessageSource):
         session_path: str,
         poll_limit: int = 50,
         request_timeout_sec: float | None = None,
+        proxy: tuple | None = None,
     ) -> None:
         self._api_id = api_id
         self._api_hash = api_hash
         self._session_path = session_path
         self._poll_limit = poll_limit
         self._request_timeout_sec = request_timeout_sec
+        self._proxy = proxy
 
     def fetch_recent_messages(self, channel_name: str) -> list[TelegramMessage]:
         normalized = normalize_channel_identifier(channel_name)
@@ -123,10 +136,24 @@ class TelethonMessageSource(MessageSource):
                 "telethon backend requires the 'telethon' package to be installed",
             ) from exc
 
+        kwargs = {}
+        if self._proxy is not None:
+            import socks
+            proxy_type_map = {
+                "socks5": socks.SOCKS5,
+                "socks4": socks.SOCKS4,
+                "http": socks.HTTP,
+            }
+            ptype, phost, pport, puser, ppass = self._proxy
+            stype = proxy_type_map.get(ptype.lower())
+            if stype is not None:
+                kwargs["proxy"] = (stype, phost, pport, True, puser, ppass)
+
         return TelegramClient(
             self._session_path,
             self._api_id,
             self._api_hash,
+            **kwargs,
         )
 
     async def _run_with_timeout(self, awaitable: object) -> object:
