@@ -490,6 +490,15 @@ ALTER TABLE signal_predictions ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
 CREATE INDEX IF NOT EXISTS idx_signal_predictions_pipeline_stage
     ON signal_predictions (pipeline_stage) WHERE pipeline_stage IS NOT NULL;
 
+-- AI shadow gating columns (nullable for backward compatibility).
+-- ai_gate_decision: ALLOW, CAUTION, BLOCK (shadow-mode only, never affects execution)
+-- ai_gate_reason: short explanation of the gating decision
+ALTER TABLE signal_predictions ADD COLUMN IF NOT EXISTS ai_gate_decision TEXT;
+ALTER TABLE signal_predictions ADD COLUMN IF NOT EXISTS ai_gate_reason TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_signal_predictions_ai_gate
+    ON signal_predictions (ai_gate_decision) WHERE ai_gate_decision IS NOT NULL;
+
 -- AI analysis cache (one analysis per signal, avoids duplicate API calls).
 CREATE TABLE IF NOT EXISTS signal_ai_analyses (
     id          BIGSERIAL PRIMARY KEY,

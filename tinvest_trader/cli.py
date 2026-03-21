@@ -224,6 +224,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Min resolved signals per bucket to include (default 0)",
     )
 
+    # -- ai-gating-report --
+    subparsers.add_parser(
+        "ai-gating-report",
+        help="Show AI shadow-mode gating comparison report",
+    )
+
     # -- test-ai-analysis --
     ai_parser = subparsers.add_parser(
         "test-ai-analysis",
@@ -345,6 +351,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_ai_divergence_report(
                 container, min_resolved=args.min_resolved,
             )
+        if args.command == "ai-gating-report":
+            return _run_ai_gating_report(container)
         if args.command == "test-ai-analysis":
             return _run_test_ai_analysis(
                 config, container, signal_id=args.signal_id,
@@ -1036,6 +1044,22 @@ def _run_ai_divergence_report(
         repository, min_resolved=min_resolved,
     )
     print(format_ai_divergence_report(report))
+    return 0
+
+
+def _run_ai_gating_report(container: Container) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.ai_gating_report import (
+        build_ai_gating_report,
+        format_ai_gating_report,
+    )
+
+    report = build_ai_gating_report(repository)
+    print(format_ai_gating_report(report))
     return 0
 
 
