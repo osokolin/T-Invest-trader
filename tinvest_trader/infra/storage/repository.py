@@ -786,6 +786,144 @@ class TradingRepository:
             for r in rows
         ]
 
+    # -- Source-aware weighting (shadow mode) --
+
+    def get_unweighted_signals(self, limit: int = 500) -> list[dict]:
+        """Fetch signals with source_channel but no source_weight yet."""
+        sql = """
+            SELECT id, source_channel, confidence
+            FROM signal_predictions
+            WHERE source_channel IS NOT NULL
+              AND source_weight IS NULL
+            ORDER BY created_at DESC
+            LIMIT %s
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql, (limit,)).fetchall()
+        return [
+            {
+                "id": r[0],
+                "source_channel": r[1],
+                "confidence": float(r[2]) if r[2] is not None else None,
+            }
+            for r in rows
+        ]
+
+    def update_source_weight(
+        self,
+        signal_id: int,
+        *,
+        source_weight: float,
+        weighted_confidence: float | None = None,
+        weighted_severity: str | None = None,
+    ) -> bool:
+        """Persist shadow source weight fields for a signal."""
+        sql = """
+            UPDATE signal_predictions
+            SET source_weight = %s,
+                weighted_confidence = %s,
+                weighted_severity = %s
+            WHERE id = %s
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                conn.execute(
+                    sql,
+                    (source_weight, weighted_confidence, weighted_severity,
+                     signal_id),
+                )
+            return True
+        except Exception:
+            self._logger.exception(
+                "failed to update source weight",
+                extra={"component": "postgres", "signal_id": signal_id},
+            )
+            return False
+
+    def get_source_weighting_baseline(self) -> dict:
+        """Get baseline performance stats for all resolved signals."""
+        sql = """
+            SELECT
+                count(*) AS total,
+                count(resolved_at) AS resolved,
+                count(*) FILTER (WHERE outcome_label = 'win') AS wins,
+                count(*) FILTER (WHERE outcome_label = 'loss') AS losses,
+                avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL)
+                    AS avg_return
+            FROM signal_predictions
+            WHERE resolved_at IS NOT NULL
+        """
+        with self._pool.get_connection() as conn:
+            row = conn.execute(sql).fetchone()
+        if not row:
+            return {
+                "total": 0, "resolved": 0, "wins": 0, "losses": 0,
+                "avg_return": None,
+            }
+        return {
+            "total": row[0],
+            "resolved": row[1],
+            "wins": row[2],
+            "losses": row[3],
+            "avg_return": float(row[4]) if row[4] is not None else None,
+        }
+
+    def get_weighted_performance(self, *, threshold: float = 0.6) -> dict:
+        """Get performance stats for signals above weighted_confidence threshold."""
+        sql = """
+            SELECT
+                count(*) AS total,
+                count(resolved_at) AS resolved,
+                count(*) FILTER (WHERE outcome_label = 'win') AS wins,
+                count(*) FILTER (WHERE outcome_label = 'loss') AS losses,
+                avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL)
+                    AS avg_return
+            FROM signal_predictions
+            WHERE resolved_at IS NOT NULL
+              AND weighted_confidence IS NOT NULL
+              AND weighted_confidence >= %s
+        """
+        with self._pool.get_connection() as conn:
+            row = conn.execute(sql, (threshold,)).fetchone()
+        if not row:
+            return {
+                "total": 0, "resolved": 0, "wins": 0, "losses": 0,
+                "avg_return": None,
+            }
+        return {
+            "total": row[0],
+            "resolved": row[1],
+            "wins": row[2],
+            "losses": row[3],
+            "avg_return": float(row[4]) if row[4] is not None else None,
+        }
+
+    def get_source_weights_snapshot(self) -> list[dict]:
+        """Get current source weight distribution from stored signals."""
+        sql = """
+            SELECT
+                source_channel,
+                avg(source_weight) AS avg_weight,
+                count(*) AS count,
+                count(resolved_at) AS resolved
+            FROM signal_predictions
+            WHERE source_channel IS NOT NULL
+              AND source_weight IS NOT NULL
+            GROUP BY source_channel
+            ORDER BY avg_weight DESC
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql).fetchall()
+        return [
+            {
+                "source_channel": r[0],
+                "avg_weight": float(r[1]) if r[1] is not None else None,
+                "count": r[2],
+                "resolved": r[3],
+            }
+            for r in rows
+        ]
+
     # -- Signal delivery --
 
     def list_undelivered_signals(
