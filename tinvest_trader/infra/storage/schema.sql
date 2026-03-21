@@ -467,6 +467,17 @@ CREATE INDEX IF NOT EXISTS idx_signal_predictions_created
 CREATE INDEX IF NOT EXISTS idx_signal_predictions_pending
     ON signal_predictions (created_at) WHERE resolved_at IS NULL;
 
+-- Source attribution columns (nullable for backward compatibility).
+-- source_channel: Telegram channel name (e.g. markettwits, banksta)
+-- source_message_id: original Telegram message_id
+-- source_message_db_id: FK-style pointer to telegram_messages_raw.id
+ALTER TABLE signal_predictions ADD COLUMN IF NOT EXISTS source_channel TEXT;
+ALTER TABLE signal_predictions ADD COLUMN IF NOT EXISTS source_message_id TEXT;
+ALTER TABLE signal_predictions ADD COLUMN IF NOT EXISTS source_message_db_id BIGINT;
+
+CREATE INDEX IF NOT EXISTS idx_signal_predictions_source_channel
+    ON signal_predictions (source_channel) WHERE source_channel IS NOT NULL;
+
 -- ============================================================
 -- Milestone 12: T-Bank market quote ingestion (last prices)
 -- ============================================================

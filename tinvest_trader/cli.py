@@ -158,6 +158,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show signal calibration report with EV and filtering status",
     )
 
+    # -- telegram-source-report --
+    tg_source_report_parser = subparsers.add_parser(
+        "telegram-source-report",
+        help="Show signal performance attribution by Telegram source",
+    )
+    tg_source_report_parser.add_argument(
+        "--min-resolved", type=int, default=0,
+        help="Min resolved signals to include a source (default 0)",
+    )
+
     # -- sync-quotes --
     sync_quotes_parser = subparsers.add_parser(
         "sync-quotes",
@@ -244,6 +254,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         if args.command == "sync-quotes":
             return _run_sync_quotes(container, limit=args.limit)
+        if args.command == "telegram-source-report":
+            return _run_telegram_source_report(
+                container, min_resolved=args.min_resolved,
+            )
     finally:
         _close_container(container)
 
@@ -709,6 +723,24 @@ def _run_signal_calibration_report(
     by_ticker = repository.get_signal_stats_by_ticker()
     by_type = repository.get_signal_stats_by_type()
     print(format_calibration_report(cal, by_ticker, by_type))
+    return 0
+
+
+def _run_telegram_source_report(
+    container: Container, *, min_resolved: int = 0,
+) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.source_attribution import (
+        build_source_performance_report,
+        format_source_performance_report,
+    )
+
+    report = build_source_performance_report(repository)
+    print(format_source_performance_report(report, min_resolved=min_resolved))
     return 0
 
 
