@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 from tinvest_trader.services.signal_ai_analysis import (
+    _SYSTEM_PROMPT,
     AiAnalysisResult,
     analyze_signal,
     build_ai_prompt,
@@ -76,9 +77,10 @@ class TestBuildSignalContext:
         assert ctx["ticker_resolved"] == 100
 
     def test_type_stats_enrichment(self) -> None:
-        stats = {"resolved": 50, "wins": 30}
+        stats = {"resolved": 50, "wins": 30, "avg_return": 0.008}
         ctx = build_signal_context(_make_signal(), type_stats=stats)
         assert ctx["type_win_rate"] == 0.6
+        assert ctx["type_avg_return"] == 0.008
         assert ctx["type_resolved"] == 50
 
     def test_source_stats_enrichment(self) -> None:
@@ -91,6 +93,41 @@ class TestBuildSignalContext:
         stats = {"resolved": 0, "wins": 0}
         ctx = build_signal_context(_make_signal(), ticker_stats=stats)
         assert "ticker_win_rate" not in ctx
+
+    def test_pipeline_stage_included(self) -> None:
+        ctx = build_signal_context(_make_signal(pipeline_stage="delivered"))
+        assert ctx["pipeline_stage"] == "delivered"
+
+    def test_pipeline_stage_absent_when_none(self) -> None:
+        ctx = build_signal_context(_make_signal(pipeline_stage=None))
+        assert "pipeline_stage" not in ctx
+
+    def test_type_avg_return_absent_when_no_stats(self) -> None:
+        ctx = build_signal_context(_make_signal())
+        assert "type_avg_return" not in ctx
+
+
+# -- A2. System prompt guardrails --
+
+
+class TestSystemPromptGuardrails:
+    def test_no_hallucination_instruction(self) -> None:
+        assert "Do NOT invent" in _SYSTEM_PROMPT
+
+    def test_uncertainty_instruction(self) -> None:
+        assert "uncertainty" in _SYSTEM_PROMPT
+
+    def test_russian_output(self) -> None:
+        assert "Russian" in _SYSTEM_PROMPT
+
+    def test_practical_verdict(self) -> None:
+        assert "практический вердикт" in _SYSTEM_PROMPT
+
+    def test_win_rate_guidance(self) -> None:
+        assert "win_rate > 0.5" in _SYSTEM_PROMPT
+
+    def test_missing_stats_guidance(self) -> None:
+        assert "Missing statistics" in _SYSTEM_PROMPT
 
 
 # -- B. build_ai_prompt --

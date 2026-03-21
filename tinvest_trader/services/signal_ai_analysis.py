@@ -52,6 +52,7 @@ def build_signal_context(
         "source": signal.get("source"),
         "outcome_label": signal.get("outcome_label"),
         "return_pct": signal.get("return_pct"),
+        "pipeline_stage": signal.get("pipeline_stage"),
     }
 
     created_at = signal.get("created_at")
@@ -72,8 +73,10 @@ def build_signal_context(
     if type_stats and type_stats.get("resolved", 0) > 0:
         wins = type_stats.get("wins", 0)
         resolved = type_stats["resolved"]
+        avg_ret = type_stats.get("avg_return", 0.0) or 0.0
         wr = wins / resolved if resolved else 0.0
         ctx["type_win_rate"] = round(wr, 3)
+        ctx["type_avg_return"] = round(avg_ret, 6)
         ctx["type_resolved"] = resolved
 
     if source_stats and source_stats.get("resolved", 0) > 0:
@@ -90,9 +93,20 @@ def build_signal_context(
 
 
 _SYSTEM_PROMPT = """\
-You are a trading signal analyst. Analyze the signal context provided.
+You are a trading signal analyst. Analyze ONLY the provided signal context.
 Be concise. Use plain text, no markdown. Keep total response under 800 chars.
 Respond in Russian.
+
+STRICT RULES:
+- Do NOT invent facts, news, prices, volumes, events, or market conditions \
+not present in the input.
+- If data is insufficient, explicitly reflect uncertainty.
+- confidence > 0.6 is positive; confidence < 0.4 is weak.
+- win_rate > 0.5 is positive; win_rate < 0.5 is negative.
+- Positive avg_return / EV is positive; negative is negative.
+- Missing statistics = uncertainty, NOT a positive signal.
+- "Применимость" must be a short practical verdict: стоит рассматривать, \
+только наблюдать, сигнал слабый, нужна осторожность, etc.
 
 Output EXACTLY this format:
 
@@ -100,7 +114,7 @@ Output EXACTLY this format:
 Быки: <1 предложение>
 Медведи: <1 предложение>
 Риски: <1 предложение>
-Применимость: <1 предложение>
+Применимость: <1 предложение -- практический вердикт>
 Уверенность ИИ: <НИЗКАЯ or СРЕДНЯЯ or ВЫСОКАЯ>"""
 
 
