@@ -1331,6 +1331,78 @@ class TradingRepository:
             }
         return result
 
+    # -- Bot command helpers --
+
+    def list_recent_signals(self, limit: int = 5) -> list[dict]:
+        """List most recent signals for bot /last_signals command."""
+        sql = """
+            SELECT id, ticker, signal_type, confidence,
+                   pipeline_stage, created_at
+            FROM signal_predictions
+            ORDER BY created_at DESC
+            LIMIT %s
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                rows = conn.execute(sql, (min(limit, 10),)).fetchall()
+        except Exception:
+            self._logger.exception(
+                "failed to list recent signals",
+                extra={"component": "postgres"},
+            )
+            return []
+        return [
+            {
+                "id": r[0],
+                "ticker": r[1],
+                "signal_type": r[2],
+                "confidence": float(r[3]) if r[3] is not None else None,
+                "pipeline_stage": r[4],
+                "created_at": r[5],
+            }
+            for r in rows
+        ]
+
+    def get_signal_detail(self, prediction_id: int) -> dict | None:
+        """Fetch detailed signal info for bot /signal command."""
+        sql = """
+            SELECT id, ticker, signal_type, confidence, source,
+                   price_at_signal, created_at, source_channel,
+                   return_pct, outcome_label, pipeline_stage,
+                   rejection_reason, delivered_at
+            FROM signal_predictions
+            WHERE id = %s
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                row = conn.execute(sql, (prediction_id,)).fetchone()
+        except Exception:
+            self._logger.exception(
+                "failed to fetch signal detail",
+                extra={
+                    "component": "postgres",
+                    "prediction_id": prediction_id,
+                },
+            )
+            return None
+        if row is None:
+            return None
+        return {
+            "id": row[0],
+            "ticker": row[1],
+            "signal_type": row[2],
+            "confidence": float(row[3]) if row[3] is not None else None,
+            "source": row[4],
+            "price_at_signal": float(row[5]) if row[5] is not None else None,
+            "created_at": row[6],
+            "source_channel": row[7],
+            "return_pct": float(row[8]) if row[8] is not None else None,
+            "outcome_label": row[9],
+            "pipeline_stage": row[10],
+            "rejection_reason": row[11],
+            "delivered_at": row[12],
+        }
+
     # -- Market quotes (T-Bank last prices) --
 
     def insert_market_quote(
