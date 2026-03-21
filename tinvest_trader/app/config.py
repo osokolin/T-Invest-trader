@@ -133,6 +133,12 @@ class SignalCalibrationConfig:
     enabled: bool = False
     eval_window_seconds: int = 300
     dry_run: bool = False
+    min_confidence: float = 0.0
+    min_win_rate: float = 0.0
+    min_ev: float = 0.0
+    enable_up: bool = True
+    enable_down: bool = True
+    min_resolved_for_filter: int = 5
 
 
 @dataclass(frozen=True)
@@ -410,6 +416,24 @@ def load_config() -> AppConfig:
             dry_run=os.environ.get(
                 "TINVEST_DRY_RUN_ENABLED", "false",
             ).lower() == "true",
+            min_confidence=float(
+                os.environ.get("TINVEST_SIGNAL_MIN_CONFIDENCE", "0"),
+            ),
+            min_win_rate=float(
+                os.environ.get("TINVEST_SIGNAL_MIN_WIN_RATE", "0"),
+            ),
+            min_ev=float(
+                os.environ.get("TINVEST_SIGNAL_MIN_EV", "0"),
+            ),
+            enable_up=os.environ.get(
+                "TINVEST_SIGNAL_ENABLE_UP", "true",
+            ).lower() == "true",
+            enable_down=os.environ.get(
+                "TINVEST_SIGNAL_ENABLE_DOWN", "true",
+            ).lower() == "true",
+            min_resolved_for_filter=int(
+                os.environ.get("TINVEST_SIGNAL_MIN_RESOLVED_FOR_FILTER", "5"),
+            ),
         ),
         quote_sync=QuoteSyncConfig(
             enabled=os.environ.get(

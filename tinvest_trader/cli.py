@@ -134,6 +134,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show signal prediction statistics",
     )
 
+    # -- signal-calibration-report --
+    subparsers.add_parser(
+        "signal-calibration-report",
+        help="Show signal calibration report with EV and filtering status",
+    )
+
     # -- sync-quotes --
     sync_quotes_parser = subparsers.add_parser(
         "sync-quotes",
@@ -193,6 +199,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         if args.command == "signal-stats":
             return _run_signal_stats(container)
+        if args.command == "signal-calibration-report":
+            return _run_signal_calibration_report(container, config)
         if args.command == "market-binding-debug":
             return _run_market_binding_debug(
                 container,
@@ -594,6 +602,34 @@ def _run_signal_stats(container: Container) -> int:
     by_ticker = repository.get_signal_stats_by_ticker()
     by_type = repository.get_signal_stats_by_type()
     print(format_signal_stats(stats, by_ticker, by_type))
+    return 0
+
+
+def _run_signal_calibration_report(
+    container: Container, config: AppConfig,
+) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.signal_calibration import (
+        CalibrationConfig,
+        format_calibration_report,
+    )
+
+    cal_cfg = config.signal_calibration
+    cal = CalibrationConfig(
+        min_confidence=cal_cfg.min_confidence,
+        min_win_rate=cal_cfg.min_win_rate,
+        min_ev=cal_cfg.min_ev,
+        enable_up=cal_cfg.enable_up,
+        enable_down=cal_cfg.enable_down,
+        min_resolved_for_filter=cal_cfg.min_resolved_for_filter,
+    )
+    by_ticker = repository.get_signal_stats_by_ticker()
+    by_type = repository.get_signal_stats_by_type()
+    print(format_calibration_report(cal, by_ticker, by_type))
     return 0
 
 
