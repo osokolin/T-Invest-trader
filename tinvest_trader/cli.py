@@ -279,6 +279,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show global market context event summary",
     )
 
+    # -- apply-global-context --
+    gc_apply_parser = subparsers.add_parser(
+        "apply-global-context",
+        help="Enrich signals with global context alignment (shadow)",
+    )
+    gc_apply_parser.add_argument(
+        "--limit", type=int, default=500,
+        help="Max signals to process (default 500)",
+    )
+    gc_apply_parser.add_argument(
+        "--lookback", type=int, default=900,
+        help="Context lookback window in seconds (default 900)",
+    )
+
+    # -- global-context-impact-report --
+    gc_impact_parser = subparsers.add_parser(
+        "global-context-impact-report",
+        help="Show global context enrichment impact analysis (shadow)",
+    )
+    gc_impact_parser.add_argument(
+        "--min-resolved", type=int, default=0,
+        help="Min resolved signals per alignment bucket (default 0)",
+    )
+
     # -- sync-quotes --
     sync_quotes_parser = subparsers.add_parser(
         "sync-quotes",
@@ -376,6 +400,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_ingest_global_context(config, container)
         if args.command == "global-context-report":
             return _run_global_context_report(container)
+        if args.command == "apply-global-context":
+            return _run_apply_global_context(
+                container,
+                limit=args.limit,
+                lookback=args.lookback,
+            )
+        if args.command == "global-context-impact-report":
+            return _run_global_context_impact_report(
+                container,
+                min_resolved=args.min_resolved,
+            )
         if args.command == "deliver-signals":
             return _run_deliver_signals(config, container)
         if args.command == "telegram-source-report":
@@ -1283,6 +1318,53 @@ def _run_global_context_report(container: Container) -> int:
                 f"{ev['direction']} -- {snippet}",
             )
 
+    return 0
+
+
+def _run_apply_global_context(
+    container: Container,
+    *,
+    limit: int = 500,
+    lookback: int = 900,
+) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.signal_global_context import (
+        apply_global_context_enrichment,
+    )
+
+    enriched = apply_global_context_enrichment(
+        repository, container.logger,
+        lookback_seconds=lookback,
+        limit=limit,
+    )
+    print(f"signals_enriched: {enriched}")
+    return 0
+
+
+def _run_global_context_impact_report(
+    container: Container,
+    *,
+    min_resolved: int = 0,
+) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.signal_global_context import (
+        build_global_context_impact_report,
+        format_global_context_impact_report,
+    )
+
+    report = build_global_context_impact_report(
+        repository,
+        min_resolved=min_resolved,
+    )
+    print(format_global_context_impact_report(report))
     return 0
 
 

@@ -1055,6 +1055,143 @@ class TradingRepository:
             for r in rows
         ]
 
+    # -- Global context -> signal enrichment (shadow) --
+
+    def get_global_context_for_enrichment(
+        self, *, lookback_seconds: int = 900,
+    ) -> list[dict]:
+        """Get recent global context events for enrichment snapshot."""
+        sql = """
+            SELECT event_type, direction, confidence
+            FROM global_market_context_events
+            WHERE event_type != 'unknown'
+              AND direction != 'unknown'
+              AND fetched_at >= now() - make_interval(secs => %s)
+            ORDER BY fetched_at DESC
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql, (lookback_seconds,)).fetchall()
+        return [
+            {
+                "event_type": r[0],
+                "direction": r[1],
+                "confidence": float(r[2]) if r[2] is not None else 0.0,
+            }
+            for r in rows
+        ]
+
+    def get_unenriched_global_context_signals(
+        self, *, limit: int = 500,
+    ) -> list[dict]:
+        """Get signals that have not been enriched with global context yet."""
+        sql = """
+            SELECT id, signal_type, confidence
+            FROM signal_predictions
+            WHERE global_alignment IS NULL
+            ORDER BY created_at DESC
+            LIMIT %s
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql, (limit,)).fetchall()
+        return [
+            {
+                "id": r[0],
+                "signal_type": r[1],
+                "confidence": float(r[2]) if r[2] is not None else None,
+            }
+            for r in rows
+        ]
+
+    def update_global_context_enrichment(
+        self,
+        signal_id: int,
+        *,
+        global_alignment: str,
+        global_adjustment: float,
+        global_adjusted_confidence: float | None,
+        global_context_json: str | None = None,
+    ) -> bool:
+        """Store global context enrichment shadow fields on a signal."""
+        sql = """
+            UPDATE signal_predictions
+            SET global_alignment = %s,
+                global_adjustment = %s,
+                global_adjusted_confidence = %s,
+                global_context_json = %s
+            WHERE id = %s
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                conn.execute(
+                    sql,
+                    (
+                        global_alignment,
+                        global_adjustment,
+                        global_adjusted_confidence,
+                        global_context_json,
+                        signal_id,
+                    ),
+                )
+            return True
+        except Exception:
+            self._logger.exception(
+                "failed to update global context enrichment",
+                extra={
+                    "component": "postgres",
+                    "signal_id": signal_id,
+                },
+            )
+            return False
+
+    def get_global_alignment_performance(self) -> list[dict]:
+        """Get performance stats grouped by global alignment."""
+        sql = """
+            SELECT
+                global_alignment,
+                count(*) AS total,
+                count(resolved_at) AS resolved,
+                count(*) FILTER (WHERE outcome_label = 'win') AS wins,
+                count(*) FILTER (WHERE outcome_label = 'loss') AS losses,
+                avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL)
+                    AS avg_return
+            FROM signal_predictions
+            WHERE global_alignment IS NOT NULL
+              AND resolved_at IS NOT NULL
+            GROUP BY global_alignment
+            ORDER BY global_alignment
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql).fetchall()
+        return [
+            {
+                "alignment": r[0],
+                "total": r[1],
+                "resolved": r[2],
+                "wins": r[3],
+                "losses": r[4],
+                "avg_return": float(r[5]) if r[5] is not None else None,
+            }
+            for r in rows
+        ]
+
+    def get_global_alignment_breakdown(self) -> list[dict]:
+        """Get signal count breakdown by alignment (all signals, not just resolved)."""
+        sql = """
+            SELECT
+                global_alignment,
+                count(*) AS total
+            FROM signal_predictions
+            WHERE global_alignment IS NOT NULL
+            GROUP BY global_alignment
+            ORDER BY global_alignment
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql).fetchall()
+        return [
+            {"alignment": r[0], "total": r[1]}
+            for r in rows
+        ]
+
     # -- Signal delivery --
 
     def list_undelivered_signals(
