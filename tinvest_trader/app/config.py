@@ -159,6 +159,10 @@ class SignalDeliveryConfig:
     bot_token: str = ""
     chat_id: str = ""
     delivery_interval_seconds: int = 60
+    proxy_host: str = ""
+    proxy_port: int = 0
+    proxy_user: str = ""
+    proxy_pass: str = ""
 
 
 @dataclass(frozen=True)
@@ -491,6 +495,12 @@ def load_config() -> AppConfig:
                     "TINVEST_SIGNAL_DELIVERY_INTERVAL_SECONDS", "60",
                 ),
             ),
+            proxy_host=os.environ.get("TINVEST_TELEGRAM_BOT_PROXY_HOST", ""),
+            proxy_port=int(
+                os.environ.get("TINVEST_TELEGRAM_BOT_PROXY_PORT", "0"),
+            ),
+            proxy_user=os.environ.get("TINVEST_TELEGRAM_BOT_PROXY_USER", ""),
+            proxy_pass=os.environ.get("TINVEST_TELEGRAM_BOT_PROXY_PASS", ""),
         ),
         moex=MoexConfig(
             enabled=os.environ.get(

@@ -811,7 +811,13 @@ def _run_send_test_signal(
     text = format_signal_message(signal)
     print(f"message:\n{text}\n")
 
-    sent = send_telegram_message(cfg.bot_token, cfg.chat_id, text)
+    sent = send_telegram_message(
+        cfg.bot_token, cfg.chat_id, text,
+        proxy_host=cfg.proxy_host,
+        proxy_port=cfg.proxy_port,
+        proxy_user=cfg.proxy_user,
+        proxy_pass=cfg.proxy_pass,
+    )
     if sent:
         print("sent: ok")
         return 0
@@ -836,6 +842,10 @@ def _run_deliver_signals(config: AppConfig, container: Container) -> int:
         chat_id=cfg.chat_id,
         repository=repository,
         logger=container.logger,
+        proxy_host=cfg.proxy_host,
+        proxy_port=cfg.proxy_port,
+        proxy_user=cfg.proxy_user,
+        proxy_pass=cfg.proxy_pass,
     )
     print(f"delivered: {sent}")
     return 0

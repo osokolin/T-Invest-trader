@@ -70,24 +70,76 @@ def format_signal_message(signal: dict) -> str:
     return "\n".join(lines)
 
 
+def _build_socks5_opener(
+    proxy_host: str,
+    proxy_port: int,
+    proxy_user: str | None = None,
+    proxy_pass: str | None = None,
+) -> urllib.request.OpenerDirector:
+    """Build a urllib opener that tunnels HTTPS through a SOCKS5 proxy."""
+    import http.client
+    import socket
+    import ssl
+
+    import socks
+
+    def _create_connection(address: tuple, timeout: float = 10.0, **_kw: object) -> socket.socket:
+        sock = socks.socksocket()
+        sock.set_proxy(
+            socks.SOCKS5, proxy_host, proxy_port,
+            username=proxy_user, password=proxy_pass,
+        )
+        sock.settimeout(timeout)
+        sock.connect(address)
+        return sock
+
+    class Socks5HTTPSHandler(urllib.request.HTTPSHandler):
+        def https_open(self, req: urllib.request.Request) -> http.client.HTTPResponse:
+            return self.do_open(self._make_connection, req)
+
+        def _make_connection(
+            self, host: str, **kwargs: object,
+        ) -> http.client.HTTPSConnection:
+            timeout = kwargs.get("timeout", 10.0)
+            conn = http.client.HTTPSConnection(
+                host, timeout=timeout,
+                context=ssl.create_default_context(),
+            )
+            conn._create_connection = _create_connection  # type: ignore[attr-defined]
+            return conn
+
+    return urllib.request.build_opener(Socks5HTTPSHandler)
+
+
 def send_telegram_message(
     bot_token: str,
     chat_id: str,
     text: str,
     *,
     timeout_sec: float = 10.0,
+    proxy_host: str = "",
+    proxy_port: int = 0,
+    proxy_user: str = "",
+    proxy_pass: str = "",
 ) -> bool:
     """Send a message via Telegram Bot API. Returns True on success."""
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     data = urllib.parse.urlencode({
         "chat_id": chat_id,
         "text": text,
-        "parse_mode": "HTML",
         "disable_web_page_preview": "true",
     }).encode("utf-8")
 
     req = urllib.request.Request(url, data=data, method="POST")
     try:
+        if proxy_host and proxy_port:
+            opener = _build_socks5_opener(
+                proxy_host, proxy_port,
+                proxy_user=proxy_user or None,
+                proxy_pass=proxy_pass or None,
+            )
+            with opener.open(req, timeout=timeout_sec) as resp:
+                return resp.status == 200
         with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
             return resp.status == 200
     except (urllib.error.URLError, OSError):
@@ -100,12 +152,21 @@ def deliver_signal(
     chat_id: str,
     repository: TradingRepository | None = None,
     logger: logging.Logger | None = None,
+    *,
+    proxy_host: str = "",
+    proxy_port: int = 0,
+    proxy_user: str = "",
+    proxy_pass: str = "",
 ) -> DeliveryResult:
     """Format, send, and mark a signal as delivered."""
     signal_id = signal["id"]
 
     text = format_signal_message(signal)
-    sent = send_telegram_message(bot_token, chat_id, text)
+    sent = send_telegram_message(
+        bot_token, chat_id, text,
+        proxy_host=proxy_host, proxy_port=proxy_port,
+        proxy_user=proxy_user, proxy_pass=proxy_pass,
+    )
 
     if not sent:
         if logger:
@@ -140,6 +201,11 @@ def deliver_pending_signals(
     repository: TradingRepository,
     logger: logging.Logger,
     limit: int = 50,
+    *,
+    proxy_host: str = "",
+    proxy_port: int = 0,
+    proxy_user: str = "",
+    proxy_pass: str = "",
 ) -> int:
     """Deliver all undelivered resolved signals. Returns count sent."""
     signals = repository.list_undelivered_signals(limit=limit)
@@ -151,6 +217,8 @@ def deliver_pending_signals(
         result = deliver_signal(
             signal, bot_token, chat_id,
             repository=repository, logger=logger,
+            proxy_host=proxy_host, proxy_port=proxy_port,
+            proxy_user=proxy_user, proxy_pass=proxy_pass,
         )
         if result.sent:
             sent_count += 1

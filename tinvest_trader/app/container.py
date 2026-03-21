@@ -425,6 +425,10 @@ class Container:
                 chat_id=cfg.chat_id,
                 repository=self.repository,
                 logger=self.logger,
+                proxy_host=cfg.proxy_host,
+                proxy_port=cfg.proxy_port,
+                proxy_user=cfg.proxy_user,
+                proxy_pass=cfg.proxy_pass,
             )
 
         self.logger.info(
