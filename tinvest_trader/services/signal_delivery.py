@@ -249,13 +249,13 @@ def deliver_signal(
         type_stats=type_stats,
     )
 
-    # Inline keyboard with AI analysis button
+    # Inline keyboard with action buttons
     import json as _json
 
+    from tinvest_trader.services.bot_commands import build_delivery_keyboard
+
     keyboard = _json.dumps({
-        "inline_keyboard": [[
-            {"text": "\U0001f50d AI", "callback_data": f"ai:signal:{signal_id}"},
-        ]],
+        "inline_keyboard": build_delivery_keyboard(signal_id),
     })
 
     sent = send_telegram_message(
