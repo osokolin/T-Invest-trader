@@ -785,6 +785,65 @@ class TradingRepository:
             for r in rows
         ]
 
+    # -- Signal delivery --
+
+    def list_undelivered_signals(
+        self, limit: int = 50,
+    ) -> list[dict]:
+        """List resolved signals that have not been delivered yet."""
+        sql = """
+            SELECT id, ticker, signal_type, confidence, source,
+                   price_at_signal, created_at, source_channel,
+                   return_pct, outcome_label
+            FROM signal_predictions
+            WHERE resolved_at IS NOT NULL
+              AND delivered_at IS NULL
+            ORDER BY created_at
+            LIMIT %s
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql, (limit,)).fetchall()
+        return [
+            {
+                "id": r[0],
+                "ticker": r[1],
+                "signal_type": r[2],
+                "confidence": float(r[3]) if r[3] is not None else None,
+                "source": r[4],
+                "price_at_signal": float(r[5]) if r[5] is not None else None,
+                "created_at": r[6],
+                "source_channel": r[7],
+                "return_pct": float(r[8]) if r[8] is not None else None,
+                "outcome_label": r[9],
+            }
+            for r in rows
+        ]
+
+    def mark_signal_delivered(
+        self, prediction_id: int, delivered_at: datetime | None = None,
+    ) -> bool:
+        """Mark a signal as delivered. Returns True if updated."""
+        if delivered_at is None:
+            delivered_at = datetime.now(UTC)
+        sql = """
+            UPDATE signal_predictions
+            SET delivered_at = %s
+            WHERE id = %s AND delivered_at IS NULL
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                cur = conn.execute(sql, (delivered_at, prediction_id))
+                return cur.rowcount > 0
+        except Exception:
+            self._logger.exception(
+                "failed to mark signal delivered",
+                extra={
+                    "component": "postgres",
+                    "prediction_id": prediction_id,
+                },
+            )
+            return False
+
     # -- Market quotes (T-Bank last prices) --
 
     def insert_market_quote(

@@ -72,6 +72,7 @@ class BackgroundConfig:
     run_cbr: bool = True
     run_moex: bool = True
     run_quote_sync: bool = True
+    run_signal_delivery: bool = True
 
 
 @dataclass(frozen=True)
@@ -153,6 +154,14 @@ class QuoteSyncConfig:
 
 
 @dataclass(frozen=True)
+class SignalDeliveryConfig:
+    enabled: bool = False
+    bot_token: str = ""
+    chat_id: str = ""
+    delivery_interval_seconds: int = 60
+
+
+@dataclass(frozen=True)
 class LoggingConfig:
     level: str = "INFO"
     json_output: bool = True
@@ -178,6 +187,9 @@ class AppConfig:
         default_factory=SignalCalibrationConfig,
     )
     quote_sync: QuoteSyncConfig = field(default_factory=QuoteSyncConfig)
+    signal_delivery: SignalDeliveryConfig = field(
+        default_factory=SignalDeliveryConfig,
+    )
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     environment: str = "sandbox"
 
@@ -268,6 +280,9 @@ def load_config() -> AppConfig:
             ).lower() == "true",
             run_quote_sync=os.environ.get(
                 "TINVEST_BACKGROUND_RUN_QUOTE_SYNC", "true",
+            ).lower() == "true",
+            run_signal_delivery=os.environ.get(
+                "TINVEST_BACKGROUND_RUN_SIGNAL_DELIVERY", "true",
             ).lower() == "true",
         ),
         broker_events=BrokerEventsConfig(
@@ -462,6 +477,18 @@ def load_config() -> AppConfig:
             poll_interval_seconds=int(
                 os.environ.get(
                     "TINVEST_QUOTE_SYNC_POLL_INTERVAL_SECONDS", "60",
+                ),
+            ),
+        ),
+        signal_delivery=SignalDeliveryConfig(
+            enabled=os.environ.get(
+                "TINVEST_SIGNAL_DELIVERY_ENABLED", "false",
+            ).lower() == "true",
+            bot_token=os.environ.get("TINVEST_TELEGRAM_BOT_TOKEN", ""),
+            chat_id=os.environ.get("TINVEST_TELEGRAM_CHAT_ID", ""),
+            delivery_interval_seconds=int(
+                os.environ.get(
+                    "TINVEST_SIGNAL_DELIVERY_INTERVAL_SECONDS", "60",
                 ),
             ),
         ),

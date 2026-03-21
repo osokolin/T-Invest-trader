@@ -478,6 +478,9 @@ ALTER TABLE signal_predictions ADD COLUMN IF NOT EXISTS source_message_db_id BIG
 CREATE INDEX IF NOT EXISTS idx_signal_predictions_source_channel
     ON signal_predictions (source_channel) WHERE source_channel IS NOT NULL;
 
+-- Signal delivery tracking (nullable for backward compatibility).
+ALTER TABLE signal_predictions ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ;
+
 -- ============================================================
 -- Milestone 12: T-Bank market quote ingestion (last prices)
 -- ============================================================
