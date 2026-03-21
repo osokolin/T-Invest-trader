@@ -500,6 +500,22 @@ CREATE TABLE IF NOT EXISTS signal_ai_analyses (
     UNIQUE (signal_id)
 );
 
+-- AI divergence tracking: structured fields parsed from AI output
+-- plus system severity snapshot at analysis time.
+ALTER TABLE signal_ai_analyses ADD COLUMN IF NOT EXISTS
+    ai_confidence   TEXT;              -- LOW, MEDIUM, HIGH (parsed)
+ALTER TABLE signal_ai_analyses ADD COLUMN IF NOT EXISTS
+    ai_actionability TEXT;             -- CONSIDER, WATCH, WEAK, CAUTION, UNKNOWN
+ALTER TABLE signal_ai_analyses ADD COLUMN IF NOT EXISTS
+    ai_bias         TEXT;              -- bullish, bearish, neutral, unknown
+ALTER TABLE signal_ai_analyses ADD COLUMN IF NOT EXISTS
+    system_severity TEXT;              -- HIGH, MEDIUM, LOW (snapshot)
+ALTER TABLE signal_ai_analyses ADD COLUMN IF NOT EXISTS
+    divergence_bucket TEXT;            -- agree_strong, agree_weak, ai_more_bullish, ai_more_bearish, uncertain, unknown
+
+CREATE INDEX IF NOT EXISTS idx_signal_ai_divergence_bucket
+    ON signal_ai_analyses (divergence_bucket) WHERE divergence_bucket IS NOT NULL;
+
 -- ============================================================
 -- Milestone 12: T-Bank market quote ingestion (last prices)
 -- ============================================================

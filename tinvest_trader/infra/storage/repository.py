@@ -1064,6 +1064,155 @@ class TradingRepository:
             )
             return False
 
+    def update_signal_ai_structured_fields(
+        self,
+        signal_id: int,
+        *,
+        ai_confidence: str = "UNKNOWN",
+        ai_actionability: str = "UNKNOWN",
+        ai_bias: str = "unknown",
+        system_severity: str = "",
+        divergence_bucket: str = "unknown",
+    ) -> bool:
+        """Update structured AI divergence fields on an existing analysis row."""
+        sql = """
+            UPDATE signal_ai_analyses
+            SET ai_confidence = %s,
+                ai_actionability = %s,
+                ai_bias = %s,
+                system_severity = %s,
+                divergence_bucket = %s
+            WHERE signal_id = %s
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                conn.execute(
+                    sql,
+                    (
+                        ai_confidence,
+                        ai_actionability,
+                        ai_bias,
+                        system_severity,
+                        divergence_bucket,
+                        signal_id,
+                    ),
+                )
+            return True
+        except Exception:
+            self._logger.exception(
+                "failed to update ai structured fields",
+                extra={
+                    "component": "postgres",
+                    "signal_id": signal_id,
+                },
+            )
+            return False
+
+    def get_ai_divergence_stats(self) -> dict:
+        """Get aggregate AI divergence stats."""
+        sql = """
+            SELECT
+                COUNT(*) AS total_analyzed,
+                COUNT(divergence_bucket) AS total_with_bucket
+            FROM signal_ai_analyses
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                row = conn.execute(sql).fetchone()
+        except Exception:
+            self._logger.exception(
+                "failed to fetch ai divergence stats",
+                extra={"component": "postgres"},
+            )
+            return {}
+        if row is None:
+            return {}
+        return {
+            "total_analyzed": row[0],
+            "total_with_bucket": row[1],
+        }
+
+    def get_ai_divergence_stats_by_bucket(self) -> list[dict]:
+        """Get per-bucket divergence stats with outcome data."""
+        sql = """
+            SELECT
+                a.divergence_bucket AS bucket,
+                COUNT(*) AS total,
+                COUNT(sp.outcome_label) AS resolved,
+                COUNT(*) FILTER (WHERE sp.outcome_label = 'win') AS wins,
+                COUNT(*) FILTER (WHERE sp.outcome_label = 'loss') AS losses,
+                COUNT(*) FILTER (WHERE sp.outcome_label = 'neutral') AS neutrals,
+                AVG(sp.return_pct) FILTER (WHERE sp.outcome_label IS NOT NULL)
+                    AS avg_return
+            FROM signal_ai_analyses a
+            JOIN signal_predictions sp ON sp.id = a.signal_id
+            WHERE a.divergence_bucket IS NOT NULL
+            GROUP BY a.divergence_bucket
+            ORDER BY total DESC
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                rows = conn.execute(sql).fetchall()
+        except Exception:
+            self._logger.exception(
+                "failed to fetch ai divergence stats by bucket",
+                extra={"component": "postgres"},
+            )
+            return []
+        return [
+            {
+                "bucket": row[0],
+                "total": row[1],
+                "resolved": row[2],
+                "wins": row[3],
+                "losses": row[4],
+                "neutrals": row[5],
+                "avg_return": float(row[6]) if row[6] is not None else None,
+            }
+            for row in rows
+        ]
+
+    def get_ai_divergence_examples(
+        self,
+        bucket: str,
+        limit: int = 5,
+    ) -> list[dict]:
+        """Get example signals for a specific divergence bucket."""
+        sql = """
+            SELECT
+                sp.id, sp.ticker, sp.signal_type, sp.confidence,
+                sp.outcome_label, sp.return_pct,
+                a.ai_confidence, a.system_severity, a.divergence_bucket
+            FROM signal_ai_analyses a
+            JOIN signal_predictions sp ON sp.id = a.signal_id
+            WHERE a.divergence_bucket = %s
+            ORDER BY a.created_at DESC
+            LIMIT %s
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                rows = conn.execute(sql, (bucket, limit)).fetchall()
+        except Exception:
+            self._logger.exception(
+                "failed to fetch ai divergence examples",
+                extra={"component": "postgres", "bucket": bucket},
+            )
+            return []
+        return [
+            {
+                "id": row[0],
+                "ticker": row[1],
+                "signal_type": row[2],
+                "confidence": float(row[3]) if row[3] is not None else None,
+                "outcome_label": row[4],
+                "return_pct": float(row[5]) if row[5] is not None else None,
+                "ai_confidence": row[6],
+                "system_severity": row[7],
+                "divergence_bucket": row[8],
+            }
+            for row in rows
+        ]
+
     # -- Market quotes (T-Bank last prices) --
 
     def insert_market_quote(

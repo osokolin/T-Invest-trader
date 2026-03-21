@@ -214,6 +214,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show signal pipeline funnel and divergence analysis",
     )
 
+    # -- ai-divergence-report --
+    ai_div_parser = subparsers.add_parser(
+        "ai-divergence-report",
+        help="Show AI vs system severity divergence analysis",
+    )
+    ai_div_parser.add_argument(
+        "--min-resolved", type=int, default=0,
+        help="Min resolved signals per bucket to include (default 0)",
+    )
+
     # -- test-ai-analysis --
     ai_parser = subparsers.add_parser(
         "test-ai-analysis",
@@ -331,6 +341,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         if args.command == "signal-divergence-report":
             return _run_signal_divergence_report(container)
+        if args.command == "ai-divergence-report":
+            return _run_ai_divergence_report(
+                container, min_resolved=args.min_resolved,
+            )
         if args.command == "test-ai-analysis":
             return _run_test_ai_analysis(
                 config, container, signal_id=args.signal_id,
@@ -1000,6 +1014,28 @@ def _run_signal_divergence_report(container: Container) -> int:
 
     report = build_divergence_report(repository)
     print(format_divergence_report(report))
+    return 0
+
+
+def _run_ai_divergence_report(
+    container: Container,
+    *,
+    min_resolved: int = 0,
+) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.ai_divergence import (
+        build_ai_divergence_report,
+        format_ai_divergence_report,
+    )
+
+    report = build_ai_divergence_report(
+        repository, min_resolved=min_resolved,
+    )
+    print(format_ai_divergence_report(report))
     return 0
 
 
