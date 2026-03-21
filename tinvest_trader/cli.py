@@ -239,6 +239,30 @@ def build_parser() -> argparse.ArgumentParser:
         "signal_id", type=int, help="Signal prediction ID",
     )
 
+    # -- source-weighting-report --
+    sw_report_parser = subparsers.add_parser(
+        "source-weighting-report",
+        help="Show source-aware weighting shadow analysis report",
+    )
+    sw_report_parser.add_argument(
+        "--min-resolved", type=int, default=0,
+        help="Min resolved signals to include a source (default 0)",
+    )
+    sw_report_parser.add_argument(
+        "--threshold", type=float, default=0.6,
+        help="Weighted confidence threshold for comparison (default 0.6)",
+    )
+
+    # -- apply-source-weights --
+    sw_apply_parser = subparsers.add_parser(
+        "apply-source-weights",
+        help="Compute and store source weights for unweighted signals (shadow)",
+    )
+    sw_apply_parser.add_argument(
+        "--limit", type=int, default=500,
+        help="Max signals to process (default 500)",
+    )
+
     # -- sync-quotes --
     sync_quotes_parser = subparsers.add_parser(
         "sync-quotes",
@@ -353,6 +377,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         if args.command == "ai-gating-report":
             return _run_ai_gating_report(container)
+        if args.command == "source-weighting-report":
+            return _run_source_weighting_report(
+                container,
+                min_resolved=args.min_resolved,
+                threshold=args.threshold,
+            )
+        if args.command == "apply-source-weights":
+            return _run_apply_source_weights(
+                container, limit=args.limit,
+            )
         if args.command == "test-ai-analysis":
             return _run_test_ai_analysis(
                 config, container, signal_id=args.signal_id,
@@ -1133,6 +1167,50 @@ def _run_sync_quotes(container: Container, *, limit: int = 0) -> int:
     if result.errors:
         for err in result.errors:
             print(f"  error: {err}")
+    return 0
+
+
+def _run_source_weighting_report(
+    container: Container,
+    *,
+    min_resolved: int = 0,
+    threshold: float = 0.6,
+) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.source_weighting import (
+        build_source_weighting_report,
+        format_source_weighting_report,
+    )
+
+    report = build_source_weighting_report(
+        repository,
+        threshold=threshold,
+        min_resolved=min_resolved,
+    )
+    print(format_source_weighting_report(report))
+    return 0
+
+
+def _run_apply_source_weights(
+    container: Container,
+    *,
+    limit: int = 500,
+) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.source_weighting import apply_source_weights
+
+    updated = apply_source_weights(
+        repository, container.logger, limit=limit,
+    )
+    print(f"signals_updated: {updated}")
     return 0
 
 

@@ -548,3 +548,19 @@ CREATE INDEX IF NOT EXISTS idx_market_quotes_ticker_source_time
     ON market_quotes (ticker, source_time ASC);
 CREATE INDEX IF NOT EXISTS idx_market_quotes_figi_source_time
     ON market_quotes (figi, source_time ASC);
+
+-- ============================================================
+-- Source-aware weighting (shadow mode)
+-- ============================================================
+
+-- Shadow columns for source-based confidence adjustment.
+-- source_weight: multiplier derived from source historical performance
+-- weighted_confidence: original_confidence * source_weight (shadow only)
+-- weighted_severity: severity derived from weighted_confidence (shadow only)
+ALTER TABLE signal_predictions ADD COLUMN IF NOT EXISTS source_weight REAL;
+ALTER TABLE signal_predictions ADD COLUMN IF NOT EXISTS weighted_confidence REAL;
+ALTER TABLE signal_predictions ADD COLUMN IF NOT EXISTS weighted_severity TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_signal_predictions_weighted_conf
+    ON signal_predictions (weighted_confidence)
+    WHERE weighted_confidence IS NOT NULL;
