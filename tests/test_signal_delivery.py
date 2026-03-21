@@ -30,7 +30,16 @@ def _make_signal(**overrides: object) -> dict:
     return base
 
 
-# -- A. Message formatting --
+def _make_repo() -> MagicMock:
+    repo = MagicMock()
+    repo.mark_signal_delivered.return_value = True
+    repo.get_signal_stats_by_ticker.return_value = []
+    repo.get_signal_stats_by_type.return_value = []
+    repo.get_signal_stats_by_source.return_value = []
+    return repo
+
+
+# -- A. Legacy message formatting --
 
 
 class TestFormatSignalMessage:
@@ -88,8 +97,7 @@ class TestDeliverSignalSuccess:
     @patch("tinvest_trader.services.signal_delivery.send_telegram_message")
     def test_success_marks_delivered(self, mock_send: MagicMock) -> None:
         mock_send.return_value = True
-        repo = MagicMock()
-        repo.mark_signal_delivered.return_value = True
+        repo = _make_repo()
 
         result = deliver_signal(
             _make_signal(), "token", "chat",
@@ -116,7 +124,7 @@ class TestDeliverSignalFailure:
     @patch("tinvest_trader.services.signal_delivery.send_telegram_message")
     def test_failure_not_marked(self, mock_send: MagicMock) -> None:
         mock_send.return_value = False
-        repo = MagicMock()
+        repo = _make_repo()
 
         result = deliver_signal(
             _make_signal(), "token", "chat",
@@ -138,21 +146,17 @@ class TestDedup:
     ) -> None:
         """Signals with delivered_at set are excluded by list_undelivered_signals."""
         mock_send.return_value = True
-        repo = MagicMock()
-        # First call returns one signal, second call returns empty (delivered)
+        repo = _make_repo()
         repo.list_undelivered_signals.side_effect = [
             [_make_signal(id=1)],
             [],
         ]
-        repo.mark_signal_delivered.return_value = True
 
-        # First cycle delivers
         sent1 = deliver_pending_signals(
             "token", "chat", repo, MagicMock(), limit=50,
         )
         assert sent1 == 1
 
-        # Second cycle finds nothing
         sent2 = deliver_pending_signals(
             "token", "chat", repo, MagicMock(), limit=50,
         )
@@ -163,12 +167,11 @@ class TestDedup:
         self, mock_send: MagicMock,
     ) -> None:
         mock_send.return_value = True
-        repo = MagicMock()
+        repo = _make_repo()
         repo.list_undelivered_signals.return_value = [
             _make_signal(id=1),
             _make_signal(id=2, ticker="GAZP"),
         ]
-        repo.mark_signal_delivered.return_value = True
 
         sent = deliver_pending_signals(
             "token", "chat", repo, MagicMock(), limit=50,
@@ -195,7 +198,7 @@ class TestDeliveryResult:
 class TestEmptySignals:
     @patch("tinvest_trader.services.signal_delivery.send_telegram_message")
     def test_no_signals_returns_zero(self, mock_send: MagicMock) -> None:
-        repo = MagicMock()
+        repo = _make_repo()
         repo.list_undelivered_signals.return_value = []
 
         sent = deliver_pending_signals(
@@ -204,3 +207,67 @@ class TestEmptySignals:
 
         assert sent == 0
         mock_send.assert_not_called()
+
+
+# -- G. Max-per-cycle --
+
+
+class TestMaxPerCycle:
+    @patch("tinvest_trader.services.signal_delivery.send_telegram_message")
+    def test_max_per_cycle_limits_delivery(self, mock_send: MagicMock) -> None:
+        mock_send.return_value = True
+        repo = _make_repo()
+        repo.list_undelivered_signals.return_value = [
+            _make_signal(id=1),
+            _make_signal(id=2, ticker="GAZP"),
+            _make_signal(id=3, ticker="VTBR"),
+        ]
+
+        sent = deliver_pending_signals(
+            "token", "chat", repo, MagicMock(), limit=50,
+            max_per_cycle=2,
+        )
+
+        assert sent == 2
+        assert repo.mark_signal_delivered.call_count == 2
+
+    @patch("tinvest_trader.services.signal_delivery.send_telegram_message")
+    def test_zero_max_means_no_limit(self, mock_send: MagicMock) -> None:
+        mock_send.return_value = True
+        repo = _make_repo()
+        repo.list_undelivered_signals.return_value = [
+            _make_signal(id=1),
+            _make_signal(id=2, ticker="GAZP"),
+        ]
+
+        sent = deliver_pending_signals(
+            "token", "chat", repo, MagicMock(), limit=50,
+            max_per_cycle=0,
+        )
+
+        assert sent == 2
+
+
+# -- H. Severity ordering in delivery --
+
+
+class TestSeverityOrdering:
+    @patch("tinvest_trader.services.signal_delivery.send_telegram_message")
+    def test_high_severity_delivered_first(self, mock_send: MagicMock) -> None:
+        """When max_per_cycle=1, only the highest-severity signal is sent."""
+        mock_send.return_value = True
+        repo = _make_repo()
+        # Low confidence signal first, high confidence second
+        repo.list_undelivered_signals.return_value = [
+            _make_signal(id=1, confidence=0.20, ticker="WEAK"),
+            _make_signal(id=2, confidence=0.80, ticker="STRONG"),
+        ]
+
+        sent = deliver_pending_signals(
+            "token", "chat", repo, MagicMock(), limit=50,
+            max_per_cycle=1,
+        )
+
+        assert sent == 1
+        # The high-confidence signal (id=2) should be delivered
+        repo.mark_signal_delivered.assert_called_once_with(2)
