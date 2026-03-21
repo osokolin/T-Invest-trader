@@ -481,6 +481,15 @@ CREATE INDEX IF NOT EXISTS idx_signal_predictions_source_channel
 -- Signal delivery tracking (nullable for backward compatibility).
 ALTER TABLE signal_predictions ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ;
 
+-- Pipeline stage tracking (nullable for backward compatibility).
+-- pipeline_stage: generated, rejected_calibration, rejected_binding, rejected_safety, delivered
+-- rejection_reason: low_confidence, negative_ev, type_disabled, etc.
+ALTER TABLE signal_predictions ADD COLUMN IF NOT EXISTS pipeline_stage TEXT;
+ALTER TABLE signal_predictions ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_signal_predictions_pipeline_stage
+    ON signal_predictions (pipeline_stage) WHERE pipeline_stage IS NOT NULL;
+
 -- ============================================================
 -- Milestone 12: T-Bank market quote ingestion (last prices)
 -- ============================================================
