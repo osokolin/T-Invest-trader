@@ -125,6 +125,9 @@ class Container:
         # Quote sync callable (used by background runner and CLI)
         self._quote_sync_fn = self._build_quote_sync_fn()
 
+        # Signal delivery callable (used by background runner and CLI)
+        self._signal_delivery_fn = self._build_signal_delivery_fn()
+
         # Background runner (optional, disabled by default)
         if self.config.background.enabled:
             self._wire_background_runner()
@@ -406,6 +409,30 @@ class Container:
         )
         return _sync
 
+    def _build_signal_delivery_fn(self):
+        """Build a callable for signal delivery if prerequisites are met."""
+        cfg = self.config.signal_delivery
+        if not cfg.enabled or not cfg.bot_token or not cfg.chat_id:
+            return None
+        if self.repository is None:
+            return None
+
+        from tinvest_trader.services.signal_delivery import deliver_pending_signals
+
+        def _deliver():
+            return deliver_pending_signals(
+                bot_token=cfg.bot_token,
+                chat_id=cfg.chat_id,
+                repository=self.repository,
+                logger=self.logger,
+            )
+
+        self.logger.info(
+            "signal delivery initialized",
+            extra={"component": "signal_delivery"},
+        )
+        return _deliver
+
     def _wire_background_runner(self) -> None:
         """Wire background runner when enabled."""
         self.background_runner = BackgroundRunner(
@@ -423,6 +450,8 @@ class Container:
             broker_event_interval_seconds=self.config.broker_events.poll_interval_seconds,
             cbr_interval_seconds=self.config.cbr.poll_interval_seconds,
             moex_interval_seconds=self.config.moex.poll_interval_seconds,
+            signal_delivery_config=self.config.signal_delivery,
+            signal_delivery_fn=self._signal_delivery_fn,
         )
 
         self.logger.info(

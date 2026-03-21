@@ -168,6 +168,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Min resolved signals to include a source (default 0)",
     )
 
+    # -- send-test-signal --
+    test_signal_parser = subparsers.add_parser(
+        "send-test-signal",
+        help="Send a test signal to Telegram to verify bot setup",
+    )
+    test_signal_parser.add_argument(
+        "ticker", type=str, help="Ticker symbol (e.g. SBER)",
+    )
+    test_signal_parser.add_argument(
+        "--direction", type=str, default="up",
+        help="Signal direction: up or down (default up)",
+    )
+    test_signal_parser.add_argument(
+        "--confidence", type=float, default=0.5,
+        help="Confidence value (default 0.5)",
+    )
+
+    # -- deliver-signals --
+    subparsers.add_parser(
+        "deliver-signals",
+        help="Deliver pending undelivered signals to Telegram",
+    )
+
     # -- sync-quotes --
     sync_quotes_parser = subparsers.add_parser(
         "sync-quotes",
@@ -254,6 +277,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         if args.command == "sync-quotes":
             return _run_sync_quotes(container, limit=args.limit)
+        if args.command == "send-test-signal":
+            return _run_send_test_signal(
+                config, container,
+                ticker=args.ticker,
+                direction=args.direction,
+                confidence=args.confidence,
+            )
+        if args.command == "deliver-signals":
+            return _run_deliver_signals(config, container)
         if args.command == "telegram-source-report":
             return _run_telegram_source_report(
                 container, min_resolved=args.min_resolved,
@@ -741,6 +773,71 @@ def _run_telegram_source_report(
 
     report = build_source_performance_report(repository)
     print(format_source_performance_report(report, min_resolved=min_resolved))
+    return 0
+
+
+def _run_send_test_signal(
+    config: AppConfig,
+    container: Container,
+    *,
+    ticker: str,
+    direction: str,
+    confidence: float,
+) -> int:
+    cfg = config.signal_delivery
+    if not cfg.bot_token or not cfg.chat_id:
+        print("TINVEST_TELEGRAM_BOT_TOKEN and TINVEST_TELEGRAM_CHAT_ID must be set")
+        return 1
+
+    from datetime import UTC, datetime
+
+    from tinvest_trader.services.signal_delivery import (
+        format_signal_message,
+        send_telegram_message,
+    )
+
+    signal = {
+        "id": 0,
+        "ticker": ticker,
+        "signal_type": direction,
+        "confidence": confidence,
+        "price_at_signal": None,
+        "created_at": datetime.now(tz=UTC),
+        "source_channel": "test",
+        "source": "test",
+        "return_pct": None,
+        "outcome_label": None,
+    }
+    text = format_signal_message(signal)
+    print(f"message:\n{text}\n")
+
+    sent = send_telegram_message(cfg.bot_token, cfg.chat_id, text)
+    if sent:
+        print("sent: ok")
+        return 0
+    print("sent: failed")
+    return 1
+
+
+def _run_deliver_signals(config: AppConfig, container: Container) -> int:
+    cfg = config.signal_delivery
+    if not cfg.bot_token or not cfg.chat_id:
+        print("TINVEST_TELEGRAM_BOT_TOKEN and TINVEST_TELEGRAM_CHAT_ID must be set")
+        return 1
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.signal_delivery import deliver_pending_signals
+
+    sent = deliver_pending_signals(
+        bot_token=cfg.bot_token,
+        chat_id=cfg.chat_id,
+        repository=repository,
+        logger=container.logger,
+    )
+    print(f"delivered: {sent}")
     return 0
 
 
