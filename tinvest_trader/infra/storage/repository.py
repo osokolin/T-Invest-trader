@@ -924,6 +924,137 @@ class TradingRepository:
             for r in rows
         ]
 
+    # -- Global market context --
+
+    def insert_global_context_event(
+        self,
+        event: dict,
+    ) -> bool:
+        """Insert a global context event. Returns True if newly inserted.
+
+        Uses ON CONFLICT DO NOTHING for hard dedup by (source_key, telegram_message_id).
+        """
+        import json as _json
+
+        sql = """
+            INSERT INTO global_market_context_events
+                (source_key, source_channel, telegram_message_id,
+                 raw_text, normalized_text, event_type, direction,
+                 confidence, event_time, dedup_hash, metadata_json)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (source_key, telegram_message_id) DO NOTHING
+            RETURNING id
+        """
+        metadata = event.get("metadata_json")
+        metadata_str = (
+            _json.dumps(metadata, default=str) if metadata else None
+        )
+        try:
+            with self._pool.get_connection() as conn:
+                row = conn.execute(
+                    sql,
+                    (
+                        event["source_key"],
+                        event["source_channel"],
+                        event.get("telegram_message_id"),
+                        event.get("raw_text", ""),
+                        event.get("normalized_text", ""),
+                        event.get("event_type", "unknown"),
+                        event.get("direction", "unknown"),
+                        event.get("confidence", 0.0),
+                        event.get("event_time"),
+                        event.get("dedup_hash"),
+                        metadata_str,
+                    ),
+                ).fetchone()
+                return row is not None
+        except Exception:
+            self._logger.exception(
+                "failed to insert global context event",
+                extra={
+                    "component": "postgres",
+                    "source_key": event.get("source_key"),
+                },
+            )
+            return False
+
+    def check_global_context_dedup_hash(self, dedup_hash: str) -> bool:
+        """Check if a dedup hash already exists in global context events."""
+        sql = """
+            SELECT 1
+            FROM global_market_context_events
+            WHERE dedup_hash = %s
+            LIMIT 1
+        """
+        with self._pool.get_connection() as conn:
+            row = conn.execute(sql, (dedup_hash,)).fetchone()
+        return row is not None
+
+    def get_latest_global_context_message_id(
+        self, source_key: str,
+    ) -> int | None:
+        """Get max telegram_message_id for incremental fetch."""
+        sql = """
+            SELECT max(telegram_message_id::bigint)
+            FROM global_market_context_events
+            WHERE source_key = %s
+              AND telegram_message_id IS NOT NULL
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                row = conn.execute(sql, (source_key,)).fetchone()
+            if row and row[0] is not None:
+                return int(row[0])
+        except Exception:
+            self._logger.exception(
+                "failed to get latest global context message id",
+                extra={
+                    "component": "postgres",
+                    "source_key": source_key,
+                },
+            )
+        return None
+
+    def get_global_context_summary(self) -> list[dict]:
+        """Get event counts grouped by event_type + direction."""
+        sql = """
+            SELECT event_type, direction, count(*) AS count
+            FROM global_market_context_events
+            GROUP BY event_type, direction
+            ORDER BY event_type, direction
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql).fetchall()
+        return [
+            {"event_type": r[0], "direction": r[1], "count": r[2]}
+            for r in rows
+        ]
+
+    def get_recent_global_context_events(
+        self, limit: int = 10,
+    ) -> list[dict]:
+        """Get most recent global context events."""
+        sql = """
+            SELECT source_key, event_type, direction,
+                   confidence, event_time, raw_text
+            FROM global_market_context_events
+            ORDER BY fetched_at DESC
+            LIMIT %s
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql, (limit,)).fetchall()
+        return [
+            {
+                "source_key": r[0],
+                "event_type": r[1],
+                "direction": r[2],
+                "confidence": float(r[3]) if r[3] is not None else 0.0,
+                "event_time": r[4],
+                "raw_text": r[5],
+            }
+            for r in rows
+        ]
+
     # -- Signal delivery --
 
     def list_undelivered_signals(
