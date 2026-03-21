@@ -1,12 +1,13 @@
 """Signal outcome evaluation -- resolves pending predictions.
 
 For each unresolved prediction older than evaluation_window:
-1. Fetch current price
+1. Look up first local quote after signal was created
 2. Compute return
 3. Classify win/loss/neutral
 4. Update prediction row
 
-No retries. No ML. Deterministic classification.
+No retries. No external API calls. Deterministic classification.
+All price data comes from local market_quotes table.
 """
 
 from __future__ import annotations
@@ -35,14 +36,14 @@ def classify_outcome(signal_type: str, return_pct: float) -> str:
 
 def resolve_pending_signals(
     repository: TradingRepository,
-    price_fn: callable,
     logger: logging.Logger,
     eval_window_seconds: int = 300,
     now: datetime | None = None,
 ) -> int:
     """Resolve all pending signal predictions older than eval_window.
 
-    price_fn(ticker) -> float | None: returns current price for ticker.
+    Uses local quotes from market_quotes table (no external API calls).
+    For each pending prediction, finds the first quote after signal creation.
     Returns count of resolved predictions.
     """
     if now is None:
@@ -67,24 +68,17 @@ def resolve_pending_signals(
             )
             continue
 
-        try:
-            price_now = price_fn(ticker)
-        except Exception:
-            logger.exception(
-                "signal_outcome: failed to fetch price for %s",
+        quote = repository.get_first_quote_after(ticker, pred["created_at"])
+
+        if quote is None:
+            logger.debug(
+                "signal_outcome: ticker=%s resolved=false reason=no_quote_yet",
                 ticker,
                 extra={"component": "signal_outcome"},
             )
             continue
 
-        if price_now is None:
-            logger.info(
-                "signal_outcome: no price available for %s, skipping",
-                ticker,
-                extra={"component": "signal_outcome"},
-            )
-            continue
-
+        price_now = quote["price"]
         return_pct = (price_now - price_at_signal) / price_at_signal
         outcome_label = classify_outcome(pred["signal_type"], return_pct)
 
@@ -96,10 +90,10 @@ def resolve_pending_signals(
             resolved_at=now,
         )
 
-        logger.info(
-            "signal_outcome: resolved prediction %d ticker=%s "
-            "type=%s return=%.4f%% outcome=%s",
-            pred["id"], ticker, pred["signal_type"],
+        logger.debug(
+            "signal_outcome: ticker=%s resolved=true "
+            "price_signal=%.4f price_outcome=%.4f return=%+.4f%% outcome=%s",
+            ticker, price_at_signal, price_now,
             return_pct * 100, outcome_label,
             extra={"component": "signal_outcome"},
         )
