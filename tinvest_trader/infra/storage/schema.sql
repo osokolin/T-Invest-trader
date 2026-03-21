@@ -490,6 +490,16 @@ ALTER TABLE signal_predictions ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
 CREATE INDEX IF NOT EXISTS idx_signal_predictions_pipeline_stage
     ON signal_predictions (pipeline_stage) WHERE pipeline_stage IS NOT NULL;
 
+-- AI analysis cache (one analysis per signal, avoids duplicate API calls).
+CREATE TABLE IF NOT EXISTS signal_ai_analyses (
+    id          BIGSERIAL PRIMARY KEY,
+    signal_id   BIGINT NOT NULL,
+    analysis_text TEXT NOT NULL,
+    model       TEXT NOT NULL DEFAULT 'claude-sonnet-4-20250514',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (signal_id)
+);
+
 -- ============================================================
 -- Milestone 12: T-Bank market quote ingestion (last prices)
 -- ============================================================
