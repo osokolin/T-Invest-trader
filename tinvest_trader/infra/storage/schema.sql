@@ -480,3 +480,7 @@ CREATE INDEX IF NOT EXISTS idx_market_quotes_ticker_time
     ON market_quotes (ticker, fetched_at DESC);
 CREATE INDEX IF NOT EXISTS idx_market_quotes_figi_time
     ON market_quotes (figi, fetched_at DESC);
+CREATE INDEX IF NOT EXISTS idx_market_quotes_ticker_source_time
+    ON market_quotes (ticker, source_time ASC);
+CREATE INDEX IF NOT EXISTS idx_market_quotes_figi_source_time
+    ON market_quotes (figi, source_time ASC);
