@@ -75,7 +75,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT $__timeGroupAlias(recorded_at, '5m') AS time, channel_name AS metric, count(*) AS value FROM telegram_messages_raw WHERE $__timeFilter(recorded_at) GROUP BY 1, 2 ORDER BY 1;",
+          "rawSql": "SELECT $__timeGroupAlias(recorded_at, '5m'), channel_name AS metric, count(*) AS value FROM telegram_messages_raw WHERE $__timeFilter(recorded_at) GROUP BY 1, 2 ORDER BY 1;",
           "refId": "A"
         }
       ],
@@ -128,7 +128,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT $__timeGroupAlias(created_at, '5m') AS time, source_channel AS metric, count(*) AS value FROM signal_predictions WHERE $__timeFilter(created_at) GROUP BY 1, 2 ORDER BY 1;",
+          "rawSql": "SELECT $__timeGroupAlias(created_at, '5m'), source_channel AS metric, count(*) AS value FROM signal_predictions WHERE $__timeFilter(created_at) GROUP BY 1, 2 ORDER BY 1;",
           "refId": "A"
         }
       ],
@@ -181,7 +181,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT $__timeGroupAlias(fetched_at, '1m') AS time, count(*) AS quotes FROM market_quotes WHERE $__timeFilter(fetched_at) GROUP BY 1 ORDER BY 1;",
+          "rawSql": "SELECT $__timeGroupAlias(fetched_at, '1m'), count(*) AS quotes FROM market_quotes WHERE $__timeFilter(fetched_at) GROUP BY 1 ORDER BY 1;",
           "refId": "A"
         }
       ],
@@ -308,7 +308,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT $__timeGroupAlias(fetched_at, '5m') AS time, count(*) AS snapshots FROM global_market_snapshots WHERE $__timeFilter(fetched_at) GROUP BY 1 ORDER BY 1;",
+          "rawSql": "SELECT $__timeGroupAlias(fetched_at, '5m'), count(*) AS snapshots FROM global_market_snapshots WHERE $__timeFilter(fetched_at) GROUP BY 1 ORDER BY 1;",
           "refId": "A"
         }
       ],
@@ -371,7 +371,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT $__timeGroupAlias(fetched_at, '1h') AS time, event_type AS metric, count(*) AS value FROM global_market_context_events WHERE $__timeFilter(fetched_at) GROUP BY 1, 2 ORDER BY 1;",
+          "rawSql": "SELECT $__timeGroupAlias(fetched_at, '1h'), event_type AS metric, count(*) AS value FROM global_market_context_events WHERE $__timeFilter(fetched_at) GROUP BY 1, 2 ORDER BY 1;",
           "refId": "A"
         }
       ],
