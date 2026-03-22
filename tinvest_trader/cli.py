@@ -336,6 +336,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Evaluate alerts without persisting or sending",
     )
 
+    # -- send-daily-digest --
+    digest_parser = subparsers.add_parser(
+        "send-daily-digest",
+        help="Send daily operator digest via Telegram",
+    )
+    digest_parser.add_argument(
+        "--send", action="store_true",
+        help="Send digest via Telegram (default: print only)",
+    )
+    digest_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Print digest without sending or persisting",
+    )
+
     # -- sync-quotes --
     sync_quotes_parser = subparsers.add_parser(
         "sync-quotes",
@@ -446,6 +460,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         if args.command == "check-alerts":
             return _run_check_alerts(
+                config, container,
+                send=args.send,
+                dry_run=args.dry_run,
+            )
+        if args.command == "send-daily-digest":
+            return _run_send_daily_digest(
                 config, container,
                 send=args.send,
                 dry_run=args.dry_run,
@@ -1444,6 +1464,33 @@ def _run_global_market_data_report(container: Container) -> int:
     )
 
     print(build_global_market_data_report(repository))
+    return 0
+
+
+def _run_send_daily_digest(
+    config: AppConfig,
+    container: Container,
+    *,
+    send: bool = False,
+    dry_run: bool = False,
+) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.daily_digest import send_daily_digest
+
+    delivery_cfg = config.signal_delivery if send else None
+    result = send_daily_digest(
+        repository=repository,
+        delivery_config=delivery_cfg,
+        logger=container.logger,
+        dry_run=dry_run or not send,
+    )
+    print(result["text"])
+    if send:
+        print(f"\nsent: {'ok' if result['sent'] else 'failed'}")
     return 0
 
 

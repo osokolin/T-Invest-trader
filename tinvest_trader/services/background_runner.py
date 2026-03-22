@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from tinvest_trader.app.config import (
         BackgroundConfig,
+        DailyDigestConfig,
         QuoteSyncConfig,
         SignalDeliveryConfig,
     )
@@ -61,6 +62,8 @@ class BackgroundRunner:
         callback_handler_fn: Callable[[], None] | None = None,
         alerting_fn: Callable[[], object] | None = None,
         alerting_interval_seconds: int = 300,
+        daily_digest_fn: Callable[[], object] | None = None,
+        daily_digest_config: DailyDigestConfig | None = None,
         time_fn: Callable[[], float] | None = None,
     ) -> None:
         self._config = config
@@ -86,6 +89,9 @@ class BackgroundRunner:
         self._callback_handler_fn = callback_handler_fn
         self._alerting_fn = alerting_fn
         self._alerting_interval_seconds = alerting_interval_seconds
+        self._daily_digest_fn = daily_digest_fn
+        self._daily_digest_config = daily_digest_config
+        self._daily_digest_sent_today: str = ""
         self._time_fn = time_fn or time.monotonic
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -227,6 +233,7 @@ class BackgroundRunner:
             or self._signal_delivery_is_runnable()
             or self._callback_handler_is_runnable()
             or self._alerting_is_runnable()
+            or self._daily_digest_is_runnable()
         )
 
     def _sentiment_is_runnable(self) -> bool:
@@ -286,6 +293,14 @@ class BackgroundRunner:
         return (
             self._config.run_alerting
             and self._alerting_fn is not None
+        )
+
+    def _daily_digest_is_runnable(self) -> bool:
+        return (
+            self._config.run_daily_digest
+            and self._daily_digest_fn is not None
+            and self._daily_digest_config is not None
+            and self._daily_digest_config.enabled
         )
 
     def run_broker_event_cycle(self) -> None:
@@ -470,6 +485,40 @@ class BackgroundRunner:
                 extra={"component": "background_runner"},
             )
 
+    def run_daily_digest_cycle(self) -> None:
+        """Run daily digest if it's the right time and not yet sent today."""
+        if not self._daily_digest_is_runnable():
+            return
+
+        from datetime import UTC, datetime
+
+        now = datetime.now(UTC)
+        today_str = now.strftime("%Y-%m-%d")
+
+        # Already sent today (in-memory dedup)
+        if self._daily_digest_sent_today == today_str:
+            return
+
+        cfg = self._daily_digest_config
+        if now.hour < cfg.hour or (now.hour == cfg.hour and now.minute < cfg.minute):
+            return
+
+        try:
+            result = self._daily_digest_fn()
+            self._daily_digest_sent_today = today_str
+            self._logger.info(
+                "background daily digest cycle complete",
+                extra={
+                    "component": "background_runner",
+                    "result": str(result),
+                },
+            )
+        except Exception:
+            self._logger.exception(
+                "background daily digest cycle failed",
+                extra={"component": "background_runner"},
+            )
+
     def run_alerting_cycle(self) -> None:
         """Run one alerting check cycle safely."""
         if not self._alerting_is_runnable():
@@ -516,6 +565,7 @@ class BackgroundRunner:
         next_signal_delivery_run = self._time_fn()
         next_callback_handler_run = self._time_fn()
         next_alerting_run = self._time_fn()
+        next_daily_digest_run = self._time_fn()
 
         while not self._stop_event.is_set():
             now = self._time_fn()
@@ -677,6 +727,19 @@ class BackgroundRunner:
                     alerting_wait
                     if next_wait is None
                     else min(next_wait, alerting_wait)
+                )
+
+            if self._daily_digest_is_runnable():
+                if now >= next_daily_digest_run:
+                    self.run_daily_digest_cycle()
+                    next_daily_digest_run = self._time_fn() + 60
+                digest_wait = max(
+                    0.0, next_daily_digest_run - self._time_fn(),
+                )
+                next_wait = (
+                    digest_wait
+                    if next_wait is None
+                    else min(next_wait, digest_wait)
                 )
 
             if next_wait is None:

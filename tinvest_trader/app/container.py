@@ -147,6 +147,9 @@ class Container:
         # Alerting callable (used by background runner and CLI)
         self._alerting_fn = self._build_alerting_fn()
 
+        # Daily digest callable (used by background runner and CLI)
+        self._daily_digest_fn = self._build_daily_digest_fn()
+
         # Background runner (optional, disabled by default)
         if self.config.background.enabled:
             self._wire_background_runner()
@@ -600,6 +603,35 @@ class Container:
         )
         return _check
 
+    def _build_daily_digest_fn(self):
+        """Build a callable for daily digest."""
+        cfg = self.config.daily_digest
+        if not cfg.enabled:
+            return None
+        if self.repository is None:
+            return None
+
+        from tinvest_trader.services.daily_digest import send_daily_digest
+
+        delivery_cfg = self.config.signal_delivery
+
+        def _send():
+            return send_daily_digest(
+                repository=self.repository,
+                delivery_config=delivery_cfg,
+                logger=self.logger,
+            )
+
+        self.logger.info(
+            "daily digest initialized",
+            extra={
+                "component": "daily_digest",
+                "hour": cfg.hour,
+                "minute": cfg.minute,
+            },
+        )
+        return _send
+
     def _wire_background_runner(self) -> None:
         """Wire background runner when enabled."""
         self.background_runner = BackgroundRunner(
@@ -626,6 +658,8 @@ class Container:
             callback_handler_fn=self._callback_handler_fn,
             alerting_fn=self._alerting_fn,
             alerting_interval_seconds=self.config.alerting.check_interval_seconds,
+            daily_digest_fn=self._daily_digest_fn,
+            daily_digest_config=self.config.daily_digest,
         )
 
         self.logger.info(
