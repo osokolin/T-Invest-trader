@@ -3088,3 +3088,222 @@ class TradingRepository:
                 extra={"component": "repository"},
             )
         return result
+
+    # -- Daily digest queries (read-only) --
+
+    def get_daily_digest_data(self, lookback_hours: int = 24) -> dict:
+        """Fetch all data needed for daily digest in one method."""
+        result: dict = {}
+        interval = f"{lookback_hours} hours"
+        try:
+            with self._pool.get_connection() as conn:
+                # Core signal stats
+                cur = conn.execute(
+                    "SELECT count(*) AS total,"
+                    " count(*) FILTER ("
+                    "   WHERE pipeline_stage = 'delivered') AS delivered,"
+                    " count(*) FILTER ("
+                    "   WHERE pipeline_stage = 'rejected_calibration'"
+                    " ) AS rejected_calibration,"
+                    " count(*) FILTER ("
+                    "   WHERE pipeline_stage = 'rejected_binding'"
+                    " ) AS rejected_binding,"
+                    " count(*) FILTER ("
+                    "   WHERE pipeline_stage = 'rejected_safety'"
+                    " ) AS rejected_safety"
+                    " FROM signal_predictions"
+                    f" WHERE created_at >= now() - interval '{interval}'",
+                )
+                row = cur.fetchone()
+                if row:
+                    result["signals_total"] = row[0]
+                    result["signals_delivered"] = row[1]
+                    result["rejected_calibration"] = row[2]
+                    result["rejected_binding"] = row[3]
+                    result["rejected_safety"] = row[4]
+
+                # Win rate + avg return (delivered, resolved)
+                cur = conn.execute(
+                    "SELECT count(*) AS resolved,"
+                    " avg(CASE WHEN outcome_label = 'win'"
+                    "   THEN 1.0 ELSE 0.0 END) AS win_rate,"
+                    " avg(return_pct) AS avg_return"
+                    " FROM signal_predictions"
+                    " WHERE resolved_at IS NOT NULL"
+                    " AND pipeline_stage = 'delivered'"
+                    f" AND created_at >= now() - interval '{interval}'",
+                )
+                row = cur.fetchone()
+                if row:
+                    result["resolved"] = row[0]
+                    result["win_rate"] = (
+                        float(row[1]) if row[1] is not None else None
+                    )
+                    result["avg_return"] = (
+                        float(row[2]) if row[2] is not None else None
+                    )
+
+                # Top sources by EV (delivered, resolved, min 3)
+                cur = conn.execute(
+                    "SELECT source_channel,"
+                    " count(*) AS cnt,"
+                    " round(avg(return_pct)::numeric, 5) AS ev"
+                    " FROM signal_predictions"
+                    " WHERE resolved_at IS NOT NULL"
+                    " AND pipeline_stage = 'delivered'"
+                    " AND source_channel IS NOT NULL"
+                    f" AND created_at >= now() - interval '{interval}'"
+                    " GROUP BY source_channel"
+                    " HAVING count(*) >= 3"
+                    " ORDER BY ev DESC"
+                    " LIMIT 3",
+                )
+                columns = ("source_channel", "count", "ev")
+                result["top_sources"] = [
+                    dict(zip(columns, r, strict=True)) for r in cur.fetchall()
+                ]
+
+                # Top tickers by return (delivered, resolved, min 2)
+                cur = conn.execute(
+                    "SELECT ticker,"
+                    " count(*) AS cnt,"
+                    " round(avg(return_pct)::numeric, 5) AS avg_return"
+                    " FROM signal_predictions"
+                    " WHERE resolved_at IS NOT NULL"
+                    " AND pipeline_stage = 'delivered'"
+                    f" AND created_at >= now() - interval '{interval}'"
+                    " GROUP BY ticker"
+                    " HAVING count(*) >= 2"
+                    " ORDER BY avg_return DESC"
+                    " LIMIT 3",
+                )
+                columns = ("ticker", "count", "avg_return")
+                result["top_tickers"] = [
+                    dict(zip(columns, r, strict=True)) for r in cur.fetchall()
+                ]
+
+                # AI agreement rate (delivered signals with AI analysis)
+                cur = conn.execute(
+                    "SELECT count(*) AS total,"
+                    " count(*) FILTER ("
+                    "   WHERE a.divergence_bucket IN"
+                    "     ('agree_strong', 'agree_weak')"
+                    " ) AS agreed"
+                    " FROM signal_predictions sp"
+                    " JOIN signal_ai_analyses a"
+                    "   ON a.signal_id = sp.id"
+                    " WHERE sp.pipeline_stage = 'delivered'"
+                    f" AND sp.created_at >= now() - interval '{interval}'",
+                )
+                row = cur.fetchone()
+                if row and row[0] > 0:
+                    result["ai_total"] = row[0]
+                    result["ai_agreed"] = row[1]
+
+                # Shadow: source weighting impact
+                cur = conn.execute(
+                    "SELECT"
+                    " round(avg(return_pct) FILTER ("
+                    "   WHERE source_weight >= 1.0)::numeric, 5)"
+                    "   AS ev_strong,"
+                    " round(avg(return_pct) FILTER ("
+                    "   WHERE source_weight < 1.0)::numeric, 5)"
+                    "   AS ev_weak,"
+                    " count(*) FILTER ("
+                    "   WHERE source_weight IS NOT NULL) AS weighted_count"
+                    " FROM signal_predictions"
+                    " WHERE resolved_at IS NOT NULL"
+                    " AND pipeline_stage = 'delivered'"
+                    f" AND created_at >= now() - interval '{interval}'",
+                )
+                row = cur.fetchone()
+                if row and row[2] and row[2] >= 5:
+                    result["shadow_weight_ev_strong"] = (
+                        float(row[0]) if row[0] is not None else None
+                    )
+                    result["shadow_weight_ev_weak"] = (
+                        float(row[1]) if row[1] is not None else None
+                    )
+
+                # Shadow: AI gating impact
+                cur = conn.execute(
+                    "SELECT ai_gate_decision,"
+                    " round(avg(return_pct)::numeric, 5) AS ev"
+                    " FROM signal_predictions"
+                    " WHERE resolved_at IS NOT NULL"
+                    " AND pipeline_stage = 'delivered'"
+                    " AND ai_gate_decision IS NOT NULL"
+                    f" AND created_at >= now() - interval '{interval}'"
+                    " GROUP BY ai_gate_decision"
+                    " HAVING count(*) >= 3",
+                )
+                gating = {}
+                for r in cur.fetchall():
+                    gating[r[0]] = float(r[1]) if r[1] is not None else None
+                if gating:
+                    result["shadow_ai_gating"] = gating
+
+                # Shadow: global alignment impact
+                cur = conn.execute(
+                    "SELECT global_alignment,"
+                    " count(*) AS cnt,"
+                    " round(avg(CASE WHEN outcome_label = 'win'"
+                    "   THEN 1.0 ELSE 0.0 END)::numeric, 3) AS wr"
+                    " FROM signal_predictions"
+                    " WHERE resolved_at IS NOT NULL"
+                    " AND pipeline_stage = 'delivered'"
+                    " AND global_alignment IS NOT NULL"
+                    f" AND created_at >= now() - interval '{interval}'"
+                    " GROUP BY global_alignment"
+                    " HAVING count(*) >= 3",
+                )
+                alignment = {}
+                for r in cur.fetchall():
+                    alignment[r[0]] = {
+                        "count": r[1],
+                        "win_rate": float(r[2]) if r[2] is not None else None,
+                    }
+                if alignment:
+                    result["shadow_global_alignment"] = alignment
+
+                # Best and worst signal
+                cur = conn.execute(
+                    "SELECT ticker, signal_type, return_pct"
+                    " FROM signal_predictions"
+                    " WHERE resolved_at IS NOT NULL"
+                    " AND pipeline_stage = 'delivered'"
+                    f" AND created_at >= now() - interval '{interval}'"
+                    " ORDER BY return_pct DESC"
+                    " LIMIT 1",
+                )
+                row = cur.fetchone()
+                if row and row[2] is not None:
+                    result["best_signal"] = {
+                        "ticker": row[0],
+                        "type": row[1],
+                        "return_pct": float(row[2]),
+                    }
+
+                cur = conn.execute(
+                    "SELECT ticker, signal_type, return_pct"
+                    " FROM signal_predictions"
+                    " WHERE resolved_at IS NOT NULL"
+                    " AND pipeline_stage = 'delivered'"
+                    f" AND created_at >= now() - interval '{interval}'"
+                    " ORDER BY return_pct ASC"
+                    " LIMIT 1",
+                )
+                row = cur.fetchone()
+                if row and row[2] is not None:
+                    result["worst_signal"] = {
+                        "ticker": row[0],
+                        "type": row[1],
+                        "return_pct": float(row[2]),
+                    }
+
+        except Exception:
+            self._logger.exception(
+                "failed to fetch daily digest data",
+                extra={"component": "repository"},
+            )
+        return result

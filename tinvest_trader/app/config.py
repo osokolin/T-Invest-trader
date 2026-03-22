@@ -76,6 +76,7 @@ class BackgroundConfig:
     run_global_context: bool = True
     run_global_market_data: bool = True
     run_alerting: bool = True
+    run_daily_digest: bool = True
 
 
 @dataclass(frozen=True)
@@ -210,6 +211,13 @@ class AlertingConfig:
 
 
 @dataclass(frozen=True)
+class DailyDigestConfig:
+    enabled: bool = False
+    hour: int = 20
+    minute: int = 0
+
+
+@dataclass(frozen=True)
 class LoggingConfig:
     level: str = "INFO"
     json_output: bool = True
@@ -245,6 +253,7 @@ class AppConfig:
         default_factory=GlobalMarketDataConfig,
     )
     alerting: AlertingConfig = field(default_factory=AlertingConfig)
+    daily_digest: DailyDigestConfig = field(default_factory=DailyDigestConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     environment: str = "sandbox"
 
@@ -347,6 +356,9 @@ def load_config() -> AppConfig:
             ).lower() == "true",
             run_alerting=os.environ.get(
                 "TINVEST_BACKGROUND_RUN_ALERTING", "true",
+            ).lower() == "true",
+            run_daily_digest=os.environ.get(
+                "TINVEST_BACKGROUND_RUN_DAILY_DIGEST", "true",
             ).lower() == "true",
         ),
         broker_events=BrokerEventsConfig(
@@ -673,6 +685,17 @@ def load_config() -> AppConfig:
                 os.environ.get(
                     "TINVEST_ALERTING_WIN_RATE_MIN_RESOLVED", "10",
                 ),
+            ),
+        ),
+        daily_digest=DailyDigestConfig(
+            enabled=os.environ.get(
+                "TINVEST_DAILY_DIGEST_ENABLED", "false",
+            ).lower() == "true",
+            hour=int(
+                os.environ.get("TINVEST_DAILY_DIGEST_HOUR", "20"),
+            ),
+            minute=int(
+                os.environ.get("TINVEST_DAILY_DIGEST_MINUTE", "0"),
             ),
         ),
         moex=MoexConfig(
