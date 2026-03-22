@@ -2962,3 +2962,129 @@ class TradingRepository:
             inserted = cur.fetchone() is not None
             conn.commit()
         return inserted
+
+    # -- Alert events --
+
+    def insert_alert_event(
+        self,
+        alert_key: str,
+        alert_category: str,
+        severity: str,
+        title: str,
+        message: str,
+        sent: bool,
+    ) -> int | None:
+        sql = """
+            INSERT INTO alert_events
+                (alert_key, alert_category, severity, title, message, sent)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                cur = conn.execute(
+                    sql,
+                    (alert_key, alert_category, severity, title, message, sent),
+                )
+                row = cur.fetchone()
+                conn.commit()
+                return row[0] if row else None
+        except Exception:
+            self._logger.exception(
+                "failed to insert alert event",
+                extra={
+                    "component": "repository",
+                    "alert_key": alert_key,
+                },
+            )
+            return None
+
+    def get_last_alert_fired_at(
+        self, alert_key: str,
+    ) -> datetime | None:
+        sql = """
+            SELECT fired_at
+            FROM alert_events
+            WHERE alert_key = %s
+            ORDER BY fired_at DESC
+            LIMIT 1
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                cur = conn.execute(sql, (alert_key,))
+                row = cur.fetchone()
+                return row[0] if row else None
+        except Exception:
+            self._logger.exception(
+                "failed to get last alert fired_at",
+                extra={
+                    "component": "repository",
+                    "alert_key": alert_key,
+                },
+            )
+            return None
+
+    def get_alerting_health_data(self) -> dict:
+        """Fetch health data for alerting checks in a single query batch."""
+        result: dict = {}
+        try:
+            with self._pool.get_connection() as conn:
+                # Latest signal created_at
+                cur = conn.execute(
+                    "SELECT max(created_at) FROM signal_predictions",
+                )
+                row = cur.fetchone()
+                result["latest_signal_at"] = row[0] if row else None
+
+                # Pending signals count
+                cur = conn.execute(
+                    "SELECT count(*) FROM signal_predictions"
+                    " WHERE pipeline_stage = 'delivered'"
+                    " AND resolved_at IS NULL",
+                )
+                row = cur.fetchone()
+                result["pending_signals"] = row[0] if row else 0
+
+                # Latest telegram message
+                cur = conn.execute(
+                    "SELECT max(recorded_at) FROM telegram_messages_raw",
+                )
+                row = cur.fetchone()
+                result["latest_telegram_at"] = row[0] if row else None
+
+                # Latest quote
+                cur = conn.execute(
+                    "SELECT max(fetched_at) FROM market_quotes",
+                )
+                row = cur.fetchone()
+                result["latest_quote_at"] = row[0] if row else None
+
+                # Latest global context event
+                cur = conn.execute(
+                    "SELECT max(fetched_at) FROM global_market_context_events",
+                )
+                row = cur.fetchone()
+                result["latest_global_context_at"] = row[0] if row else None
+
+                # Win rate (7d, delivered, resolved)
+                cur = conn.execute(
+                    "SELECT count(*) AS resolved,"
+                    " avg(CASE WHEN outcome_label = 'win'"
+                    " THEN 1.0 ELSE 0.0 END) AS win_rate"
+                    " FROM signal_predictions"
+                    " WHERE resolved_at IS NOT NULL"
+                    " AND pipeline_stage = 'delivered'"
+                    " AND created_at >= now() - interval '7 days'",
+                )
+                row = cur.fetchone()
+                result["win_rate_7d_resolved"] = row[0] if row else 0
+                result["win_rate_7d"] = (
+                    float(row[1]) if row and row[1] is not None else None
+                )
+
+        except Exception:
+            self._logger.exception(
+                "failed to fetch alerting health data",
+                extra={"component": "repository"},
+            )
+        return result

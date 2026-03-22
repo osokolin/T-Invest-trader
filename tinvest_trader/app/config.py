@@ -75,6 +75,7 @@ class BackgroundConfig:
     run_signal_delivery: bool = True
     run_global_context: bool = True
     run_global_market_data: bool = True
+    run_alerting: bool = True
 
 
 @dataclass(frozen=True)
@@ -193,6 +194,22 @@ class GlobalContextConfig:
 
 
 @dataclass(frozen=True)
+class AlertingConfig:
+    enabled: bool = False
+    check_interval_seconds: int = 300
+    cooldown_seconds: int = 3600
+    # Thresholds
+    signal_gap_minutes: int = 120
+    telegram_gap_minutes: int = 60
+    quote_gap_minutes: int = 30
+    global_context_gap_minutes: int = 60
+    pending_signals_max: int = 50
+    win_rate_min: float = 0.3
+    win_rate_lookback_days: int = 7
+    win_rate_min_resolved: int = 10
+
+
+@dataclass(frozen=True)
 class LoggingConfig:
     level: str = "INFO"
     json_output: bool = True
@@ -227,6 +244,7 @@ class AppConfig:
     global_market_data: GlobalMarketDataConfig = field(
         default_factory=GlobalMarketDataConfig,
     )
+    alerting: AlertingConfig = field(default_factory=AlertingConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     environment: str = "sandbox"
 
@@ -326,6 +344,9 @@ def load_config() -> AppConfig:
             ).lower() == "true",
             run_global_market_data=os.environ.get(
                 "TINVEST_BACKGROUND_RUN_GLOBAL_MARKET_DATA", "true",
+            ).lower() == "true",
+            run_alerting=os.environ.get(
+                "TINVEST_BACKGROUND_RUN_ALERTING", "true",
             ).lower() == "true",
         ),
         broker_events=BrokerEventsConfig(
@@ -596,6 +617,61 @@ def load_config() -> AppConfig:
                 os.environ.get(
                     "TINVEST_GLOBAL_MARKET_DATA_SYMBOLS",
                     "^GSPC,^NDX,^VIX,BZ=F,DX-Y.NYB",
+                ),
+            ),
+        ),
+        alerting=AlertingConfig(
+            enabled=os.environ.get(
+                "TINVEST_ALERTING_ENABLED", "false",
+            ).lower() == "true",
+            check_interval_seconds=int(
+                os.environ.get(
+                    "TINVEST_ALERTING_CHECK_INTERVAL_SECONDS", "300",
+                ),
+            ),
+            cooldown_seconds=int(
+                os.environ.get(
+                    "TINVEST_ALERTING_COOLDOWN_SECONDS", "3600",
+                ),
+            ),
+            signal_gap_minutes=int(
+                os.environ.get(
+                    "TINVEST_ALERTING_SIGNAL_GAP_MINUTES", "120",
+                ),
+            ),
+            telegram_gap_minutes=int(
+                os.environ.get(
+                    "TINVEST_ALERTING_TELEGRAM_GAP_MINUTES", "60",
+                ),
+            ),
+            quote_gap_minutes=int(
+                os.environ.get(
+                    "TINVEST_ALERTING_QUOTE_GAP_MINUTES", "30",
+                ),
+            ),
+            global_context_gap_minutes=int(
+                os.environ.get(
+                    "TINVEST_ALERTING_GLOBAL_CONTEXT_GAP_MINUTES", "60",
+                ),
+            ),
+            pending_signals_max=int(
+                os.environ.get(
+                    "TINVEST_ALERTING_PENDING_SIGNALS_MAX", "50",
+                ),
+            ),
+            win_rate_min=float(
+                os.environ.get(
+                    "TINVEST_ALERTING_WIN_RATE_MIN", "0.3",
+                ),
+            ),
+            win_rate_lookback_days=int(
+                os.environ.get(
+                    "TINVEST_ALERTING_WIN_RATE_LOOKBACK_DAYS", "7",
+                ),
+            ),
+            win_rate_min_resolved=int(
+                os.environ.get(
+                    "TINVEST_ALERTING_WIN_RATE_MIN_RESOLVED", "10",
                 ),
             ),
         ),
