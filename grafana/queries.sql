@@ -358,3 +358,92 @@ SELECT count(*) AS pending
 FROM signal_predictions
 WHERE pipeline_stage = 'delivered'
   AND resolved_at IS NULL;
+
+-- ============================================================
+-- DASHBOARD 5: RAW DATA FLOW
+-- ============================================================
+
+-- [table] Last Telegram Messages
+SELECT channel_name, message_id, recorded_at,
+       LEFT(normalized_text, 120) AS text
+FROM telegram_messages_raw
+ORDER BY recorded_at DESC
+LIMIT 15;
+
+-- [timeseries] Telegram Messages by channel (5m buckets)
+SELECT date_trunc('minute', recorded_at) AS time,
+       channel_name, count(*) AS value
+FROM telegram_messages_raw
+WHERE recorded_at >= now() - interval '6 hours'
+GROUP BY 1, 2 ORDER BY 1;
+
+-- [table] Last Signals
+SELECT id, ticker, signal_type AS direction,
+       round(confidence::numeric, 3) AS confidence,
+       source_channel, pipeline_stage, created_at
+FROM signal_predictions
+ORDER BY created_at DESC
+LIMIT 15;
+
+-- [timeseries] Signals by source (5m buckets)
+SELECT date_trunc('minute', created_at) AS time,
+       source_channel, count(*) AS value
+FROM signal_predictions
+WHERE created_at >= now() - interval '6 hours'
+GROUP BY 1, 2 ORDER BY 1;
+
+-- [table] Latest Quotes (per ticker)
+SELECT DISTINCT ON (ticker) ticker,
+       round(price::numeric, 2) AS price,
+       source_time, fetched_at
+FROM market_quotes
+ORDER BY ticker, fetched_at DESC;
+
+-- [timeseries] Quote Updates / min
+SELECT date_trunc('minute', fetched_at) AS time,
+       count(*) AS quotes
+FROM market_quotes
+WHERE fetched_at >= now() - interval '6 hours'
+GROUP BY 1 ORDER BY 1;
+
+-- [stat] Quote Freshness (seconds since last source_time)
+SELECT EXTRACT(EPOCH FROM (now() - max(source_time)))::int
+       AS quote_staleness_seconds
+FROM market_quotes
+WHERE fetched_at >= now() - interval '1 hour';
+
+-- [table] Latest Global Instruments
+SELECT DISTINCT ON (symbol) symbol, category,
+       round(price::numeric, 2) AS price,
+       round(change_pct::numeric, 2) AS change_pct,
+       source_time, fetched_at
+FROM global_market_snapshots
+ORDER BY symbol, source_time DESC;
+
+-- [stat] Global Data Freshness (seconds since last source_time)
+SELECT EXTRACT(EPOCH FROM (now() - max(source_time)))::int
+       AS global_staleness_seconds
+FROM global_market_snapshots
+WHERE fetched_at >= now() - interval '2 hours';
+
+-- [timeseries] Global Snapshots / 5m
+SELECT date_trunc('minute', fetched_at) AS time,
+       count(*) AS snapshots
+FROM global_market_snapshots
+WHERE fetched_at >= now() - interval '6 hours'
+GROUP BY 1 ORDER BY 1;
+
+-- [table] Last Context Events
+SELECT source_channel, event_type, direction,
+       round(confidence::numeric, 2) AS confidence,
+       fetched_at, LEFT(normalized_text, 120) AS summary
+FROM global_market_context_events
+ORDER BY fetched_at DESC
+LIMIT 15;
+
+-- [timeseries] Context Events / hour (by type)
+SELECT date_trunc('hour', fetched_at) AS time,
+       event_type, count(*) AS value
+FROM global_market_context_events
+WHERE fetched_at >= now() - interval '6 hours'
+GROUP BY 1, 2 ORDER BY 1;
