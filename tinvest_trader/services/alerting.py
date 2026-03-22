@@ -51,25 +51,30 @@ def evaluate_alerts(
     now = datetime.now(UTC)
     alerts: list[Alert] = []
 
+    # Moscow Exchange is closed on weekends — skip gap-based alerts
+    # (Sat=5, Sun=6). Win rate and pending checks still apply.
+    is_weekend = now.weekday() >= 5
+
     # -- Signal pipeline alerts --
 
     # No signals generated recently
-    latest_signal = health.get("latest_signal_at")
-    if latest_signal is not None:
-        gap = now - latest_signal
-        threshold = timedelta(minutes=config.signal_gap_minutes)
-        if gap > threshold:
-            gap_min = int(gap.total_seconds() / 60)
-            alerts.append(Alert(
-                key="signal_gap",
-                category="signal_pipeline",
-                severity="warning",
-                title=f"No new signals for {gap_min}m",
-                message=(
-                    f"Last signal generated {gap_min} minutes ago "
-                    f"(threshold: {config.signal_gap_minutes}m)."
-                ),
-            ))
+    if not is_weekend:
+        latest_signal = health.get("latest_signal_at")
+        if latest_signal is not None:
+            gap = now - latest_signal
+            threshold = timedelta(minutes=config.signal_gap_minutes)
+            if gap > threshold:
+                gap_min = int(gap.total_seconds() / 60)
+                alerts.append(Alert(
+                    key="signal_gap",
+                    category="signal_pipeline",
+                    severity="warning",
+                    title=f"No new signals for {gap_min}m",
+                    message=(
+                        f"Last signal generated {gap_min} minutes ago "
+                        f"(threshold: {config.signal_gap_minutes}m)."
+                    ),
+                ))
 
     # Too many pending (unresolved) signals
     pending = health.get("pending_signals", 0)
@@ -105,61 +110,62 @@ def evaluate_alerts(
             ),
         ))
 
-    # -- Data/ingestion alerts --
+    # -- Data/ingestion alerts (skip on weekends) --
 
-    # Telegram ingestion gap
-    latest_tg = health.get("latest_telegram_at")
-    if latest_tg is not None:
-        gap = now - latest_tg
-        threshold = timedelta(minutes=config.telegram_gap_minutes)
-        if gap > threshold:
-            gap_min = int(gap.total_seconds() / 60)
-            alerts.append(Alert(
-                key="telegram_gap",
-                category="data_ingestion",
-                severity="warning",
-                title=f"No Telegram messages for {gap_min}m",
-                message=(
-                    f"Last Telegram message recorded {gap_min} minutes ago "
-                    f"(threshold: {config.telegram_gap_minutes}m)."
-                ),
-            ))
+    if not is_weekend:
+        # Telegram ingestion gap
+        latest_tg = health.get("latest_telegram_at")
+        if latest_tg is not None:
+            gap = now - latest_tg
+            threshold = timedelta(minutes=config.telegram_gap_minutes)
+            if gap > threshold:
+                gap_min = int(gap.total_seconds() / 60)
+                alerts.append(Alert(
+                    key="telegram_gap",
+                    category="data_ingestion",
+                    severity="warning",
+                    title=f"No Telegram messages for {gap_min}m",
+                    message=(
+                        f"Last Telegram message recorded {gap_min} minutes ago "
+                        f"(threshold: {config.telegram_gap_minutes}m)."
+                    ),
+                ))
 
-    # Quote sync gap
-    latest_quote = health.get("latest_quote_at")
-    if latest_quote is not None:
-        gap = now - latest_quote
-        threshold = timedelta(minutes=config.quote_gap_minutes)
-        if gap > threshold:
-            gap_min = int(gap.total_seconds() / 60)
-            alerts.append(Alert(
-                key="quote_gap",
-                category="data_ingestion",
-                severity="warning",
-                title=f"No quotes for {gap_min}m",
-                message=(
-                    f"Last quote fetched {gap_min} minutes ago "
-                    f"(threshold: {config.quote_gap_minutes}m)."
-                ),
-            ))
+        # Quote sync gap
+        latest_quote = health.get("latest_quote_at")
+        if latest_quote is not None:
+            gap = now - latest_quote
+            threshold = timedelta(minutes=config.quote_gap_minutes)
+            if gap > threshold:
+                gap_min = int(gap.total_seconds() / 60)
+                alerts.append(Alert(
+                    key="quote_gap",
+                    category="data_ingestion",
+                    severity="warning",
+                    title=f"No quotes for {gap_min}m",
+                    message=(
+                        f"Last quote fetched {gap_min} minutes ago "
+                        f"(threshold: {config.quote_gap_minutes}m)."
+                    ),
+                ))
 
-    # Global context gap
-    latest_gc = health.get("latest_global_context_at")
-    if latest_gc is not None:
-        gap = now - latest_gc
-        threshold = timedelta(minutes=config.global_context_gap_minutes)
-        if gap > threshold:
-            gap_min = int(gap.total_seconds() / 60)
-            alerts.append(Alert(
-                key="global_context_gap",
-                category="data_ingestion",
-                severity="info",
-                title=f"No global context events for {gap_min}m",
-                message=(
-                    f"Last global context event fetched {gap_min} minutes ago "
-                    f"(threshold: {config.global_context_gap_minutes}m)."
-                ),
-            ))
+        # Global context gap
+        latest_gc = health.get("latest_global_context_at")
+        if latest_gc is not None:
+            gap = now - latest_gc
+            threshold = timedelta(minutes=config.global_context_gap_minutes)
+            if gap > threshold:
+                gap_min = int(gap.total_seconds() / 60)
+                alerts.append(Alert(
+                    key="global_context_gap",
+                    category="data_ingestion",
+                    severity="info",
+                    title=f"No global context events for {gap_min}m",
+                    message=(
+                        f"Last global context event fetched {gap_min} minutes ago "
+                        f"(threshold: {config.global_context_gap_minutes}m)."
+                    ),
+                ))
 
     return alerts
 
