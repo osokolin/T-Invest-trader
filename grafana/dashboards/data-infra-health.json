@@ -35,7 +35,7 @@
         "cellHeight": "sm",
         "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
         "showHeader": true,
-        "sortBy": [{ "displayName": "messages_24h", "desc": true }]
+        "sortBy": [{ "displayName": "latest_message", "desc": true }]
       },
       "targets": [
         {
@@ -206,7 +206,7 @@
         "cellHeight": "sm",
         "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
         "showHeader": true,
-        "sortBy": [{ "displayName": "events_24h", "desc": true }]
+        "sortBy": [{ "displayName": "total", "desc": true }]
       },
       "targets": [
         {
@@ -229,7 +229,8 @@
       "options": {
         "cellHeight": "sm",
         "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
-        "showHeader": true
+        "showHeader": true,
+        "sortBy": [{ "displayName": "latest", "desc": true }]
       },
       "targets": [
         {
@@ -260,7 +261,7 @@
         "cellHeight": "sm",
         "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
         "showHeader": true,
-        "sortBy": [{ "displayName": "age_seconds", "desc": true }]
+        "sortBy": [{ "displayName": "fetched_at", "desc": true }]
       },
       "targets": [
         {
@@ -291,7 +292,7 @@
         "cellHeight": "sm",
         "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
         "showHeader": true,
-        "sortBy": [{ "displayName": "error_count", "desc": true }]
+        "sortBy": [{ "displayName": "latest_check", "desc": true }]
       },
       "targets": [
         {
@@ -315,7 +316,7 @@
         "cellHeight": "sm",
         "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
         "showHeader": true,
-        "sortBy": [{ "displayName": "error_count", "desc": true }]
+        "sortBy": [{ "displayName": "last_error_at", "desc": true }]
       },
       "targets": [
         {
