@@ -186,7 +186,7 @@ class GlobalMarketDataConfig:
 class GlobalContextConfig:
     enabled: bool = False
     channels: tuple[str, ...] = (
-        "financialjuice", "oilprice", "cointelegraph",
+        "financialjuice", "oilpricee", "cointelegraph",
     )
     poll_interval_seconds: int = 120
     fetch_limit_per_source: int = 20

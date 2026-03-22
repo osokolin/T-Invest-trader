@@ -187,7 +187,7 @@ class TestSoftDedup:
         now = datetime.now(tz=UTC)
         messages = [
             TelegramMessage(
-                channel_name="oilprice",
+                channel_name="oilpricee",
                 message_id="6001",
                 message_text="Bitcoin rallies past $100k milestone",
                 published_at=now,
@@ -203,10 +203,10 @@ class TestSoftDedup:
             source=source,
             repository=repo,
             logger=MagicMock(),
-            channels=("oilprice",),
+            channels=("oilpricee",),
         )
 
-        result = service.ingest_channel("oilprice")
+        result = service.ingest_channel("oilpricee")
         assert result.soft_duplicates == 1
         assert result.inserted == 0
         # insert_global_context_event should not be called
@@ -238,7 +238,7 @@ class TestMultiSourceIngestion:
             source=source,
             repository=repo,
             logger=MagicMock(),
-            channels=("financialjuice", "oilprice", "cointelegraph"),
+            channels=("financialjuice", "oilpricee", "cointelegraph"),
             channel_pacing_seconds=0,  # no pacing in tests
         )
 
@@ -449,7 +449,7 @@ class TestGlobalContextConfig:
         cfg = GlobalContextConfig()
         assert cfg.enabled is False
         assert "financialjuice" in cfg.channels
-        assert "oilprice" in cfg.channels
+        assert "oilpricee" in cfg.channels
         assert "cointelegraph" in cfg.channels
         assert cfg.poll_interval_seconds == 120
         assert cfg.fetch_limit_per_source == 20
