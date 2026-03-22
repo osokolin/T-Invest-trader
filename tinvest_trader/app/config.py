@@ -568,7 +568,7 @@ def load_config() -> AppConfig:
             channels=_parse_csv(
                 os.environ.get(
                     "TINVEST_GLOBAL_CONTEXT_CHANNELS",
-                    "financialjuice,oilprice,cointelegraph",
+                    "financialjuice,oilpricee,cointelegraph",
                 ),
             ),
             poll_interval_seconds=int(
