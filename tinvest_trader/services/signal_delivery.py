@@ -1,4 +1,10 @@
-"""Telegram signal delivery service."""
+"""Telegram signal delivery service.
+
+GUARDRAIL: DELIVERY layer -- transport only.
+- Format and send messages via Telegram Bot API.
+- No business logic, no signal filtering, no DB writes (except delivered_at).
+- See SYSTEM_GUARDRAILS.md section 10.
+"""
 
 from __future__ import annotations
 

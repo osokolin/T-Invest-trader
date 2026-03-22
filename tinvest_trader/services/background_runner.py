@@ -1,4 +1,10 @@
-"""Background runner for periodic sentiment ingestion and observation."""
+"""Background runner for periodic sentiment ingestion and observation.
+
+GUARDRAIL: orchestration only -- delegates to services.
+- Must not contain business logic (scoring, filtering, enrichment).
+- One failing service must not crash the loop.
+- See SYSTEM_GUARDRAILS.md section 12.
+"""
 
 from __future__ import annotations
 
