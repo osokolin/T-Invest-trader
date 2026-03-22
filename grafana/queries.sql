@@ -21,28 +21,28 @@ WHERE pipeline_stage = 'delivered'
   AND created_at >= now() - interval '24 hours';
 
 -- [stat] Win Rate (7d, delivered)
-SELECT round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END), 3) AS win_rate
+SELECT round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END)::numeric, 3) AS win_rate
 FROM signal_predictions
 WHERE resolved_at IS NOT NULL
   AND pipeline_stage = 'delivered'
   AND created_at >= now() - interval '7 days';
 
 -- [stat] Win Rate (24h, delivered)
-SELECT round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END), 3) AS win_rate
+SELECT round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END)::numeric, 3) AS win_rate
 FROM signal_predictions
 WHERE resolved_at IS NOT NULL
   AND pipeline_stage = 'delivered'
   AND created_at >= now() - interval '24 hours';
 
 -- [stat] Avg Return (7d, delivered)
-SELECT round(avg(return_pct), 5) AS avg_return
+SELECT round(avg(return_pct)::numeric, 5) AS avg_return
 FROM signal_predictions
 WHERE resolved_at IS NOT NULL
   AND pipeline_stage = 'delivered'
   AND created_at >= now() - interval '7 days';
 
 -- [stat] EV (all time, delivered)
-SELECT round(avg(return_pct), 5) AS ev
+SELECT round(avg(return_pct)::numeric, 5) AS ev
 FROM signal_predictions
 WHERE resolved_at IS NOT NULL
   AND pipeline_stage = 'delivered';
@@ -52,9 +52,9 @@ SELECT source_channel,
        count(*) AS signals,
        count(*) FILTER (WHERE resolved_at IS NOT NULL) AS resolved,
        round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END)
-             FILTER (WHERE resolved_at IS NOT NULL), 3) AS win_rate,
+             FILTER (WHERE resolved_at IS NOT NULL)::numeric, 3) AS win_rate,
        round(avg(return_pct)
-             FILTER (WHERE resolved_at IS NOT NULL), 5) AS ev
+             FILTER (WHERE resolved_at IS NOT NULL)::numeric, 5) AS ev
 FROM signal_predictions
 WHERE pipeline_stage = 'delivered'
   AND source_channel IS NOT NULL
@@ -67,9 +67,9 @@ SELECT ticker,
        count(*) AS signals,
        count(*) FILTER (WHERE resolved_at IS NOT NULL) AS resolved,
        round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END)
-             FILTER (WHERE resolved_at IS NOT NULL), 3) AS win_rate,
+             FILTER (WHERE resolved_at IS NOT NULL)::numeric, 3) AS win_rate,
        round(avg(return_pct)
-             FILTER (WHERE resolved_at IS NOT NULL), 5) AS ev
+             FILTER (WHERE resolved_at IS NOT NULL)::numeric, 5) AS ev
 FROM signal_predictions
 WHERE pipeline_stage = 'delivered'
 GROUP BY ticker
@@ -79,8 +79,8 @@ ORDER BY ev DESC;
 -- [table] AI Gating Impact (shadow)
 SELECT ai_gate_decision,
        count(*) AS signals,
-       round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END), 3) AS win_rate,
-       round(avg(return_pct), 5) AS ev
+       round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END)::numeric, 3) AS win_rate,
+       round(avg(return_pct)::numeric, 5) AS ev
 FROM signal_predictions
 WHERE resolved_at IS NOT NULL
   AND ai_gate_decision IS NOT NULL
@@ -96,8 +96,8 @@ SELECT CASE
          ELSE 'weak (<1.0)'
        END AS weight_tier,
        count(*) AS signals,
-       round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END), 3) AS win_rate,
-       round(avg(return_pct), 5) AS ev
+       round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END)::numeric, 3) AS win_rate,
+       round(avg(return_pct)::numeric, 5) AS ev
 FROM signal_predictions
 WHERE resolved_at IS NOT NULL
   AND pipeline_stage = 'delivered'
@@ -107,8 +107,8 @@ ORDER BY 1;
 -- [table] Global Alignment Impact (shadow)
 SELECT COALESCE(global_alignment, 'not_enriched') AS alignment,
        count(*) AS signals,
-       round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END), 3) AS win_rate,
-       round(avg(return_pct), 5) AS ev
+       round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END)::numeric, 3) AS win_rate,
+       round(avg(return_pct)::numeric, 5) AS ev
 FROM signal_predictions
 WHERE resolved_at IS NOT NULL
   AND pipeline_stage = 'delivered'
@@ -187,13 +187,13 @@ SELECT source_channel,
        count(*) FILTER (WHERE pipeline_stage = 'delivered') AS delivered,
        count(*) FILTER (WHERE resolved_at IS NOT NULL) AS resolved,
        round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END)
-             FILTER (WHERE resolved_at IS NOT NULL), 3) AS win_rate,
+             FILTER (WHERE resolved_at IS NOT NULL)::numeric, 3) AS win_rate,
        round(avg(return_pct)
-             FILTER (WHERE resolved_at IS NOT NULL), 5) AS avg_return,
+             FILTER (WHERE resolved_at IS NOT NULL)::numeric, 5) AS avg_return,
        round(avg(return_pct)
-             FILTER (WHERE resolved_at IS NOT NULL AND pipeline_stage = 'delivered'), 5) AS ev,
+             FILTER (WHERE resolved_at IS NOT NULL AND pipeline_stage = 'delivered')::numeric, 5) AS ev,
        round(avg(source_weight)
-             FILTER (WHERE source_weight IS NOT NULL), 3) AS avg_source_weight
+             FILTER (WHERE source_weight IS NOT NULL)::numeric, 3) AS avg_source_weight
 FROM signal_predictions
 WHERE source_channel IS NOT NULL
 GROUP BY source_channel
@@ -212,8 +212,8 @@ ORDER BY count DESC;
 -- [table] Performance by AI Divergence Bucket
 SELECT COALESCE(a.divergence_bucket, 'no_analysis') AS bucket,
        count(*) AS signals,
-       round(avg(CASE WHEN sp.outcome_label = 'win' THEN 1.0 ELSE 0.0 END), 3) AS win_rate,
-       round(avg(sp.return_pct), 5) AS ev
+       round(avg(CASE WHEN sp.outcome_label = 'win' THEN 1.0 ELSE 0.0 END)::numeric, 3) AS win_rate,
+       round(avg(sp.return_pct)::numeric, 5) AS ev
 FROM signal_predictions sp
 LEFT JOIN signal_ai_analyses a ON a.signal_id = sp.id
 WHERE sp.resolved_at IS NOT NULL
@@ -227,11 +227,11 @@ SELECT COALESCE(ai_gate_decision, 'no_gate') AS gate_decision,
        count(*) AS signals,
        count(*) FILTER (WHERE resolved_at IS NOT NULL) AS resolved,
        round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END)
-             FILTER (WHERE resolved_at IS NOT NULL), 3) AS win_rate,
+             FILTER (WHERE resolved_at IS NOT NULL)::numeric, 3) AS win_rate,
        round(avg(return_pct)
-             FILTER (WHERE resolved_at IS NOT NULL), 5) AS ev,
+             FILTER (WHERE resolved_at IS NOT NULL)::numeric, 5) AS ev,
        round(avg(confidence)
-             FILTER (WHERE resolved_at IS NOT NULL), 4) AS avg_confidence
+             FILTER (WHERE resolved_at IS NOT NULL)::numeric, 4) AS avg_confidence
 FROM signal_predictions
 WHERE pipeline_stage = 'delivered'
 GROUP BY 1
@@ -242,11 +242,11 @@ SELECT COALESCE(global_alignment, 'not_enriched') AS alignment,
        count(*) AS signals,
        count(*) FILTER (WHERE resolved_at IS NOT NULL) AS resolved,
        round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END)
-             FILTER (WHERE resolved_at IS NOT NULL), 3) AS win_rate,
+             FILTER (WHERE resolved_at IS NOT NULL)::numeric, 3) AS win_rate,
        round(avg(return_pct)
-             FILTER (WHERE resolved_at IS NOT NULL), 5) AS ev,
+             FILTER (WHERE resolved_at IS NOT NULL)::numeric, 5) AS ev,
        round(avg(global_adjustment)
-             FILTER (WHERE global_adjustment IS NOT NULL), 4) AS avg_adjustment
+             FILTER (WHERE global_adjustment IS NOT NULL)::numeric, 4) AS avg_adjustment
 FROM signal_predictions
 WHERE pipeline_stage = 'delivered'
 GROUP BY 1

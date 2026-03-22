@@ -43,7 +43,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT source_channel, count(*) AS total, count(*) FILTER (WHERE pipeline_stage = 'delivered') AS delivered, count(*) FILTER (WHERE resolved_at IS NOT NULL) AS resolved, round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END) FILTER (WHERE resolved_at IS NOT NULL), 3) AS win_rate, round(avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL), 5) AS avg_return, round(avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL AND pipeline_stage = 'delivered'), 5) AS ev, round(avg(source_weight) FILTER (WHERE source_weight IS NOT NULL), 3) AS avg_source_weight FROM signal_predictions WHERE source_channel IS NOT NULL GROUP BY source_channel HAVING count(*) >= 3 ORDER BY ev DESC NULLS LAST;",
+          "rawSql": "SELECT source_channel, count(*) AS total, count(*) FILTER (WHERE pipeline_stage = 'delivered') AS delivered, count(*) FILTER (WHERE resolved_at IS NOT NULL) AS resolved, round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 3) AS win_rate, round(avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 5) AS avg_return, round(avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL AND pipeline_stage = 'delivered')::numeric, 5) AS ev, round(avg(source_weight) FILTER (WHERE source_weight IS NOT NULL)::numeric, 3) AS avg_source_weight FROM signal_predictions WHERE source_channel IS NOT NULL GROUP BY source_channel HAVING count(*) >= 3 ORDER BY total DESC;",
           "refId": "A"
         }
       ],
@@ -111,7 +111,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(a.divergence_bucket, 'no_analysis') AS bucket, count(*) AS signals, round(avg(CASE WHEN sp.outcome_label = 'win' THEN 1.0 ELSE 0.0 END), 3) AS win_rate, round(avg(sp.return_pct), 5) AS ev FROM signal_predictions sp LEFT JOIN signal_ai_analyses a ON a.signal_id = sp.id WHERE sp.resolved_at IS NOT NULL AND sp.pipeline_stage = 'delivered' GROUP BY 1 HAVING count(*) >= 3 ORDER BY ev DESC;",
+          "rawSql": "SELECT COALESCE(a.divergence_bucket, 'no_analysis') AS bucket, count(*) AS signals, round(avg(CASE WHEN sp.outcome_label = 'win' THEN 1.0 ELSE 0.0 END)::numeric, 3) AS win_rate, round(avg(sp.return_pct)::numeric, 5) AS ev FROM signal_predictions sp LEFT JOIN signal_ai_analyses a ON a.signal_id = sp.id WHERE sp.resolved_at IS NOT NULL AND sp.pipeline_stage = 'delivered' GROUP BY 1 HAVING count(*) >= 3 ORDER BY signals DESC;",
           "refId": "A"
         }
       ],
@@ -141,7 +141,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(ai_gate_decision, 'no_gate') AS gate_decision, count(*) AS signals, count(*) FILTER (WHERE resolved_at IS NOT NULL) AS resolved, round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END) FILTER (WHERE resolved_at IS NOT NULL), 3) AS win_rate, round(avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL), 5) AS ev, round(avg(confidence) FILTER (WHERE resolved_at IS NOT NULL), 4) AS avg_confidence FROM signal_predictions WHERE pipeline_stage = 'delivered' GROUP BY 1 ORDER BY 1;",
+          "rawSql": "SELECT COALESCE(ai_gate_decision, 'no_gate') AS gate_decision, count(*) AS signals, count(*) FILTER (WHERE resolved_at IS NOT NULL) AS resolved, round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 3) AS win_rate, round(avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 5) AS ev, round(avg(confidence) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 4) AS avg_confidence FROM signal_predictions WHERE pipeline_stage = 'delivered' GROUP BY 1 ORDER BY 1;",
           "refId": "A"
         }
       ],
@@ -171,7 +171,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(global_alignment, 'not_enriched') AS alignment, count(*) AS signals, count(*) FILTER (WHERE resolved_at IS NOT NULL) AS resolved, round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END) FILTER (WHERE resolved_at IS NOT NULL), 3) AS win_rate, round(avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL), 5) AS ev, round(avg(global_adjustment) FILTER (WHERE global_adjustment IS NOT NULL), 4) AS avg_adjustment FROM signal_predictions WHERE pipeline_stage = 'delivered' GROUP BY 1 ORDER BY 1;",
+          "rawSql": "SELECT COALESCE(global_alignment, 'not_enriched') AS alignment, count(*) AS signals, count(*) FILTER (WHERE resolved_at IS NOT NULL) AS resolved, round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 3) AS win_rate, round(avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 5) AS ev, round(avg(global_adjustment) FILTER (WHERE global_adjustment IS NOT NULL)::numeric, 4) AS avg_adjustment FROM signal_predictions WHERE pipeline_stage = 'delivered' GROUP BY 1 ORDER BY 1;",
           "refId": "A"
         }
       ],
