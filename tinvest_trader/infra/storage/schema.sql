@@ -645,3 +645,23 @@ CREATE INDEX IF NOT EXISTS idx_global_market_snapshots_symbol_time
     ON global_market_snapshots (symbol, source_time DESC);
 CREATE INDEX IF NOT EXISTS idx_global_market_snapshots_category_time
     ON global_market_snapshots (category, source_time DESC);
+
+-- ============================================================
+-- Alerting: operator notification state tracking
+-- ============================================================
+
+-- Tracks fired alerts for cooldown/dedup and audit.
+CREATE TABLE IF NOT EXISTS alert_events (
+    id              BIGSERIAL PRIMARY KEY,
+    alert_key       TEXT NOT NULL,
+    alert_category  TEXT NOT NULL,
+    severity        TEXT NOT NULL DEFAULT 'warning',
+    title           TEXT NOT NULL,
+    message         TEXT NOT NULL DEFAULT '',
+    sent            BOOLEAN NOT NULL DEFAULT FALSE,
+    fired_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_alert_events_key_fired
+    ON alert_events (alert_key, fired_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alert_events_category
+    ON alert_events (alert_category, fired_at DESC);

@@ -59,6 +59,8 @@ class BackgroundRunner:
         signal_delivery_config: SignalDeliveryConfig | None = None,
         signal_delivery_fn: Callable[[], int] | None = None,
         callback_handler_fn: Callable[[], None] | None = None,
+        alerting_fn: Callable[[], object] | None = None,
+        alerting_interval_seconds: int = 300,
         time_fn: Callable[[], float] | None = None,
     ) -> None:
         self._config = config
@@ -82,6 +84,8 @@ class BackgroundRunner:
         self._signal_delivery_config = signal_delivery_config
         self._signal_delivery_fn = signal_delivery_fn
         self._callback_handler_fn = callback_handler_fn
+        self._alerting_fn = alerting_fn
+        self._alerting_interval_seconds = alerting_interval_seconds
         self._time_fn = time_fn or time.monotonic
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -222,6 +226,7 @@ class BackgroundRunner:
             or self._quote_sync_is_runnable()
             or self._signal_delivery_is_runnable()
             or self._callback_handler_is_runnable()
+            or self._alerting_is_runnable()
         )
 
     def _sentiment_is_runnable(self) -> bool:
@@ -275,6 +280,12 @@ class BackgroundRunner:
             self._signal_delivery_config is not None
             and self._signal_delivery_config.enabled
             and self._callback_handler_fn is not None
+        )
+
+    def _alerting_is_runnable(self) -> bool:
+        return (
+            self._config.run_alerting
+            and self._alerting_fn is not None
         )
 
     def run_broker_event_cycle(self) -> None:
@@ -459,6 +470,26 @@ class BackgroundRunner:
                 extra={"component": "background_runner"},
             )
 
+    def run_alerting_cycle(self) -> None:
+        """Run one alerting check cycle safely."""
+        if not self._alerting_is_runnable():
+            return
+
+        try:
+            result = self._alerting_fn()
+            self._logger.info(
+                "background alerting cycle complete",
+                extra={
+                    "component": "background_runner",
+                    "result": str(result),
+                },
+            )
+        except Exception:
+            self._logger.exception(
+                "background alerting cycle failed",
+                extra={"component": "background_runner"},
+            )
+
     def run_callback_handler_cycle(self) -> None:
         """Run one callback polling cycle safely."""
         if not self._callback_handler_is_runnable():
@@ -484,6 +515,7 @@ class BackgroundRunner:
         next_quote_sync_run = self._time_fn()
         next_signal_delivery_run = self._time_fn()
         next_callback_handler_run = self._time_fn()
+        next_alerting_run = self._time_fn()
 
         while not self._stop_event.is_set():
             now = self._time_fn()
@@ -630,6 +662,21 @@ class BackgroundRunner:
                     cb_wait
                     if next_wait is None
                     else min(next_wait, cb_wait)
+                )
+
+            if self._alerting_is_runnable():
+                if now >= next_alerting_run:
+                    self.run_alerting_cycle()
+                    next_alerting_run = self._time_fn() + max(
+                        1, self._alerting_interval_seconds,
+                    )
+                alerting_wait = max(
+                    0.0, next_alerting_run - self._time_fn(),
+                )
+                next_wait = (
+                    alerting_wait
+                    if next_wait is None
+                    else min(next_wait, alerting_wait)
                 )
 
             if next_wait is None:

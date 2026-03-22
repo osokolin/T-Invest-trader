@@ -144,6 +144,9 @@ class Container:
         # Callback handler callable (used by background runner)
         self._callback_handler_fn = self._build_callback_handler_fn()
 
+        # Alerting callable (used by background runner and CLI)
+        self._alerting_fn = self._build_alerting_fn()
+
         # Background runner (optional, disabled by default)
         if self.config.background.enabled:
             self._wire_background_runner()
@@ -566,6 +569,37 @@ class Container:
             )
         return _poll
 
+    def _build_alerting_fn(self):
+        """Build a callable for alerting checks."""
+        cfg = self.config.alerting
+        if not cfg.enabled:
+            return None
+        if self.repository is None:
+            return None
+
+        from tinvest_trader.services.alerting import run_alert_check
+
+        delivery_cfg = self.config.signal_delivery
+
+        def _check():
+            return run_alert_check(
+                alerting_config=cfg,
+                delivery_config=delivery_cfg,
+                repository=self.repository,
+                logger=self.logger,
+                send=True,
+            )
+
+        self.logger.info(
+            "alerting initialized",
+            extra={
+                "component": "alerting",
+                "check_interval_seconds": cfg.check_interval_seconds,
+                "cooldown_seconds": cfg.cooldown_seconds,
+            },
+        )
+        return _check
+
     def _wire_background_runner(self) -> None:
         """Wire background runner when enabled."""
         self.background_runner = BackgroundRunner(
@@ -590,6 +624,8 @@ class Container:
             signal_delivery_config=self.config.signal_delivery,
             signal_delivery_fn=self._signal_delivery_fn,
             callback_handler_fn=self._callback_handler_fn,
+            alerting_fn=self._alerting_fn,
+            alerting_interval_seconds=self.config.alerting.check_interval_seconds,
         )
 
         self.logger.info(

@@ -322,6 +322,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show latest global market data snapshot",
     )
 
+    # -- check-alerts --
+    alerts_parser = subparsers.add_parser(
+        "check-alerts",
+        help="Run operator alerting checks",
+    )
+    alerts_parser.add_argument(
+        "--send", action="store_true",
+        help="Send alerts via Telegram (default: evaluate only)",
+    )
+    alerts_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Evaluate alerts without persisting or sending",
+    )
+
     # -- sync-quotes --
     sync_quotes_parser = subparsers.add_parser(
         "sync-quotes",
@@ -429,6 +443,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_global_context_impact_report(
                 container,
                 min_resolved=args.min_resolved,
+            )
+        if args.command == "check-alerts":
+            return _run_check_alerts(
+                config, container,
+                send=args.send,
+                dry_run=args.dry_run,
             )
         if args.command == "sync-global-market-data":
             return _run_sync_global_market_data(container)
@@ -1424,6 +1444,39 @@ def _run_global_market_data_report(container: Container) -> int:
     )
 
     print(build_global_market_data_report(repository))
+    return 0
+
+
+def _run_check_alerts(
+    config: AppConfig,
+    container: Container,
+    *,
+    send: bool = False,
+    dry_run: bool = False,
+) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.alerting import run_alert_check
+
+    delivery_cfg = config.signal_delivery if send else None
+    result = run_alert_check(
+        alerting_config=config.alerting,
+        delivery_config=delivery_cfg,
+        repository=repository,
+        logger=container.logger,
+        send=send,
+        dry_run=dry_run,
+    )
+    print(f"alerts_evaluated: {result.alerts_evaluated}")
+    print(f"alerts_fired: {result.alerts_fired}")
+    print(f"alerts_sent: {result.alerts_sent}")
+    print(f"alerts_cooled_down: {result.alerts_cooled_down}")
+    if result.details:
+        for detail in result.details:
+            print(f"  {detail}")
     return 0
 
 
