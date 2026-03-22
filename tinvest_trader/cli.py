@@ -1,3 +1,10 @@
+"""CLI entry point -- ANALYTICS layer (read-only).
+
+GUARDRAIL: CLI commands are for reporting and one-shot operations only.
+- No side effects on signal pipeline or delivery.
+- See SYSTEM_GUARDRAILS.md section 7.
+"""
+
 from __future__ import annotations
 
 import argparse

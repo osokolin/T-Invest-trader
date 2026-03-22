@@ -49,6 +49,13 @@ The system is modular and layered.
 
 ---
 
+## Architecture Principles
+
+See [SYSTEM_GUARDRAILS.md](SYSTEM_GUARDRAILS.md) for strict pipeline boundaries,
+shadow-first development rules, and the PR checklist.
+
+---
+
 ## Core Components
 
 ### 1. Market Data
