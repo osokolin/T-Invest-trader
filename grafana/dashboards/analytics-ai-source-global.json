@@ -1,0 +1,193 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 50,
+      "title": "Section A: Source Analytics",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 1 },
+      "id": 1,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "displayName": "ev", "desc": true }]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT source_channel, count(*) AS total, count(*) FILTER (WHERE pipeline_stage = 'delivered') AS delivered, count(*) FILTER (WHERE resolved_at IS NOT NULL) AS resolved, round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END) FILTER (WHERE resolved_at IS NOT NULL), 3) AS win_rate, round(avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL), 5) AS avg_return, round(avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL AND pipeline_stage = 'delivered'), 5) AS ev, round(avg(source_weight) FILTER (WHERE source_weight IS NOT NULL), 3) AS avg_source_weight FROM signal_predictions WHERE source_channel IS NOT NULL GROUP BY source_channel HAVING count(*) >= 3 ORDER BY ev DESC NULLS LAST;",
+          "refId": "A"
+        }
+      ],
+      "title": "Source Performance (all time, min 3 signals)",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 10 },
+      "id": 51,
+      "title": "Section B: AI Divergence",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 11 },
+      "id": 5,
+      "options": {
+        "displayMode": "gradient",
+        "minVizHeight": 10,
+        "minVizWidth": 0,
+        "namePlacement": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showUnfilled": true,
+        "valueMode": "color"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(a.divergence_bucket, 'no_analysis') AS bucket, count(*) AS count FROM signal_predictions sp LEFT JOIN signal_ai_analyses a ON a.signal_id = sp.id WHERE sp.pipeline_stage = 'delivered' GROUP BY 1 ORDER BY count DESC;",
+          "refId": "A"
+        }
+      ],
+      "title": "AI Divergence Buckets (delivered)",
+      "type": "bargauge"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 11 },
+      "id": 6,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "displayName": "ev", "desc": true }]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(a.divergence_bucket, 'no_analysis') AS bucket, count(*) AS signals, round(avg(CASE WHEN sp.outcome_label = 'win' THEN 1.0 ELSE 0.0 END), 3) AS win_rate, round(avg(sp.return_pct), 5) AS ev FROM signal_predictions sp LEFT JOIN signal_ai_analyses a ON a.signal_id = sp.id WHERE sp.resolved_at IS NOT NULL AND sp.pipeline_stage = 'delivered' GROUP BY 1 HAVING count(*) >= 3 ORDER BY ev DESC;",
+          "refId": "A"
+        }
+      ],
+      "title": "Performance by AI Divergence Bucket (min 3 resolved)",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 19 },
+      "id": 52,
+      "title": "Section C: AI Gating (shadow)",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 20 },
+      "id": 8,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(ai_gate_decision, 'no_gate') AS gate_decision, count(*) AS signals, count(*) FILTER (WHERE resolved_at IS NOT NULL) AS resolved, round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END) FILTER (WHERE resolved_at IS NOT NULL), 3) AS win_rate, round(avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL), 5) AS ev, round(avg(confidence) FILTER (WHERE resolved_at IS NOT NULL), 4) AS avg_confidence FROM signal_predictions WHERE pipeline_stage = 'delivered' GROUP BY 1 ORDER BY 1;",
+          "refId": "A"
+        }
+      ],
+      "title": "AI Gating: Baseline vs Filtered (shadow, delivered only)",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 },
+      "id": 53,
+      "title": "Section D: Global Context Alignment (shadow)",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 28 },
+      "id": 10,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(global_alignment, 'not_enriched') AS alignment, count(*) AS signals, count(*) FILTER (WHERE resolved_at IS NOT NULL) AS resolved, round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END) FILTER (WHERE resolved_at IS NOT NULL), 3) AS win_rate, round(avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL), 5) AS ev, round(avg(global_adjustment) FILTER (WHERE global_adjustment IS NOT NULL), 4) AS avg_adjustment FROM signal_predictions WHERE pipeline_stage = 'delivered' GROUP BY 1 ORDER BY 1;",
+          "refId": "A"
+        }
+      ],
+      "title": "Global Alignment: Performance by Alignment (delivered)",
+      "type": "table"
+    }
+  ],
+  "refresh": "5m",
+  "schemaVersion": 39,
+  "tags": ["tinvest", "analytics", "ai", "source", "global"],
+  "templating": { "list": [] },
+  "time": { "from": "now-30d", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Analytics: AI / Source / Global",
+  "uid": "analytics-ai-source-global",
+  "version": 1,
+  "weekStart": ""
+}

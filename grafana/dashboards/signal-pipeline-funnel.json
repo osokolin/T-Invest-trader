@@ -1,0 +1,148 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "displayMode": "gradient",
+        "minVizHeight": 10,
+        "minVizWidth": 0,
+        "namePlacement": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showUnfilled": true,
+        "valueMode": "color"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(pipeline_stage, 'unknown') AS stage, count(*) AS count FROM signal_predictions WHERE created_at >= now() - interval '7 days' GROUP BY 1 ORDER BY count DESC;",
+          "refId": "A"
+        }
+      ],
+      "title": "Signals by Pipeline Stage (7d)",
+      "type": "bargauge"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "displayName": "count", "desc": true }]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(pipeline_stage, 'unknown') AS stage, COALESCE(rejection_reason, '-') AS reason, count(*) AS count FROM signal_predictions WHERE created_at >= now() - interval '7 days' GROUP BY 1, 2 ORDER BY count DESC LIMIT 20;",
+          "refId": "A"
+        }
+      ],
+      "title": "Pipeline Stage + Rejection Reason (7d)",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "id": 3,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH totals AS (SELECT count(*) AS total FROM signal_predictions WHERE created_at >= now() - interval '7 days'), by_stage AS (SELECT COALESCE(pipeline_stage, 'unknown') AS stage, count(*) AS cnt FROM signal_predictions WHERE created_at >= now() - interval '7 days' GROUP BY 1) SELECT s.stage, s.cnt AS signals, round(s.cnt * 100.0 / NULLIF(t.total, 0), 1) AS pct_of_total, round(avg(CASE WHEN sp.outcome_label = 'win' THEN 1.0 ELSE 0.0 END) FILTER (WHERE sp.resolved_at IS NOT NULL), 3) AS win_rate, round(avg(sp.return_pct) FILTER (WHERE sp.resolved_at IS NOT NULL), 5) AS ev, count(*) FILTER (WHERE sp.resolved_at IS NOT NULL) AS resolved FROM by_stage s CROSS JOIN totals t JOIN signal_predictions sp ON COALESCE(sp.pipeline_stage, 'unknown') = s.stage AND sp.created_at >= now() - interval '7 days' GROUP BY s.stage, s.cnt, t.total ORDER BY s.cnt DESC;",
+          "refId": "A"
+        }
+      ],
+      "title": "Stage Conversion + Performance (7d)",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "id": 4,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(created_at, '1d'), COALESCE(pipeline_stage, 'unknown') AS metric, count(*)::double precision AS value FROM signal_predictions WHERE $__timeFilter(created_at) GROUP BY 1, 2 ORDER BY 1;",
+          "refId": "A"
+        }
+      ],
+      "title": "Signals by Stage Over Time",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "5m",
+  "schemaVersion": 39,
+  "tags": ["tinvest", "pipeline", "funnel"],
+  "templating": { "list": [] },
+  "time": { "from": "now-7d", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Signal Pipeline Funnel",
+  "uid": "signal-pipeline-funnel",
+  "version": 1,
+  "weekStart": ""
+}
