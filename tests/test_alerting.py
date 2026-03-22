@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -52,16 +52,28 @@ def _now():
     return datetime.now(UTC)
 
 
+# Fixed datetimes for deterministic tests (Monday=0 .. Sunday=6)
+_WEDNESDAY = datetime(2026, 3, 18, 12, 0, 0, tzinfo=UTC)  # weekday=2
+_SATURDAY = datetime(2026, 3, 21, 12, 0, 0, tzinfo=UTC)  # weekday=5
+
+
+@patch("tinvest_trader.services.alerting.datetime")
 class TestEvaluateAlerts:
+    """All gap tests use a patched Wednesday datetime for determinism."""
+
+    def _setup_mock_dt(self, mock_dt):
+        mock_dt.now.return_value = _WEDNESDAY
+
     def test_no_alerts_when_all_healthy(
-        self, alerting_config, mock_repo, mock_logger,
+        self, mock_dt, alerting_config, mock_repo, mock_logger,
     ):
+        self._setup_mock_dt(mock_dt)
         mock_repo.get_alerting_health_data.return_value = {
-            "latest_signal_at": _now() - timedelta(minutes=10),
+            "latest_signal_at": _WEDNESDAY - timedelta(minutes=10),
             "pending_signals": 5,
-            "latest_telegram_at": _now() - timedelta(minutes=5),
-            "latest_quote_at": _now() - timedelta(minutes=2),
-            "latest_global_context_at": _now() - timedelta(minutes=10),
+            "latest_telegram_at": _WEDNESDAY - timedelta(minutes=5),
+            "latest_quote_at": _WEDNESDAY - timedelta(minutes=2),
+            "latest_global_context_at": _WEDNESDAY - timedelta(minutes=10),
             "win_rate_7d_resolved": 20,
             "win_rate_7d": 0.55,
         }
@@ -69,14 +81,15 @@ class TestEvaluateAlerts:
         assert alerts == []
 
     def test_signal_gap_alert(
-        self, alerting_config, mock_repo, mock_logger,
+        self, mock_dt, alerting_config, mock_repo, mock_logger,
     ):
+        self._setup_mock_dt(mock_dt)
         mock_repo.get_alerting_health_data.return_value = {
-            "latest_signal_at": _now() - timedelta(minutes=200),
+            "latest_signal_at": _WEDNESDAY - timedelta(minutes=200),
             "pending_signals": 0,
-            "latest_telegram_at": _now(),
-            "latest_quote_at": _now(),
-            "latest_global_context_at": _now(),
+            "latest_telegram_at": _WEDNESDAY,
+            "latest_quote_at": _WEDNESDAY,
+            "latest_global_context_at": _WEDNESDAY,
             "win_rate_7d_resolved": 0,
             "win_rate_7d": None,
         }
@@ -88,14 +101,15 @@ class TestEvaluateAlerts:
         assert alert.severity == "warning"
 
     def test_pending_signals_alert(
-        self, alerting_config, mock_repo, mock_logger,
+        self, mock_dt, alerting_config, mock_repo, mock_logger,
     ):
+        self._setup_mock_dt(mock_dt)
         mock_repo.get_alerting_health_data.return_value = {
-            "latest_signal_at": _now(),
+            "latest_signal_at": _WEDNESDAY,
             "pending_signals": 100,
-            "latest_telegram_at": _now(),
-            "latest_quote_at": _now(),
-            "latest_global_context_at": _now(),
+            "latest_telegram_at": _WEDNESDAY,
+            "latest_quote_at": _WEDNESDAY,
+            "latest_global_context_at": _WEDNESDAY,
             "win_rate_7d_resolved": 0,
             "win_rate_7d": None,
         }
@@ -104,14 +118,15 @@ class TestEvaluateAlerts:
         assert "pending_signals_high" in keys
 
     def test_win_rate_alert(
-        self, alerting_config, mock_repo, mock_logger,
+        self, mock_dt, alerting_config, mock_repo, mock_logger,
     ):
+        self._setup_mock_dt(mock_dt)
         mock_repo.get_alerting_health_data.return_value = {
-            "latest_signal_at": _now(),
+            "latest_signal_at": _WEDNESDAY,
             "pending_signals": 0,
-            "latest_telegram_at": _now(),
-            "latest_quote_at": _now(),
-            "latest_global_context_at": _now(),
+            "latest_telegram_at": _WEDNESDAY,
+            "latest_quote_at": _WEDNESDAY,
+            "latest_global_context_at": _WEDNESDAY,
             "win_rate_7d_resolved": 15,
             "win_rate_7d": 0.2,
         }
@@ -122,14 +137,15 @@ class TestEvaluateAlerts:
         assert alert.severity == "critical"
 
     def test_win_rate_skipped_when_few_resolved(
-        self, alerting_config, mock_repo, mock_logger,
+        self, mock_dt, alerting_config, mock_repo, mock_logger,
     ):
+        self._setup_mock_dt(mock_dt)
         mock_repo.get_alerting_health_data.return_value = {
-            "latest_signal_at": _now(),
+            "latest_signal_at": _WEDNESDAY,
             "pending_signals": 0,
-            "latest_telegram_at": _now(),
-            "latest_quote_at": _now(),
-            "latest_global_context_at": _now(),
+            "latest_telegram_at": _WEDNESDAY,
+            "latest_quote_at": _WEDNESDAY,
+            "latest_global_context_at": _WEDNESDAY,
             "win_rate_7d_resolved": 3,
             "win_rate_7d": 0.1,
         }
@@ -138,14 +154,15 @@ class TestEvaluateAlerts:
         assert "win_rate_low" not in keys
 
     def test_telegram_gap_alert(
-        self, alerting_config, mock_repo, mock_logger,
+        self, mock_dt, alerting_config, mock_repo, mock_logger,
     ):
+        self._setup_mock_dt(mock_dt)
         mock_repo.get_alerting_health_data.return_value = {
-            "latest_signal_at": _now(),
+            "latest_signal_at": _WEDNESDAY,
             "pending_signals": 0,
-            "latest_telegram_at": _now() - timedelta(minutes=120),
-            "latest_quote_at": _now(),
-            "latest_global_context_at": _now(),
+            "latest_telegram_at": _WEDNESDAY - timedelta(minutes=120),
+            "latest_quote_at": _WEDNESDAY,
+            "latest_global_context_at": _WEDNESDAY,
             "win_rate_7d_resolved": 0,
             "win_rate_7d": None,
         }
@@ -154,14 +171,15 @@ class TestEvaluateAlerts:
         assert "telegram_gap" in keys
 
     def test_quote_gap_alert(
-        self, alerting_config, mock_repo, mock_logger,
+        self, mock_dt, alerting_config, mock_repo, mock_logger,
     ):
+        self._setup_mock_dt(mock_dt)
         mock_repo.get_alerting_health_data.return_value = {
-            "latest_signal_at": _now(),
+            "latest_signal_at": _WEDNESDAY,
             "pending_signals": 0,
-            "latest_telegram_at": _now(),
-            "latest_quote_at": _now() - timedelta(minutes=60),
-            "latest_global_context_at": _now(),
+            "latest_telegram_at": _WEDNESDAY,
+            "latest_quote_at": _WEDNESDAY - timedelta(minutes=60),
+            "latest_global_context_at": _WEDNESDAY,
             "win_rate_7d_resolved": 0,
             "win_rate_7d": None,
         }
@@ -170,14 +188,15 @@ class TestEvaluateAlerts:
         assert "quote_gap" in keys
 
     def test_global_context_gap_alert(
-        self, alerting_config, mock_repo, mock_logger,
+        self, mock_dt, alerting_config, mock_repo, mock_logger,
     ):
+        self._setup_mock_dt(mock_dt)
         mock_repo.get_alerting_health_data.return_value = {
-            "latest_signal_at": _now(),
+            "latest_signal_at": _WEDNESDAY,
             "pending_signals": 0,
-            "latest_telegram_at": _now(),
-            "latest_quote_at": _now(),
-            "latest_global_context_at": _now() - timedelta(minutes=120),
+            "latest_telegram_at": _WEDNESDAY,
+            "latest_quote_at": _WEDNESDAY,
+            "latest_global_context_at": _WEDNESDAY - timedelta(minutes=120),
             "win_rate_7d_resolved": 0,
             "win_rate_7d": None,
         }
@@ -188,26 +207,52 @@ class TestEvaluateAlerts:
         assert alert.severity == "info"
 
     def test_no_alerts_when_no_health_data(
-        self, alerting_config, mock_repo, mock_logger,
+        self, mock_dt, alerting_config, mock_repo, mock_logger,
     ):
+        self._setup_mock_dt(mock_dt)
         mock_repo.get_alerting_health_data.return_value = {}
         alerts = evaluate_alerts(alerting_config, mock_repo, mock_logger)
         assert alerts == []
 
     def test_multiple_alerts_can_fire(
-        self, alerting_config, mock_repo, mock_logger,
+        self, mock_dt, alerting_config, mock_repo, mock_logger,
     ):
+        self._setup_mock_dt(mock_dt)
         mock_repo.get_alerting_health_data.return_value = {
-            "latest_signal_at": _now() - timedelta(minutes=200),
+            "latest_signal_at": _WEDNESDAY - timedelta(minutes=200),
             "pending_signals": 100,
-            "latest_telegram_at": _now() - timedelta(minutes=120),
-            "latest_quote_at": _now() - timedelta(minutes=60),
-            "latest_global_context_at": _now() - timedelta(minutes=120),
+            "latest_telegram_at": _WEDNESDAY - timedelta(minutes=120),
+            "latest_quote_at": _WEDNESDAY - timedelta(minutes=60),
+            "latest_global_context_at": _WEDNESDAY - timedelta(minutes=120),
             "win_rate_7d_resolved": 20,
             "win_rate_7d": 0.2,
         }
         alerts = evaluate_alerts(alerting_config, mock_repo, mock_logger)
         assert len(alerts) >= 4
+
+    def test_gap_alerts_suppressed_on_weekend(
+        self, mock_dt, alerting_config, mock_repo, mock_logger,
+    ):
+        mock_dt.now.return_value = _SATURDAY
+        mock_repo.get_alerting_health_data.return_value = {
+            "latest_signal_at": _SATURDAY - timedelta(minutes=200),
+            "pending_signals": 100,
+            "latest_telegram_at": _SATURDAY - timedelta(minutes=120),
+            "latest_quote_at": _SATURDAY - timedelta(minutes=60),
+            "latest_global_context_at": _SATURDAY - timedelta(minutes=120),
+            "win_rate_7d_resolved": 20,
+            "win_rate_7d": 0.2,
+        }
+        alerts = evaluate_alerts(alerting_config, mock_repo, mock_logger)
+        keys = [a.key for a in alerts]
+        # Gap alerts suppressed on weekend
+        assert "signal_gap" not in keys
+        assert "telegram_gap" not in keys
+        assert "quote_gap" not in keys
+        assert "global_context_gap" not in keys
+        # Non-gap alerts still fire
+        assert "pending_signals_high" in keys
+        assert "win_rate_low" in keys
 
 
 class TestCooldown:
@@ -267,16 +312,21 @@ class TestFormatMessage:
         assert "CRITICAL" in text
 
 
+@patch("tinvest_trader.services.alerting.datetime")
 class TestRunAlertCheck:
+    def _setup_mock_dt(self, mock_dt):
+        mock_dt.now.return_value = _WEDNESDAY
+
     def test_dry_run_no_persist_no_send(
-        self, alerting_config, mock_repo, mock_logger,
+        self, mock_dt, alerting_config, mock_repo, mock_logger,
     ):
+        self._setup_mock_dt(mock_dt)
         mock_repo.get_alerting_health_data.return_value = {
-            "latest_signal_at": _now() - timedelta(minutes=200),
+            "latest_signal_at": _WEDNESDAY - timedelta(minutes=200),
             "pending_signals": 0,
-            "latest_telegram_at": _now(),
-            "latest_quote_at": _now(),
-            "latest_global_context_at": _now(),
+            "latest_telegram_at": _WEDNESDAY,
+            "latest_quote_at": _WEDNESDAY,
+            "latest_global_context_at": _WEDNESDAY,
             "win_rate_7d_resolved": 0,
             "win_rate_7d": None,
         }
@@ -289,14 +339,15 @@ class TestRunAlertCheck:
         mock_repo.insert_alert_event.assert_not_called()
 
     def test_alerts_persisted_when_not_dry_run(
-        self, alerting_config, mock_repo, mock_logger,
+        self, mock_dt, alerting_config, mock_repo, mock_logger,
     ):
+        self._setup_mock_dt(mock_dt)
         mock_repo.get_alerting_health_data.return_value = {
-            "latest_signal_at": _now() - timedelta(minutes=200),
+            "latest_signal_at": _WEDNESDAY - timedelta(minutes=200),
             "pending_signals": 0,
-            "latest_telegram_at": _now(),
-            "latest_quote_at": _now(),
-            "latest_global_context_at": _now(),
+            "latest_telegram_at": _WEDNESDAY,
+            "latest_quote_at": _WEDNESDAY,
+            "latest_global_context_at": _WEDNESDAY,
             "win_rate_7d_resolved": 0,
             "win_rate_7d": None,
         }
@@ -308,20 +359,21 @@ class TestRunAlertCheck:
         assert mock_repo.insert_alert_event.called
 
     def test_cooldown_prevents_duplicate(
-        self, alerting_config, mock_repo, mock_logger,
+        self, mock_dt, alerting_config, mock_repo, mock_logger,
     ):
+        self._setup_mock_dt(mock_dt)
         mock_repo.get_alerting_health_data.return_value = {
-            "latest_signal_at": _now() - timedelta(minutes=200),
+            "latest_signal_at": _WEDNESDAY - timedelta(minutes=200),
             "pending_signals": 0,
-            "latest_telegram_at": _now(),
-            "latest_quote_at": _now(),
-            "latest_global_context_at": _now(),
+            "latest_telegram_at": _WEDNESDAY,
+            "latest_quote_at": _WEDNESDAY,
+            "latest_global_context_at": _WEDNESDAY,
             "win_rate_7d_resolved": 0,
             "win_rate_7d": None,
         }
         # All alerts were recently fired
         mock_repo.get_last_alert_fired_at.return_value = (
-            _now() - timedelta(minutes=10)
+            _WEDNESDAY - timedelta(minutes=10)
         )
         result = run_alert_check(
             alerting_config, None, mock_repo, mock_logger,
