@@ -503,7 +503,7 @@ class TradingRepository:
                    sentiment_neutral_avg, sentiment_balance,
                    recorded_at
             FROM fused_signal_features
-            WHERE observation_time >= now() - interval '%s minutes'
+            WHERE observation_time >= now() - make_interval(mins => %s)
             ORDER BY observation_time DESC
             LIMIT %s
         """
