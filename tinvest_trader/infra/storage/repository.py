@@ -1373,13 +1373,13 @@ class TradingRepository:
     def list_undelivered_signals(
         self, limit: int = 50,
     ) -> list[dict]:
-        """List resolved signals that have not been delivered yet."""
+        """List generated signals that have not been delivered yet."""
         sql = """
             SELECT id, ticker, signal_type, confidence, source,
                    price_at_signal, created_at, source_channel,
                    return_pct, outcome_label
             FROM signal_predictions
-            WHERE resolved_at IS NOT NULL
+            WHERE pipeline_stage = 'generated'
               AND delivered_at IS NULL
             ORDER BY created_at
             LIMIT %s
