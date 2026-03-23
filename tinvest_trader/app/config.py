@@ -145,6 +145,7 @@ class SignalGenerationConfig:
     min_message_count: int = 3
     min_sentiment_balance: float = 0.3
     lookback_minutes: int = 30
+    cooldown_minutes: int = 30
     poll_interval_seconds: int = 60
 
 
@@ -389,6 +390,9 @@ def load_config() -> AppConfig:
             )),
             lookback_minutes=int(os.environ.get(
                 "TINVEST_SIGNAL_LOOKBACK_MINUTES", "30",
+            )),
+            cooldown_minutes=int(os.environ.get(
+                "TINVEST_SIGNAL_COOLDOWN_MINUTES", "30",
             )),
             poll_interval_seconds=int(os.environ.get(
                 "TINVEST_SIGNAL_GENERATION_POLL_INTERVAL_SECONDS", "60",

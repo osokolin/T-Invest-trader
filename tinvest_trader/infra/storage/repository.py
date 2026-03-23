@@ -565,6 +565,38 @@ class TradingRepository:
             )
             return False
 
+    def signal_exists_recent(
+        self,
+        ticker: str,
+        direction: str,
+        cooldown_minutes: int = 30,
+    ) -> bool:
+        """Check if a signal was already created for ticker+direction recently.
+
+        Uses a cooldown window instead of exact observation_time matching
+        to prevent repeated signals for the same ticker across generation
+        cycles.
+        """
+        sql = """
+            SELECT 1 FROM signal_predictions
+            WHERE ticker = %s
+              AND signal_type = %s
+              AND created_at >= now() - make_interval(mins => %s)
+            LIMIT 1
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                row = conn.execute(
+                    sql, (ticker, direction, cooldown_minutes),
+                ).fetchone()
+            return row is not None
+        except Exception:
+            self._logger.exception(
+                "failed to check signal cooldown",
+                extra={"component": "repository"},
+            )
+            return False
+
     # -- Signal predictions --
 
     def insert_signal_prediction(
@@ -630,7 +662,7 @@ class TradingRepository:
               AND created_at < %s
             ORDER BY created_at
         """
-        with self._pool.connection() as conn:
+        with self._pool.get_connection() as conn:
             rows = conn.execute(sql, (before,)).fetchall()
         return [
             {
@@ -662,7 +694,7 @@ class TradingRepository:
               AND resolved_at IS NULL
         """
         try:
-            with self._pool.connection() as conn:
+            with self._pool.get_connection() as conn:
                 conn.execute(
                     sql,
                     (
@@ -692,7 +724,7 @@ class TradingRepository:
                     AS avg_return
             FROM signal_predictions
         """
-        with self._pool.connection() as conn:
+        with self._pool.get_connection() as conn:
             row = conn.execute(sql).fetchone()
         if not row:
             return {
@@ -722,7 +754,7 @@ class TradingRepository:
             GROUP BY ticker
             ORDER BY total DESC
         """
-        with self._pool.connection() as conn:
+        with self._pool.get_connection() as conn:
             rows = conn.execute(sql).fetchall()
         return [
             {
@@ -749,7 +781,7 @@ class TradingRepository:
             GROUP BY signal_type
             ORDER BY signal_type
         """
-        with self._pool.connection() as conn:
+        with self._pool.get_connection() as conn:
             rows = conn.execute(sql).fetchall()
         return [
             {

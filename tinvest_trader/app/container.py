@@ -520,6 +520,7 @@ class Container:
             min_message_count=cfg.min_message_count,
             min_sentiment_balance=cfg.min_sentiment_balance,
             lookback_minutes=cfg.lookback_minutes,
+            cooldown_minutes=cfg.cooldown_minutes,
         )
 
         def _generate():
