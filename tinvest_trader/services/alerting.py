@@ -8,8 +8,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from typing import TYPE_CHECKING
+
+# Moscow timezone (UTC+3, no DST)
+_MSK = timezone(timedelta(hours=3))
 
 if TYPE_CHECKING:
     from tinvest_trader.app.config import AlertingConfig, SignalDeliveryConfig
@@ -51,14 +54,21 @@ def evaluate_alerts(
     now = datetime.now(UTC)
     alerts: list[Alert] = []
 
-    # Moscow Exchange is closed on weekends — skip gap-based alerts
-    # (Sat=5, Sun=6). Win rate and pending checks still apply.
-    is_weekend = now.weekday() >= 5
+    # Moscow Exchange trades weekdays 09:50–18:50 MSK.
+    # Skip gap-based alerts outside market hours (evenings, nights, weekends).
+    # Win rate and pending checks still apply at all times.
+    now_msk = now.astimezone(_MSK)
+    msk_minutes = now_msk.hour * 60 + now_msk.minute
+    market_open = (
+        now_msk.weekday() < 5
+        and 9 * 60 + 50 <= msk_minutes <= 18 * 60 + 50
+    )
+    suppress_gap_alerts = not market_open
 
     # -- Signal pipeline alerts --
 
     # No signals generated recently
-    if not is_weekend:
+    if not suppress_gap_alerts:
         latest_signal = health.get("latest_signal_at")
         if latest_signal is not None:
             gap = now - latest_signal
@@ -112,7 +122,7 @@ def evaluate_alerts(
 
     # -- Data/ingestion alerts (skip on weekends) --
 
-    if not is_weekend:
+    if not suppress_gap_alerts:
         # Telegram ingestion gap
         latest_tg = health.get("latest_telegram_at")
         if latest_tg is not None:
