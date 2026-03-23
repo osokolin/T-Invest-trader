@@ -141,7 +141,7 @@ class TestGenerateSignals:
     def _mock_repo(self, rows=None, exists=False):
         repo = MagicMock()
         repo.list_recent_fused_features.return_value = rows or []
-        repo.signal_exists_for_candidate.return_value = exists
+        repo.signal_exists_recent.return_value = exists
         repo.insert_signal_prediction.return_value = 42
         return repo
 
@@ -343,7 +343,7 @@ class TestGenerateSignalsPerTickerDedup:
     def _mock_repo(self, rows=None, exists=False):
         repo = MagicMock()
         repo.list_recent_fused_features.return_value = rows or []
-        repo.signal_exists_for_candidate.return_value = exists
+        repo.signal_exists_recent.return_value = exists
         repo.insert_signal_prediction.return_value = 42
         return repo
 

@@ -28,6 +28,7 @@ class SignalGenerationConfig:
     min_message_count: int = 3
     min_sentiment_balance: float = 0.3
     lookback_minutes: int = 30
+    cooldown_minutes: int = 30
     limit: int = 500
 
 
@@ -198,11 +199,10 @@ def generate_signals(
 
     # Phase 3: dedup check + insert
     for candidate in final_candidates:
-        exists = repository.signal_exists_for_candidate(
+        exists = repository.signal_exists_recent(
             ticker=candidate.ticker,
             direction=candidate.direction,
-            window=candidate.window,
-            observation_time=candidate.observation_time,
+            cooldown_minutes=cfg.cooldown_minutes,
         )
         if exists:
             result.skipped_duplicate += 1
