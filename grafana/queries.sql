@@ -20,6 +20,18 @@ FROM signal_predictions
 WHERE pipeline_stage = 'delivered'
   AND created_at >= now() - interval '24 hours';
 
+-- [stat] Signals Suppressed (24h, dedup)
+SELECT count(*) AS signals_suppressed
+FROM signal_predictions
+WHERE pipeline_stage = 'suppressed_delivery'
+  AND created_at >= now() - interval '24 hours';
+
+-- [stat] Delivery Rate (24h)
+SELECT count(*) FILTER (WHERE pipeline_stage = 'delivered')::numeric
+       / NULLIF(count(*), 0) AS delivery_rate
+FROM signal_predictions
+WHERE created_at >= now() - interval '24 hours';
+
 -- [stat] Win Rate (7d, delivered)
 SELECT round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END)::numeric, 3) AS win_rate
 FROM signal_predictions
@@ -388,6 +400,14 @@ LIMIT 15;
 -- [timeseries] Signals by source (5m buckets)
 SELECT date_trunc('minute', created_at) AS time,
        source_channel, count(*) AS value
+FROM signal_predictions
+WHERE created_at >= now() - interval '6 hours'
+GROUP BY 1, 2 ORDER BY 1;
+
+-- [timeseries] Signals by pipeline stage (5m buckets)
+SELECT date_trunc('minute', created_at) AS time,
+       COALESCE(pipeline_stage, 'unknown') AS stage,
+       count(*) AS value
 FROM signal_predictions
 WHERE created_at >= now() - interval '6 hours'
 GROUP BY 1, 2 ORDER BY 1;
