@@ -36,20 +36,24 @@ class SignalGenerationResult:
     """Summary of one signal generation cycle."""
 
     rows_seen: int = 0
+    candidates_before_dedup: int = 0
     candidates: int = 0
     inserted: int = 0
     skipped_threshold: int = 0
     skipped_duplicate: int = 0
+    skipped_ticker_dedup: int = 0
     failed: int = 0
     signals: list[dict] = field(default_factory=list)
 
     def summary(self) -> str:
         return (
             f"rows_seen={self.rows_seen} "
+            f"candidates_before_dedup={self.candidates_before_dedup} "
             f"candidates={self.candidates} "
             f"inserted={self.inserted} "
             f"skipped_threshold={self.skipped_threshold} "
             f"skipped_duplicate={self.skipped_duplicate} "
+            f"skipped_ticker_dedup={self.skipped_ticker_dedup} "
             f"failed={self.failed}"
         )
 
@@ -117,6 +121,30 @@ def evaluate_fused_row(
     )
 
 
+def select_best_per_ticker(
+    candidates: list[SignalCandidate],
+) -> list[SignalCandidate]:
+    """Select one best candidate per ticker.
+
+    Groups by ticker, picks the candidate with highest absolute
+    sentiment balance (confidence). On tie, picks the latest
+    observation_time.
+    """
+    by_ticker: dict[str, list[SignalCandidate]] = {}
+    for c in candidates:
+        by_ticker.setdefault(c.ticker, []).append(c)
+
+    best: list[SignalCandidate] = []
+    for _ticker, group in by_ticker.items():
+        winner = max(
+            group,
+            key=lambda c: (c.confidence, c.observation_time),
+        )
+        best.append(winner)
+
+    return best
+
+
 def generate_signals(
     repository: TradingRepository,
     logger: logging.Logger,
@@ -127,7 +155,8 @@ def generate_signals(
     """Generate signals from recent fused features.
 
     Reads fused_signal_features within lookback window, evaluates
-    thresholds, checks for duplicates, and inserts new predictions.
+    thresholds, selects best candidate per ticker, checks for
+    duplicates, and inserts new predictions.
 
     Idempotent: uses (ticker, direction, window, observation_time) as
     dedup key — repeated runs produce the same result.
@@ -141,15 +170,34 @@ def generate_signals(
     )
     result.rows_seen = len(rows)
 
+    # Phase 1: evaluate all rows against thresholds
+    all_candidates: list[SignalCandidate] = []
     for row in rows:
         candidate = evaluate_fused_row(row, cfg)
         if candidate is None:
             result.skipped_threshold += 1
             continue
+        all_candidates.append(candidate)
 
-        result.candidates += 1
+    result.candidates_before_dedup = len(all_candidates)
 
-        # Dedup check
+    # Phase 2: select best candidate per ticker
+    final_candidates = select_best_per_ticker(all_candidates)
+    result.skipped_ticker_dedup = len(all_candidates) - len(final_candidates)
+    result.candidates = len(final_candidates)
+
+    if result.skipped_ticker_dedup > 0:
+        logger.info(
+            "signal_generation: deduplicated per ticker",
+            extra={
+                "component": "signal_generation",
+                "before": result.candidates_before_dedup,
+                "after": result.candidates,
+            },
+        )
+
+    # Phase 3: dedup check + insert
+    for candidate in final_candidates:
         exists = repository.signal_exists_for_candidate(
             ticker=candidate.ticker,
             direction=candidate.direction,
@@ -186,6 +234,7 @@ def generate_signals(
                 "ticker": candidate.ticker,
                 "direction": candidate.direction,
                 "confidence": candidate.confidence,
+                "window": candidate.window,
                 "signal_id": signal_id,
             })
             logger.info(
@@ -195,6 +244,7 @@ def generate_signals(
                     "ticker": candidate.ticker,
                     "direction": candidate.direction,
                     "confidence": candidate.confidence,
+                    "window": candidate.window,
                     "signal_id": signal_id,
                 },
             )
@@ -209,7 +259,9 @@ def format_signal_generation_result(result: SignalGenerationResult) -> str:
     lines = [
         "signal generation report",
         f"  rows_seen: {result.rows_seen}",
+        f"  candidates_before_dedup: {result.candidates_before_dedup}",
         f"  candidates: {result.candidates}",
+        f"  skipped_ticker_dedup: {result.skipped_ticker_dedup}",
         f"  inserted: {result.inserted}",
         f"  skipped_threshold: {result.skipped_threshold}",
         f"  skipped_duplicate: {result.skipped_duplicate}",
