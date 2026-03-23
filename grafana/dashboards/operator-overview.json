@@ -34,7 +34,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "gridPos": { "h": 4, "w": 3, "x": 0, "y": 0 },
       "id": 1,
       "options": {
         "colorMode": "value",
@@ -47,11 +47,11 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT count(*) AS \"Signals Generated\" FROM signal_predictions WHERE created_at >= now() - interval '24 hours';",
+          "rawSql": "SELECT count(*) AS \"Generated\" FROM signal_predictions WHERE created_at >= now() - interval '24 hours';",
           "refId": "A"
         }
       ],
-      "title": "Signals Generated (24h)",
+      "title": "Generated (24h)",
       "type": "stat"
     },
     {
@@ -69,7 +69,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "gridPos": { "h": 4, "w": 3, "x": 3, "y": 0 },
       "id": 2,
       "options": {
         "colorMode": "value",
@@ -82,11 +82,82 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT count(*) AS \"Signals Delivered\" FROM signal_predictions WHERE pipeline_stage = 'delivered' AND created_at >= now() - interval '24 hours';",
+          "rawSql": "SELECT count(*) AS \"Delivered\" FROM signal_predictions WHERE pipeline_stage = 'delivered' AND created_at >= now() - interval '24 hours';",
           "refId": "A"
         }
       ],
-      "title": "Signals Delivered (24h)",
+      "title": "Delivered (24h)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "orange", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 20 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 3, "x": 6, "y": 0 },
+      "id": 12,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) AS \"Suppressed\" FROM signal_predictions WHERE pipeline_stage = 'suppressed_delivery' AND created_at >= now() - interval '24 hours';",
+          "refId": "A"
+        }
+      ],
+      "title": "Suppressed (24h, dedup)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.3 },
+              { "color": "green", "value": 0.5 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 3, "x": 9, "y": 0 },
+      "id": 13,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) FILTER (WHERE pipeline_stage = 'delivered')::numeric / NULLIF(count(*), 0) AS \"Delivery Rate\" FROM signal_predictions WHERE created_at >= now() - interval '24 hours';",
+          "refId": "A"
+        }
+      ],
+      "title": "Delivery Rate (24h)",
       "type": "stat"
     },
     {
@@ -105,7 +176,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "gridPos": { "h": 4, "w": 3, "x": 12, "y": 0 },
       "id": 3,
       "options": {
         "colorMode": "value",
@@ -141,7 +212,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "gridPos": { "h": 4, "w": 3, "x": 15, "y": 0 },
       "id": 4,
       "options": {
         "colorMode": "value",
@@ -177,7 +248,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "gridPos": { "h": 4, "w": 3, "x": 18, "y": 0 },
       "id": 5,
       "options": {
         "colorMode": "value",
@@ -213,7 +284,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "gridPos": { "h": 4, "w": 3, "x": 21, "y": 0 },
       "id": 6,
       "options": {
         "colorMode": "value",
