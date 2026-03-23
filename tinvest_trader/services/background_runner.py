@@ -20,6 +20,7 @@ if TYPE_CHECKING:
         DailyDigestConfig,
         QuoteSyncConfig,
         SignalDeliveryConfig,
+        SignalGenerationConfig,
     )
     from tinvest_trader.services.broker_event_ingestion_service import (
         BrokerEventIngestionService,
@@ -62,6 +63,8 @@ class BackgroundRunner:
         callback_handler_fn: Callable[[], None] | None = None,
         alerting_fn: Callable[[], object] | None = None,
         alerting_interval_seconds: int = 300,
+        signal_generation_fn: Callable[[], object] | None = None,
+        signal_generation_config: SignalGenerationConfig | None = None,
         daily_digest_fn: Callable[[], object] | None = None,
         daily_digest_config: DailyDigestConfig | None = None,
         time_fn: Callable[[], float] | None = None,
@@ -89,6 +92,8 @@ class BackgroundRunner:
         self._callback_handler_fn = callback_handler_fn
         self._alerting_fn = alerting_fn
         self._alerting_interval_seconds = alerting_interval_seconds
+        self._signal_generation_fn = signal_generation_fn
+        self._signal_generation_config = signal_generation_config
         self._daily_digest_fn = daily_digest_fn
         self._daily_digest_config = daily_digest_config
         self._daily_digest_sent_today: str = ""
@@ -225,6 +230,7 @@ class BackgroundRunner:
             or self._observation_is_runnable()
             or self._broker_events_is_runnable()
             or self._fusion_is_runnable()
+            or self._signal_generation_is_runnable()
             or self._cbr_is_runnable()
             or self._moex_is_runnable()
             or self._global_context_is_runnable()
@@ -247,6 +253,14 @@ class BackgroundRunner:
 
     def _fusion_is_runnable(self) -> bool:
         return self._config.run_fusion and self._fusion_service is not None
+
+    def _signal_generation_is_runnable(self) -> bool:
+        return (
+            self._config.run_signal_generation
+            and self._signal_generation_config is not None
+            and self._signal_generation_config.enabled
+            and self._signal_generation_fn is not None
+        )
 
     def _cbr_is_runnable(self) -> bool:
         return self._config.run_cbr and self._cbr_ingestion_service is not None
@@ -350,6 +364,26 @@ class BackgroundRunner:
         except Exception:
             self._logger.exception(
                 "background fusion cycle failed",
+                extra={"component": "background_runner"},
+            )
+
+    def run_signal_generation_cycle(self) -> None:
+        """Run one signal generation cycle safely."""
+        if not self._signal_generation_is_runnable():
+            return
+
+        try:
+            result = self._signal_generation_fn()
+            self._logger.info(
+                "background signal generation cycle complete",
+                extra={
+                    "component": "background_runner",
+                    "result": str(result) if result else "none",
+                },
+            )
+        except Exception:
+            self._logger.exception(
+                "background signal generation cycle failed",
                 extra={"component": "background_runner"},
             )
 
@@ -557,6 +591,7 @@ class BackgroundRunner:
         next_observation_run = self._time_fn()
         next_broker_event_run = self._time_fn()
         next_fusion_run = self._time_fn()
+        next_signal_generation_run = self._time_fn()
         next_cbr_run = self._time_fn()
         next_moex_run = self._time_fn()
         next_global_context_run = self._time_fn()
@@ -616,6 +651,22 @@ class BackgroundRunner:
                     fusion_wait
                     if next_wait is None
                     else min(next_wait, fusion_wait)
+                )
+
+            if self._signal_generation_is_runnable():
+                if now >= next_signal_generation_run:
+                    self.run_signal_generation_cycle()
+                    interval = self._signal_generation_config.poll_interval_seconds
+                    next_signal_generation_run = (
+                        self._time_fn() + max(1, interval)
+                    )
+                sg_wait = max(
+                    0.0, next_signal_generation_run - self._time_fn(),
+                )
+                next_wait = (
+                    sg_wait
+                    if next_wait is None
+                    else min(next_wait, sg_wait)
                 )
 
             if self._cbr_is_runnable():

@@ -75,6 +75,7 @@ class BackgroundConfig:
     run_signal_delivery: bool = True
     run_global_context: bool = True
     run_global_market_data: bool = True
+    run_signal_generation: bool = True
     run_alerting: bool = True
     run_daily_digest: bool = True
 
@@ -136,6 +137,15 @@ class MoexConfig:
 class ExecutionSafetyEnvConfig:
     enabled: bool = True
     min_time_to_close_seconds: int = 90
+
+
+@dataclass(frozen=True)
+class SignalGenerationConfig:
+    enabled: bool = False
+    min_message_count: int = 3
+    min_sentiment_balance: float = 0.3
+    lookback_minutes: int = 30
+    poll_interval_seconds: int = 60
 
 
 @dataclass(frozen=True)
@@ -238,6 +248,9 @@ class AppConfig:
     moex: MoexConfig = field(default_factory=MoexConfig)
     execution_safety: ExecutionSafetyEnvConfig = field(
         default_factory=ExecutionSafetyEnvConfig,
+    )
+    signal_generation: SignalGenerationConfig = field(
+        default_factory=SignalGenerationConfig,
     )
     signal_calibration: SignalCalibrationConfig = field(
         default_factory=SignalCalibrationConfig,
@@ -354,12 +367,32 @@ def load_config() -> AppConfig:
             run_global_market_data=os.environ.get(
                 "TINVEST_BACKGROUND_RUN_GLOBAL_MARKET_DATA", "true",
             ).lower() == "true",
+            run_signal_generation=os.environ.get(
+                "TINVEST_BACKGROUND_RUN_SIGNAL_GENERATION", "true",
+            ).lower() == "true",
             run_alerting=os.environ.get(
                 "TINVEST_BACKGROUND_RUN_ALERTING", "true",
             ).lower() == "true",
             run_daily_digest=os.environ.get(
                 "TINVEST_BACKGROUND_RUN_DAILY_DIGEST", "true",
             ).lower() == "true",
+        ),
+        signal_generation=SignalGenerationConfig(
+            enabled=os.environ.get(
+                "TINVEST_SIGNAL_GENERATION_ENABLED", "false",
+            ).lower() == "true",
+            min_message_count=int(os.environ.get(
+                "TINVEST_SIGNAL_MIN_MESSAGE_COUNT", "3",
+            )),
+            min_sentiment_balance=float(os.environ.get(
+                "TINVEST_SIGNAL_MIN_SENTIMENT_BALANCE", "0.3",
+            )),
+            lookback_minutes=int(os.environ.get(
+                "TINVEST_SIGNAL_LOOKBACK_MINUTES", "30",
+            )),
+            poll_interval_seconds=int(os.environ.get(
+                "TINVEST_SIGNAL_GENERATION_POLL_INTERVAL_SECONDS", "60",
+            )),
         ),
         broker_events=BrokerEventsConfig(
             enabled=os.environ.get(

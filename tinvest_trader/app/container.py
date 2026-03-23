@@ -138,6 +138,9 @@ class Container:
         # Quote sync callable (used by background runner and CLI)
         self._quote_sync_fn = self._build_quote_sync_fn()
 
+        # Signal generation callable (used by background runner and CLI)
+        self._signal_generation_fn = self._build_signal_generation_fn()
+
         # Signal delivery callable (used by background runner and CLI)
         self._signal_delivery_fn = self._build_signal_delivery_fn()
 
@@ -500,6 +503,38 @@ class Container:
         )
         return _sync
 
+    def _build_signal_generation_fn(self):
+        """Build a callable for signal generation if prerequisites are met."""
+        cfg = self.config.signal_generation
+        if not cfg.enabled:
+            return None
+        if self.repository is None:
+            return None
+
+        from tinvest_trader.services.signal_generation import (
+            SignalGenerationConfig as SvcConfig,
+        )
+        from tinvest_trader.services.signal_generation import generate_signals
+
+        svc_cfg = SvcConfig(
+            min_message_count=cfg.min_message_count,
+            min_sentiment_balance=cfg.min_sentiment_balance,
+            lookback_minutes=cfg.lookback_minutes,
+        )
+
+        def _generate():
+            return generate_signals(
+                self.repository,
+                self.logger,
+                config=svc_cfg,
+            )
+
+        self.logger.info(
+            "signal generation initialized",
+            extra={"component": "signal_generation"},
+        )
+        return _generate
+
     def _build_signal_delivery_fn(self):
         """Build a callable for signal delivery if prerequisites are met."""
         cfg = self.config.signal_delivery
@@ -653,6 +688,8 @@ class Container:
             global_context_interval_seconds=self.config.global_context.poll_interval_seconds,
             global_market_data_fn=self._global_market_data_fn,
             global_market_data_interval_seconds=self.config.global_market_data.poll_interval_seconds,
+            signal_generation_fn=self._signal_generation_fn,
+            signal_generation_config=self.config.signal_generation,
             signal_delivery_config=self.config.signal_delivery,
             signal_delivery_fn=self._signal_delivery_fn,
             callback_handler_fn=self._callback_handler_fn,
