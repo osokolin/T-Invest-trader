@@ -447,3 +447,75 @@ SELECT date_trunc('hour', fetched_at) AS time,
 FROM global_market_context_events
 WHERE fetched_at >= now() - interval '6 hours'
 GROUP BY 1, 2 ORDER BY 1;
+
+-- ============================================================
+-- MACRO IMPACT ANALYSIS
+-- ============================================================
+
+-- [table] Macro impact by tag (60-min window, min 5 resolved)
+SELECT
+    t.tag,
+    count(DISTINCT sp.id) AS total_signals,
+    count(DISTINCT sp.id)
+        FILTER (WHERE sp.resolved_at IS NOT NULL) AS resolved,
+    count(DISTINCT sp.id)
+        FILTER (WHERE sp.outcome_label = 'win') AS wins,
+    count(DISTINCT sp.id)
+        FILTER (WHERE sp.outcome_label = 'loss') AS losses,
+    round(avg(CASE WHEN sp.outcome_label = 'win' THEN 1.0 ELSE 0.0 END)
+        FILTER (WHERE sp.resolved_at IS NOT NULL)::numeric, 3) AS win_rate,
+    round(avg(sp.return_pct)
+        FILTER (WHERE sp.resolved_at IS NOT NULL)::numeric, 5) AS avg_return
+FROM signal_predictions sp
+JOIN macro_messages mm
+    ON mm.created_at BETWEEN sp.created_at - interval '60 minutes'
+                         AND sp.created_at
+CROSS JOIN LATERAL unnest(mm.tags) AS t(tag)
+WHERE sp.resolved_at IS NOT NULL
+GROUP BY t.tag
+HAVING count(DISTINCT sp.id)
+    FILTER (WHERE sp.resolved_at IS NOT NULL) >= 5
+ORDER BY avg_return DESC NULLS LAST;
+
+-- [table] Macro impact by tag + ticker (60-min window, min 5 resolved)
+SELECT
+    t.tag,
+    sp.ticker,
+    count(DISTINCT sp.id)
+        FILTER (WHERE sp.resolved_at IS NOT NULL) AS resolved,
+    round(avg(CASE WHEN sp.outcome_label = 'win' THEN 1.0 ELSE 0.0 END)
+        FILTER (WHERE sp.resolved_at IS NOT NULL)::numeric, 3) AS win_rate,
+    round(avg(sp.return_pct)
+        FILTER (WHERE sp.resolved_at IS NOT NULL)::numeric, 5) AS avg_return
+FROM signal_predictions sp
+JOIN macro_messages mm
+    ON mm.created_at BETWEEN sp.created_at - interval '60 minutes'
+                         AND sp.created_at
+CROSS JOIN LATERAL unnest(mm.tags) AS t(tag)
+WHERE sp.resolved_at IS NOT NULL
+GROUP BY t.tag, sp.ticker
+HAVING count(DISTINCT sp.id)
+    FILTER (WHERE sp.resolved_at IS NOT NULL) >= 5
+ORDER BY avg_return DESC NULLS LAST
+LIMIT 20;
+
+-- [table] Macro impact by tag + direction (60-min window, min 5 resolved)
+SELECT
+    t.tag,
+    sp.signal_type AS direction,
+    count(DISTINCT sp.id)
+        FILTER (WHERE sp.resolved_at IS NOT NULL) AS resolved,
+    round(avg(CASE WHEN sp.outcome_label = 'win' THEN 1.0 ELSE 0.0 END)
+        FILTER (WHERE sp.resolved_at IS NOT NULL)::numeric, 3) AS win_rate,
+    round(avg(sp.return_pct)
+        FILTER (WHERE sp.resolved_at IS NOT NULL)::numeric, 5) AS avg_return
+FROM signal_predictions sp
+JOIN macro_messages mm
+    ON mm.created_at BETWEEN sp.created_at - interval '60 minutes'
+                         AND sp.created_at
+CROSS JOIN LATERAL unnest(mm.tags) AS t(tag)
+WHERE sp.resolved_at IS NOT NULL
+GROUP BY t.tag, sp.signal_type
+HAVING count(DISTINCT sp.id)
+    FILTER (WHERE sp.resolved_at IS NOT NULL) >= 5
+ORDER BY t.tag, sp.signal_type;

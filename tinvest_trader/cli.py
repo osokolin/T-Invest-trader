@@ -360,6 +360,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Lookback window in hours (default 24)",
     )
 
+    # -- macro-impact-report --
+    macro_impact_parser = subparsers.add_parser(
+        "macro-impact-report",
+        help="Show macro tag impact on signal performance (shadow)",
+    )
+    macro_impact_parser.add_argument(
+        "--window-minutes", type=int, default=60,
+        help="Macro message lookback window in minutes (default 60)",
+    )
+    macro_impact_parser.add_argument(
+        "--min-resolved", type=int, default=5,
+        help="Min resolved signals per group (default 5)",
+    )
+    macro_impact_parser.add_argument(
+        "--limit", type=int, default=20,
+        help="Max tag+ticker combinations to show (default 20)",
+    )
+
     # -- sync-quotes --
     sync_quotes_parser = subparsers.add_parser(
         "sync-quotes",
@@ -483,6 +501,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "macro-context-report":
             return _run_macro_context_report(
                 container, hours=args.hours,
+            )
+        if args.command == "macro-impact-report":
+            return _run_macro_impact_report(
+                container,
+                window_minutes=args.window_minutes,
+                min_resolved=args.min_resolved,
+                limit=args.limit,
             )
         if args.command == "sync-global-market-data":
             return _run_sync_global_market_data(container)
@@ -1538,6 +1563,33 @@ def _run_check_alerts(
     if result.details:
         for detail in result.details:
             print(f"  {detail}")
+    return 0
+
+
+def _run_macro_impact_report(
+    container: Container,
+    *,
+    window_minutes: int = 60,
+    min_resolved: int = 5,
+    limit: int = 20,
+) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.macro_impact import (
+        build_macro_impact_report,
+        format_macro_impact_report,
+    )
+
+    report = build_macro_impact_report(
+        repository,
+        window_minutes=window_minutes,
+        min_resolved=min_resolved,
+        limit=limit,
+    )
+    print(format_macro_impact_report(report))
     return 0
 
 

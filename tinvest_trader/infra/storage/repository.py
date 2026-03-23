@@ -3462,3 +3462,217 @@ class TradingRepository:
                 extra={"component": "repository"},
             )
         return result
+
+    # ------------------------------------------------------------------
+    # Macro impact analysis (read-only)
+    # ------------------------------------------------------------------
+
+    def get_macro_impact_baseline(self) -> dict:
+        """Get baseline performance for all resolved signals."""
+        sql = """
+            SELECT
+                count(*) AS total_signals,
+                count(resolved_at) AS resolved,
+                count(*) FILTER (WHERE outcome_label = 'win') AS wins,
+                count(*) FILTER (WHERE outcome_label = 'loss') AS losses,
+                count(*) FILTER (WHERE outcome_label = 'neutral') AS neutrals,
+                avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL)
+                    AS avg_return
+            FROM signal_predictions
+            WHERE resolved_at IS NOT NULL
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                row = conn.execute(sql).fetchone()
+            if not row:
+                return {}
+            return {
+                "total_signals": row[0],
+                "resolved": row[1],
+                "wins": row[2],
+                "losses": row[3],
+                "neutrals": row[4],
+                "avg_return": float(row[5]) if row[5] is not None else None,
+            }
+        except Exception:
+            self._logger.exception(
+                "failed to fetch macro impact baseline",
+                extra={"component": "repository"},
+            )
+            return {}
+
+    def get_macro_impact_by_tag(
+        self,
+        window_minutes: int = 60,
+        min_resolved: int = 5,
+    ) -> list[dict]:
+        """Get signal performance grouped by macro tag.
+
+        Links signals to macro messages created within [window_minutes]
+        BEFORE the signal (no future leakage).
+        """
+        sql = """
+            SELECT
+                t.tag,
+                count(DISTINCT sp.id) AS total_signals,
+                count(DISTINCT sp.id)
+                    FILTER (WHERE sp.resolved_at IS NOT NULL) AS resolved,
+                count(DISTINCT sp.id)
+                    FILTER (WHERE sp.outcome_label = 'win') AS wins,
+                count(DISTINCT sp.id)
+                    FILTER (WHERE sp.outcome_label = 'loss') AS losses,
+                count(DISTINCT sp.id)
+                    FILTER (WHERE sp.outcome_label = 'neutral') AS neutrals,
+                avg(sp.return_pct)
+                    FILTER (WHERE sp.resolved_at IS NOT NULL) AS avg_return
+            FROM signal_predictions sp
+            JOIN macro_messages mm
+                ON mm.created_at
+                    BETWEEN sp.created_at - interval '%s minutes'
+                        AND sp.created_at
+            CROSS JOIN LATERAL unnest(mm.tags) AS t(tag)
+            WHERE sp.resolved_at IS NOT NULL
+            GROUP BY t.tag
+            HAVING count(DISTINCT sp.id)
+                FILTER (WHERE sp.resolved_at IS NOT NULL) >= %s
+            ORDER BY avg_return DESC NULLS LAST
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                rows = conn.execute(sql, (window_minutes, min_resolved)).fetchall()
+            return [
+                {
+                    "tag": r[0],
+                    "total_signals": r[1],
+                    "resolved": r[2],
+                    "wins": r[3],
+                    "losses": r[4],
+                    "neutrals": r[5],
+                    "avg_return": float(r[6]) if r[6] is not None else None,
+                }
+                for r in rows
+            ]
+        except Exception:
+            self._logger.exception(
+                "failed to fetch macro impact by tag",
+                extra={"component": "repository"},
+            )
+            return []
+
+    def get_macro_impact_by_tag_and_ticker(
+        self,
+        window_minutes: int = 60,
+        min_resolved: int = 5,
+        limit: int = 20,
+    ) -> list[dict]:
+        """Get signal performance by macro tag + ticker."""
+        sql = """
+            SELECT
+                t.tag,
+                sp.ticker,
+                count(DISTINCT sp.id) AS total_signals,
+                count(DISTINCT sp.id)
+                    FILTER (WHERE sp.resolved_at IS NOT NULL) AS resolved,
+                count(DISTINCT sp.id)
+                    FILTER (WHERE sp.outcome_label = 'win') AS wins,
+                count(DISTINCT sp.id)
+                    FILTER (WHERE sp.outcome_label = 'loss') AS losses,
+                count(DISTINCT sp.id)
+                    FILTER (WHERE sp.outcome_label = 'neutral') AS neutrals,
+                avg(sp.return_pct)
+                    FILTER (WHERE sp.resolved_at IS NOT NULL) AS avg_return
+            FROM signal_predictions sp
+            JOIN macro_messages mm
+                ON mm.created_at
+                    BETWEEN sp.created_at - interval '%s minutes'
+                        AND sp.created_at
+            CROSS JOIN LATERAL unnest(mm.tags) AS t(tag)
+            WHERE sp.resolved_at IS NOT NULL
+            GROUP BY t.tag, sp.ticker
+            HAVING count(DISTINCT sp.id)
+                FILTER (WHERE sp.resolved_at IS NOT NULL) >= %s
+            ORDER BY avg_return DESC NULLS LAST
+            LIMIT %s
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                rows = conn.execute(
+                    sql, (window_minutes, min_resolved, limit),
+                ).fetchall()
+            return [
+                {
+                    "tag": r[0],
+                    "ticker": r[1],
+                    "total_signals": r[2],
+                    "resolved": r[3],
+                    "wins": r[4],
+                    "losses": r[5],
+                    "neutrals": r[6],
+                    "avg_return": float(r[7]) if r[7] is not None else None,
+                }
+                for r in rows
+            ]
+        except Exception:
+            self._logger.exception(
+                "failed to fetch macro impact by tag+ticker",
+                extra={"component": "repository"},
+            )
+            return []
+
+    def get_macro_impact_by_tag_and_direction(
+        self,
+        window_minutes: int = 60,
+        min_resolved: int = 5,
+    ) -> list[dict]:
+        """Get signal performance by macro tag + signal direction."""
+        sql = """
+            SELECT
+                t.tag,
+                sp.signal_type AS direction,
+                count(DISTINCT sp.id) AS total_signals,
+                count(DISTINCT sp.id)
+                    FILTER (WHERE sp.resolved_at IS NOT NULL) AS resolved,
+                count(DISTINCT sp.id)
+                    FILTER (WHERE sp.outcome_label = 'win') AS wins,
+                count(DISTINCT sp.id)
+                    FILTER (WHERE sp.outcome_label = 'loss') AS losses,
+                count(DISTINCT sp.id)
+                    FILTER (WHERE sp.outcome_label = 'neutral') AS neutrals,
+                avg(sp.return_pct)
+                    FILTER (WHERE sp.resolved_at IS NOT NULL) AS avg_return
+            FROM signal_predictions sp
+            JOIN macro_messages mm
+                ON mm.created_at
+                    BETWEEN sp.created_at - interval '%s minutes'
+                        AND sp.created_at
+            CROSS JOIN LATERAL unnest(mm.tags) AS t(tag)
+            WHERE sp.resolved_at IS NOT NULL
+            GROUP BY t.tag, sp.signal_type
+            HAVING count(DISTINCT sp.id)
+                FILTER (WHERE sp.resolved_at IS NOT NULL) >= %s
+            ORDER BY t.tag, sp.signal_type
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                rows = conn.execute(
+                    sql, (window_minutes, min_resolved),
+                ).fetchall()
+            return [
+                {
+                    "tag": r[0],
+                    "direction": r[1],
+                    "total_signals": r[2],
+                    "resolved": r[3],
+                    "wins": r[4],
+                    "losses": r[5],
+                    "neutrals": r[6],
+                    "avg_return": float(r[7]) if r[7] is not None else None,
+                }
+                for r in rows
+            ]
+        except Exception:
+            self._logger.exception(
+                "failed to fetch macro impact by tag+direction",
+                extra={"component": "repository"},
+            )
+            return []
