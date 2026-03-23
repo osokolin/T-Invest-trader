@@ -665,3 +665,26 @@ CREATE INDEX IF NOT EXISTS idx_alert_events_key_fired
     ON alert_events (alert_key, fired_at DESC);
 CREATE INDEX IF NOT EXISTS idx_alert_events_category
     ON alert_events (alert_category, fired_at DESC);
+
+-- ============================================================
+-- Macro tagging: market/commodity context from Telegram messages
+-- ============================================================
+
+-- Stores macro-tagged messages for analysis (shadow only).
+-- Tags are extracted via keyword matching (no ML).
+CREATE TABLE IF NOT EXISTS macro_messages (
+    id                  BIGSERIAL PRIMARY KEY,
+    source_message_id   TEXT,
+    channel_name        TEXT NOT NULL,
+    tags                TEXT[] NOT NULL DEFAULT '{}',
+    sectors             TEXT[] NOT NULL DEFAULT '{}',
+    affected_tickers    TEXT[] NOT NULL DEFAULT '{}',
+    raw_text            TEXT NOT NULL DEFAULT '',
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_macro_messages_created
+    ON macro_messages (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_macro_messages_tags
+    ON macro_messages USING GIN (tags);
+CREATE INDEX IF NOT EXISTS idx_macro_messages_channel
+    ON macro_messages (channel_name, created_at DESC);

@@ -350,6 +350,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print digest without sending or persisting",
     )
 
+    # -- macro-context-report --
+    macro_report_parser = subparsers.add_parser(
+        "macro-context-report",
+        help="Show macro tagging context summary (shadow)",
+    )
+    macro_report_parser.add_argument(
+        "--hours", type=int, default=24,
+        help="Lookback window in hours (default 24)",
+    )
+
     # -- sync-quotes --
     sync_quotes_parser = subparsers.add_parser(
         "sync-quotes",
@@ -469,6 +479,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 config, container,
                 send=args.send,
                 dry_run=args.dry_run,
+            )
+        if args.command == "macro-context-report":
+            return _run_macro_context_report(
+                container, hours=args.hours,
             )
         if args.command == "sync-global-market-data":
             return _run_sync_global_market_data(container)
@@ -1524,6 +1538,46 @@ def _run_check_alerts(
     if result.details:
         for detail in result.details:
             print(f"  {detail}")
+    return 0
+
+
+def _run_macro_context_report(
+    container: Container,
+    *,
+    hours: int = 24,
+) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    report = repository.get_macro_context_report(lookback_hours=hours)
+
+    print(f"macro context report (last {hours}h)")
+    print("=" * 40)
+
+    by_tag = report.get("by_tag", [])
+    if by_tag:
+        print("\ntags:")
+        for row in by_tag:
+            print(f"  {row['tag']:<15} {row['count']:>5}")
+    else:
+        print("\nno macro tags found")
+
+    by_channel = report.get("by_channel", [])
+    if by_channel:
+        print("\nchannels:")
+        for row in by_channel:
+            print(f"  {row['channel']:<20} {row['count']:>5}")
+
+    recent = report.get("recent", [])
+    if recent:
+        print("\nrecent:")
+        for ev in recent:
+            tags_str = ", ".join(ev["tags"])
+            snippet = ev["text"][:60].replace("\n", " ")
+            print(f"  [{tags_str}] {ev['channel']}: {snippet}")
+
     return 0
 
 

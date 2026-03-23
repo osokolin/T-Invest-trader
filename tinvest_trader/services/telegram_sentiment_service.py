@@ -191,6 +191,9 @@ class TelegramSentimentService:
         if not newly_inserted:
             return "hard_duplicate"
 
+        # Step 3.5: macro tagging (shadow, non-blocking)
+        self._tag_macro(msg, normalized)
+
         # Step 4: extract tickers
         mentions = self._parser_fn(msg.message_text)
         if not mentions:
@@ -261,5 +264,45 @@ class TelegramSentimentService:
                 extra={
                     "component": "telegram_sentiment",
                     "ticker": mention.ticker,
+                },
+            )
+
+    def _tag_macro(self, msg: TelegramMessage, normalized: str) -> None:
+        """Tag message with macro context (shadow, non-blocking).
+
+        Detects market themes (oil, gas, risk, etc.) and persists
+        for later analysis. Never blocks ingestion.
+        """
+        if self._repository is None:
+            return
+        try:
+            from tinvest_trader.services.macro_mapping import (
+                get_affected_tickers,
+                get_sectors,
+            )
+            from tinvest_trader.services.macro_tagging import tag_macro_message
+
+            tags = tag_macro_message(normalized)
+            if not tags:
+                return
+
+            sectors = get_sectors(tags)
+            tickers = get_affected_tickers(tags)
+
+            self._repository.insert_macro_message(
+                source_message_id=msg.message_id,
+                channel_name=msg.channel_name,
+                tags=tags,
+                sectors=sectors,
+                affected_tickers=tickers,
+                raw_text=normalized,
+            )
+        except Exception:
+            self._logger.exception(
+                "failed to tag macro message (non-blocking)",
+                extra={
+                    "component": "telegram_sentiment",
+                    "channel": msg.channel_name,
+                    "message_id": msg.message_id,
                 },
             )

@@ -3307,3 +3307,158 @@ class TradingRepository:
                 extra={"component": "repository"},
             )
         return result
+
+    # ------------------------------------------------------------------
+    # Macro tagging (shadow)
+    # ------------------------------------------------------------------
+
+    def insert_macro_message(
+        self,
+        *,
+        source_message_id: str | None,
+        channel_name: str,
+        tags: list[str],
+        sectors: list[str],
+        affected_tickers: list[str],
+        raw_text: str,
+    ) -> int | None:
+        """Insert a macro-tagged message. Returns id if inserted."""
+        sql = """
+            INSERT INTO macro_messages
+                (source_message_id, channel_name, tags, sectors,
+                 affected_tickers, raw_text)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                cur = conn.execute(
+                    sql,
+                    (
+                        source_message_id,
+                        channel_name,
+                        tags,
+                        sectors,
+                        affected_tickers,
+                        raw_text[:500],  # truncate
+                    ),
+                )
+                row = cur.fetchone()
+                conn.commit()
+                return row[0] if row else None
+        except Exception:
+            self._logger.exception(
+                "failed to insert macro message",
+                extra={
+                    "component": "repository",
+                    "channel": channel_name,
+                },
+            )
+            return None
+
+    def get_recent_macro_tags(
+        self,
+        window_minutes: int = 60,
+    ) -> dict:
+        """Get recent macro tag counts and context summary."""
+        sql = """
+            SELECT unnest(tags) AS tag, count(*) AS cnt
+            FROM macro_messages
+            WHERE created_at > now() - interval '%s minutes'
+            GROUP BY tag
+            ORDER BY cnt DESC
+        """
+        result: dict = {"tags": {}, "total_messages": 0}
+        try:
+            with self._pool.get_connection() as conn:
+                cur = conn.execute(sql, (window_minutes,))
+                rows = cur.fetchall()
+
+            for tag, cnt in rows:
+                result["tags"][tag] = cnt
+                result["total_messages"] += cnt
+
+            # Also get total distinct messages count
+            sql2 = """
+                SELECT count(*)
+                FROM macro_messages
+                WHERE created_at > now() - interval '%s minutes'
+            """
+            with self._pool.get_connection() as conn:
+                cur = conn.execute(sql2, (window_minutes,))
+                row = cur.fetchone()
+                if row:
+                    result["total_messages"] = row[0]
+
+        except Exception:
+            self._logger.exception(
+                "failed to fetch recent macro tags",
+                extra={"component": "repository"},
+            )
+        return result
+
+    def get_macro_context_report(
+        self,
+        lookback_hours: int = 24,
+    ) -> dict:
+        """Get macro context summary for CLI report."""
+        result: dict = {
+            "by_tag": [],
+            "by_channel": [],
+            "recent": [],
+        }
+        try:
+            # Counts by tag
+            sql_tags = """
+                SELECT unnest(tags) AS tag, count(*) AS cnt
+                FROM macro_messages
+                WHERE created_at > now() - interval '%s hours'
+                GROUP BY tag
+                ORDER BY cnt DESC
+            """
+            with self._pool.get_connection() as conn:
+                cur = conn.execute(sql_tags, (lookback_hours,))
+                result["by_tag"] = [
+                    {"tag": r[0], "count": r[1]} for r in cur.fetchall()
+                ]
+
+            # Counts by channel
+            sql_channels = """
+                SELECT channel_name, count(*) AS cnt
+                FROM macro_messages
+                WHERE created_at > now() - interval '%s hours'
+                GROUP BY channel_name
+                ORDER BY cnt DESC
+            """
+            with self._pool.get_connection() as conn:
+                cur = conn.execute(sql_channels, (lookback_hours,))
+                result["by_channel"] = [
+                    {"channel": r[0], "count": r[1]} for r in cur.fetchall()
+                ]
+
+            # Recent messages
+            sql_recent = """
+                SELECT channel_name, tags, raw_text, created_at
+                FROM macro_messages
+                WHERE created_at > now() - interval '%s hours'
+                ORDER BY created_at DESC
+                LIMIT 10
+            """
+            with self._pool.get_connection() as conn:
+                cur = conn.execute(sql_recent, (lookback_hours,))
+                result["recent"] = [
+                    {
+                        "channel": r[0],
+                        "tags": list(r[1]) if r[1] else [],
+                        "text": r[2][:80] if r[2] else "",
+                        "created_at": r[3],
+                    }
+                    for r in cur.fetchall()
+                ]
+
+        except Exception:
+            self._logger.exception(
+                "failed to fetch macro context report",
+                extra={"component": "repository"},
+            )
+        return result
