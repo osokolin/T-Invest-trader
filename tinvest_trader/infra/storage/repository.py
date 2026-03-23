@@ -1402,6 +1402,44 @@ class TradingRepository:
 
     # -- Signal delivery --
 
+    def get_last_delivered_signal(self, ticker: str) -> dict | None:
+        """Return the most recently delivered signal for a ticker."""
+        sql = """
+            SELECT id, ticker, signal_type, confidence, source,
+                   price_at_signal, created_at, source_channel,
+                   delivered_at, pipeline_stage, rejection_reason
+            FROM signal_predictions
+            WHERE ticker = %s
+              AND pipeline_stage IN ('delivered', 'suppressed_delivery')
+              AND delivered_at IS NOT NULL
+            ORDER BY delivered_at DESC
+            LIMIT 1
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                row = conn.execute(sql, (ticker,)).fetchone()
+            if row is None:
+                return None
+            return {
+                "id": row[0],
+                "ticker": row[1],
+                "signal_type": row[2],
+                "confidence": float(row[3]) if row[3] is not None else None,
+                "source": row[4],
+                "price_at_signal": float(row[5]) if row[5] is not None else None,
+                "created_at": row[6],
+                "source_channel": row[7],
+                "delivered_at": row[8],
+                "pipeline_stage": row[9],
+                "rejection_reason": row[10],
+            }
+        except Exception:
+            self._logger.exception(
+                "failed to get last delivered signal",
+                extra={"component": "postgres", "ticker": ticker},
+            )
+            return None
+
     def list_undelivered_signals(
         self, limit: int = 50,
     ) -> list[dict]:

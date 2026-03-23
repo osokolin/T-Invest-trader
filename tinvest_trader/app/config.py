@@ -181,6 +181,9 @@ class SignalDeliveryConfig:
     max_per_cycle: int = 0
     high_confidence_threshold: float = 0.6
     high_ev_threshold: float = 0.02
+    semantic_dedup_enabled: bool = True
+    confidence_delta: float = 0.10
+    repeat_after_minutes: int = 240
     anthropic_api_key: str = ""
     ai_model: str = "claude-sonnet-4-20250514"
     callback_poll_interval_seconds: int = 5
@@ -619,6 +622,15 @@ def load_config() -> AppConfig:
             high_ev_threshold=float(
                 os.environ.get("TINVEST_SIGNAL_HIGH_EV_THRESHOLD", "0.02"),
             ),
+            semantic_dedup_enabled=os.environ.get(
+                "TINVEST_SIGNAL_DELIVERY_SEMANTIC_DEDUP_ENABLED", "true",
+            ).lower() == "true",
+            confidence_delta=float(os.environ.get(
+                "TINVEST_SIGNAL_DELIVERY_CONFIDENCE_DELTA", "0.10",
+            )),
+            repeat_after_minutes=int(os.environ.get(
+                "TINVEST_SIGNAL_DELIVERY_REPEAT_AFTER_MINUTES", "240",
+            )),
             anthropic_api_key=os.environ.get(
                 "TINVEST_ANTHROPIC_API_KEY", "",
             ),
