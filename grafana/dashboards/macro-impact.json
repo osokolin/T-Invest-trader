@@ -1,0 +1,335 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "Overview",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.45 },
+              { "color": "green", "value": 0.55 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END)::numeric, 3) AS win_rate\nFROM signal_predictions\nWHERE resolved_at IS NOT NULL;",
+          "refId": "A"
+        }
+      ],
+      "title": "Baseline Win Rate (all time)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": -0.005 },
+              { "color": "green", "value": 0.005 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT round(avg(return_pct)::numeric, 5) AS avg_return\nFROM signal_predictions\nWHERE resolved_at IS NOT NULL;",
+          "refId": "A"
+        }
+      ],
+      "title": "Baseline Avg Return (all time)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": null }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(DISTINCT sp.id) AS signals_with_macro\nFROM signal_predictions sp\nJOIN macro_messages mm\n    ON mm.created_at BETWEEN sp.created_at - interval '60 minutes'\n                         AND sp.created_at\nWHERE sp.resolved_at IS NOT NULL;",
+          "refId": "A"
+        }
+      ],
+      "title": "Signals Linked to Macro (resolved)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "purple", "value": null }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(DISTINCT t.tag) AS active_tags\nFROM macro_messages mm\nCROSS JOIN LATERAL unnest(mm.tags) AS t(tag)\nWHERE mm.created_at >= now() - interval '7 days';",
+          "refId": "A"
+        }
+      ],
+      "title": "Active Tags (7d)",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "id": 101,
+      "title": "Performance by Tag",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "win_rate" },
+            "properties": [
+              { "id": "unit", "value": "percentunit" },
+              { "id": "decimals", "value": 1 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "avg_return" },
+            "properties": [
+              { "id": "unit", "value": "percentunit" },
+              { "id": "decimals", "value": 2 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "delta_wr" },
+            "properties": [
+              { "id": "unit", "value": "percentunit" },
+              { "id": "decimals", "value": 1 },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": -0.03 }, { "color": "text", "value": 0 }, { "color": "green", "value": 0.03 }] } }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 6 },
+      "id": 5,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "displayName": "avg_return", "desc": true }]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH baseline AS (\n    SELECT\n        avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END) AS base_wr\n    FROM signal_predictions\n    WHERE resolved_at IS NOT NULL\n)\nSELECT\n    t.tag,\n    count(DISTINCT sp.id) AS total_signals,\n    count(DISTINCT sp.id)\n        FILTER (WHERE sp.resolved_at IS NOT NULL) AS resolved,\n    count(DISTINCT sp.id)\n        FILTER (WHERE sp.outcome_label = 'win') AS wins,\n    count(DISTINCT sp.id)\n        FILTER (WHERE sp.outcome_label = 'loss') AS losses,\n    round(avg(CASE WHEN sp.outcome_label = 'win' THEN 1.0 ELSE 0.0 END)\n        FILTER (WHERE sp.resolved_at IS NOT NULL)::numeric, 3) AS win_rate,\n    round(avg(sp.return_pct)\n        FILTER (WHERE sp.resolved_at IS NOT NULL)::numeric, 5) AS avg_return,\n    round((avg(CASE WHEN sp.outcome_label = 'win' THEN 1.0 ELSE 0.0 END)\n        FILTER (WHERE sp.resolved_at IS NOT NULL) - b.base_wr)::numeric, 3) AS delta_wr\nFROM signal_predictions sp\nJOIN macro_messages mm\n    ON mm.created_at BETWEEN sp.created_at - interval '60 minutes'\n                         AND sp.created_at\nCROSS JOIN LATERAL unnest(mm.tags) AS t(tag)\nCROSS JOIN baseline b\nWHERE sp.resolved_at IS NOT NULL\nGROUP BY t.tag, b.base_wr\nHAVING count(DISTINCT sp.id)\n    FILTER (WHERE sp.resolved_at IS NOT NULL) >= 3\nORDER BY avg_return DESC NULLS LAST;",
+          "refId": "A"
+        }
+      ],
+      "title": "Tag Impact (vs baseline)",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "id": 102,
+      "title": "Performance by Tag + Ticker",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "win_rate" },
+            "properties": [
+              { "id": "unit", "value": "percentunit" },
+              { "id": "decimals", "value": 1 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "avg_return" },
+            "properties": [
+              { "id": "unit", "value": "percentunit" },
+              { "id": "decimals", "value": 2 }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 15 },
+      "id": 6,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "displayName": "avg_return", "desc": true }]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n    t.tag,\n    sp.ticker,\n    count(DISTINCT sp.id) AS total_signals,\n    count(DISTINCT sp.id)\n        FILTER (WHERE sp.resolved_at IS NOT NULL) AS resolved,\n    count(DISTINCT sp.id)\n        FILTER (WHERE sp.outcome_label = 'win') AS wins,\n    round(avg(CASE WHEN sp.outcome_label = 'win' THEN 1.0 ELSE 0.0 END)\n        FILTER (WHERE sp.resolved_at IS NOT NULL)::numeric, 3) AS win_rate,\n    round(avg(sp.return_pct)\n        FILTER (WHERE sp.resolved_at IS NOT NULL)::numeric, 5) AS avg_return\nFROM signal_predictions sp\nJOIN macro_messages mm\n    ON mm.created_at BETWEEN sp.created_at - interval '60 minutes'\n                         AND sp.created_at\nCROSS JOIN LATERAL unnest(mm.tags) AS t(tag)\nWHERE sp.resolved_at IS NOT NULL\nGROUP BY t.tag, sp.ticker\nHAVING count(DISTINCT sp.id)\n    FILTER (WHERE sp.resolved_at IS NOT NULL) >= 3\nORDER BY avg_return DESC NULLS LAST\nLIMIT 20;",
+          "refId": "A"
+        }
+      ],
+      "title": "Top Tag + Ticker Combinations",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 },
+      "id": 103,
+      "title": "Directional Bias (Tag + Direction)",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "win_rate" },
+            "properties": [
+              { "id": "unit", "value": "percentunit" },
+              { "id": "decimals", "value": 1 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "avg_return" },
+            "properties": [
+              { "id": "unit", "value": "percentunit" },
+              { "id": "decimals", "value": 2 }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 25 },
+      "id": 7,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "displayName": "tag", "desc": false }]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n    t.tag,\n    sp.signal_type AS direction,\n    count(DISTINCT sp.id) AS total_signals,\n    count(DISTINCT sp.id)\n        FILTER (WHERE sp.resolved_at IS NOT NULL) AS resolved,\n    count(DISTINCT sp.id)\n        FILTER (WHERE sp.outcome_label = 'win') AS wins,\n    round(avg(CASE WHEN sp.outcome_label = 'win' THEN 1.0 ELSE 0.0 END)\n        FILTER (WHERE sp.resolved_at IS NOT NULL)::numeric, 3) AS win_rate,\n    round(avg(sp.return_pct)\n        FILTER (WHERE sp.resolved_at IS NOT NULL)::numeric, 5) AS avg_return\nFROM signal_predictions sp\nJOIN macro_messages mm\n    ON mm.created_at BETWEEN sp.created_at - interval '60 minutes'\n                         AND sp.created_at\nCROSS JOIN LATERAL unnest(mm.tags) AS t(tag)\nWHERE sp.resolved_at IS NOT NULL\nGROUP BY t.tag, sp.signal_type\nHAVING count(DISTINCT sp.id)\n    FILTER (WHERE sp.resolved_at IS NOT NULL) >= 3\nORDER BY t.tag, sp.signal_type;",
+          "refId": "A"
+        }
+      ],
+      "title": "Tag + Direction Performance",
+      "type": "table"
+    }
+  ],
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": ["macro", "analytics"],
+  "templating": { "list": [] },
+  "time": { "from": "now-30d", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Macro Impact",
+  "uid": "macro-impact",
+  "version": 1
+}
