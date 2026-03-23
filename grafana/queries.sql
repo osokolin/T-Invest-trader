@@ -449,8 +449,57 @@ WHERE fetched_at >= now() - interval '6 hours'
 GROUP BY 1, 2 ORDER BY 1;
 
 -- ============================================================
--- MACRO IMPACT ANALYSIS
+-- MACRO IMPACT ANALYSIS (Dashboard: Macro Impact)
 -- ============================================================
+
+-- [stat] Baseline win rate (all resolved signals)
+SELECT round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END)::numeric, 3) AS win_rate
+FROM signal_predictions
+WHERE resolved_at IS NOT NULL;
+
+-- [stat] Baseline avg return (all resolved signals)
+SELECT round(avg(return_pct)::numeric, 5) AS avg_return
+FROM signal_predictions
+WHERE resolved_at IS NOT NULL;
+
+-- [stat] Signals linked to macro tags (resolved, 60-min window)
+SELECT count(DISTINCT sp.id) AS signals_with_macro
+FROM signal_predictions sp
+JOIN macro_messages mm
+    ON mm.created_at BETWEEN sp.created_at - interval '60 minutes'
+                         AND sp.created_at
+WHERE sp.resolved_at IS NOT NULL;
+
+-- [stat] Active macro tags (7d)
+SELECT count(DISTINCT t.tag) AS active_tags
+FROM macro_messages mm
+CROSS JOIN LATERAL unnest(mm.tags) AS t(tag)
+WHERE mm.created_at >= now() - interval '7 days';
+
+-- [table] Tag impact vs baseline (with delta_wr)
+WITH baseline AS (
+    SELECT avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END) AS base_wr
+    FROM signal_predictions WHERE resolved_at IS NOT NULL
+)
+SELECT t.tag, count(DISTINCT sp.id) AS total_signals,
+    count(DISTINCT sp.id) FILTER (WHERE sp.resolved_at IS NOT NULL) AS resolved,
+    count(DISTINCT sp.id) FILTER (WHERE sp.outcome_label = 'win') AS wins,
+    count(DISTINCT sp.id) FILTER (WHERE sp.outcome_label = 'loss') AS losses,
+    round(avg(CASE WHEN sp.outcome_label = 'win' THEN 1.0 ELSE 0.0 END)
+        FILTER (WHERE sp.resolved_at IS NOT NULL)::numeric, 3) AS win_rate,
+    round(avg(sp.return_pct)
+        FILTER (WHERE sp.resolved_at IS NOT NULL)::numeric, 5) AS avg_return,
+    round((avg(CASE WHEN sp.outcome_label = 'win' THEN 1.0 ELSE 0.0 END)
+        FILTER (WHERE sp.resolved_at IS NOT NULL) - b.base_wr)::numeric, 3) AS delta_wr
+FROM signal_predictions sp
+JOIN macro_messages mm
+    ON mm.created_at BETWEEN sp.created_at - interval '60 minutes' AND sp.created_at
+CROSS JOIN LATERAL unnest(mm.tags) AS t(tag)
+CROSS JOIN baseline b
+WHERE sp.resolved_at IS NOT NULL
+GROUP BY t.tag, b.base_wr
+HAVING count(DISTINCT sp.id) FILTER (WHERE sp.resolved_at IS NOT NULL) >= 3
+ORDER BY avg_return DESC NULLS LAST;
 
 -- [table] Macro impact by tag (60-min window, min 5 resolved)
 SELECT
