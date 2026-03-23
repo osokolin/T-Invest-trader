@@ -121,11 +121,11 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT count(*) AS \"Quotes (24h)\" FROM market_quotes WHERE fetched_at >= now() - interval '24 hours';",
+          "rawSql": "SELECT count(*) AS \"Quotes (1h)\" FROM market_quotes WHERE fetched_at >= now() - interval '1 hour';",
           "refId": "A"
         }
       ],
-      "title": "Quotes Fetched (24h)",
+      "title": "Quotes Fetched (1h)",
       "type": "stat"
     },
     {

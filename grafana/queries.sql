@@ -275,10 +275,10 @@ FROM telegram_messages_raw
 GROUP BY channel_name
 ORDER BY age_seconds DESC;
 
--- [stat] Quotes Fetched (24h)
-SELECT count(*) AS quotes_24h
+-- [stat] Quotes Fetched (1h)
+SELECT count(*) AS quotes_1h
 FROM market_quotes
-WHERE fetched_at >= now() - interval '24 hours';
+WHERE fetched_at >= now() - interval '1 hour';
 
 -- [stat] Latest Quote Age
 SELECT extract(epoch FROM (now() - max(fetched_at)))::int AS age_seconds
