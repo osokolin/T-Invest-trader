@@ -378,6 +378,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Max tag+ticker combinations to show (default 20)",
     )
 
+    # -- generate-signals --
+    gen_signals_parser = subparsers.add_parser(
+        "generate-signals",
+        help="Generate signals from recent fused features",
+    )
+    gen_signals_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Evaluate but do not insert signals",
+    )
+    gen_signals_parser.add_argument(
+        "--limit", type=int, default=500,
+        help="Max fused rows to process (default 500)",
+    )
+    gen_signals_parser.add_argument(
+        "--lookback-minutes", type=int, default=30,
+        help="Lookback window for fused features (default 30)",
+    )
+
     # -- sync-quotes --
     sync_quotes_parser = subparsers.add_parser(
         "sync-quotes",
@@ -497,6 +515,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 config, container,
                 send=args.send,
                 dry_run=args.dry_run,
+            )
+        if args.command == "generate-signals":
+            return _run_generate_signals(
+                container,
+                dry_run=args.dry_run,
+                limit=args.limit,
+                lookback_minutes=args.lookback_minutes,
             )
         if args.command == "macro-context-report":
             return _run_macro_context_report(
@@ -1563,6 +1588,41 @@ def _run_check_alerts(
     if result.details:
         for detail in result.details:
             print(f"  {detail}")
+    return 0
+
+
+def _run_generate_signals(
+    container: Container,
+    *,
+    dry_run: bool = False,
+    limit: int = 500,
+    lookback_minutes: int = 30,
+) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.signal_generation import (
+        SignalGenerationConfig,
+        format_signal_generation_result,
+        generate_signals,
+    )
+
+    cfg = SignalGenerationConfig(
+        min_message_count=container.config.signal_generation.min_message_count,
+        min_sentiment_balance=container.config.signal_generation.min_sentiment_balance,
+        lookback_minutes=lookback_minutes,
+        limit=limit,
+    )
+
+    result = generate_signals(
+        repository,
+        container.logger,
+        config=cfg,
+        dry_run=dry_run,
+    )
+    print(format_signal_generation_result(result))
     return 0
 
 

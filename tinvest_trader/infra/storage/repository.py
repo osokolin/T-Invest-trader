@@ -487,6 +487,84 @@ class TradingRepository:
             "max_error_count": row[4] or 0,
         }
 
+    # -- Signal generation helpers --
+
+    def list_recent_fused_features(
+        self,
+        lookback_minutes: int = 30,
+        limit: int = 500,
+    ) -> list[dict]:
+        """List recent fused_signal_features for signal generation."""
+        sql = """
+            SELECT id, ticker, figi, "window", observation_time,
+                   sentiment_message_count, sentiment_positive_count,
+                   sentiment_negative_count, sentiment_neutral_count,
+                   sentiment_positive_avg, sentiment_negative_avg,
+                   sentiment_neutral_avg, sentiment_balance,
+                   recorded_at
+            FROM fused_signal_features
+            WHERE observation_time >= now() - interval '%s minutes'
+            ORDER BY observation_time DESC
+            LIMIT %s
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                rows = conn.execute(sql, (lookback_minutes, limit)).fetchall()
+            cols = [
+                "id", "ticker", "figi", "window", "observation_time",
+                "sentiment_message_count", "sentiment_positive_count",
+                "sentiment_negative_count", "sentiment_neutral_count",
+                "sentiment_positive_avg", "sentiment_negative_avg",
+                "sentiment_neutral_avg", "sentiment_balance",
+                "recorded_at",
+            ]
+            return [dict(zip(cols, row, strict=False)) for row in rows]
+        except Exception:
+            self._logger.exception(
+                "failed to list recent fused features",
+                extra={"component": "repository"},
+            )
+            return []
+
+    def signal_exists_for_candidate(
+        self,
+        ticker: str,
+        direction: str,
+        window: str,
+        observation_time: str,
+    ) -> bool:
+        """Check if a signal already exists for this candidate.
+
+        Dedup key: ticker + signal_type + features_json->>'window' +
+        features_json->>'fused_feature_id' observation_time combo.
+        Uses a simpler approach: checks if any signal was created for
+        the same ticker+direction within a narrow time window.
+        """
+        sql = """
+            SELECT 1 FROM signal_predictions
+            WHERE ticker = %s
+              AND signal_type = %s
+              AND features_json->>'window' = %s
+              AND features_json->>'fused_feature_id' IS NOT NULL
+              AND created_at >= %s::timestamptz - interval '1 minute'
+              AND created_at <= %s::timestamptz + interval '1 minute'
+            LIMIT 1
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                row = conn.execute(
+                    sql,
+                    (ticker, direction, window,
+                     observation_time, observation_time),
+                ).fetchone()
+            return row is not None
+        except Exception:
+            self._logger.exception(
+                "failed to check signal duplicate",
+                extra={"component": "repository"},
+            )
+            return False
+
     # -- Signal predictions --
 
     def insert_signal_prediction(
