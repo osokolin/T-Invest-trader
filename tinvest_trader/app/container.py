@@ -545,11 +545,19 @@ class Container:
             return None
 
         from tinvest_trader.services.signal_delivery import deliver_pending_signals
+        from tinvest_trader.services.signal_delivery_dedup import (
+            DeliveryDedupConfig,
+        )
         from tinvest_trader.services.signal_severity import SeverityConfig
 
         sev_cfg = SeverityConfig(
             high_confidence=cfg.high_confidence_threshold,
             high_ev=cfg.high_ev_threshold,
+        )
+        dedup_cfg = DeliveryDedupConfig(
+            enabled=cfg.semantic_dedup_enabled,
+            confidence_delta=cfg.confidence_delta,
+            repeat_after_minutes=cfg.repeat_after_minutes,
         )
 
         def _deliver():
@@ -564,6 +572,7 @@ class Container:
                 proxy_pass=cfg.proxy_pass,
                 max_per_cycle=cfg.max_per_cycle,
                 severity_config=sev_cfg,
+                dedup_config=dedup_cfg,
             )
 
         self.logger.info(

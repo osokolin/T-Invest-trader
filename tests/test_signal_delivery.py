@@ -36,6 +36,7 @@ def _make_repo() -> MagicMock:
     repo.get_signal_stats_by_ticker.return_value = []
     repo.get_signal_stats_by_type.return_value = []
     repo.get_signal_stats_by_source.return_value = []
+    repo.get_last_delivered_signal.return_value = None
     return repo
 
 
@@ -65,7 +66,7 @@ class TestFormatSignalMessage:
 
     def test_contains_time(self) -> None:
         msg = format_signal_message(_make_signal())
-        assert "2026-03-21 12:05" in msg
+        assert "2026-03-21 15:05 MSK" in msg
 
     def test_contains_outcome(self) -> None:
         msg = format_signal_message(_make_signal(outcome_label="win"))

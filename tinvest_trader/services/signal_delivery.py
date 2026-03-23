@@ -13,7 +13,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -43,7 +43,9 @@ def format_signal_message(signal: dict) -> str:
 
     created_at = signal.get("created_at")
     if isinstance(created_at, datetime):
-        time_str = created_at.strftime("%Y-%m-%d %H:%M")
+        msk = timezone(timedelta(hours=3))
+        created_msk = created_at.astimezone(msk) if created_at.tzinfo else created_at
+        time_str = created_msk.strftime("%Y-%m-%d %H:%M") + " MSK"
     else:
         time_str = str(created_at) if created_at else "n/a"
 
@@ -323,11 +325,18 @@ def deliver_pending_signals(
     proxy_pass: str = "",
     max_per_cycle: int = 0,
     severity_config: object | None = None,
+    dedup_config: object | None = None,
 ) -> int:
     """Deliver undelivered resolved signals, ordered by severity.
 
     If max_per_cycle > 0, send at most that many per cycle (HIGH first).
+    Semantic dedup suppresses signals whose state hasn't changed
+    meaningfully since the last delivery for the same ticker.
     """
+    from tinvest_trader.services.signal_delivery_dedup import (
+        DeliveryDedupConfig,
+        should_deliver_signal,
+    )
     from tinvest_trader.services.signal_severity import (
         SeverityConfig,
         classify_signal_severity,
@@ -337,6 +346,12 @@ def deliver_pending_signals(
     signals = repository.list_undelivered_signals(limit=limit)
     if not signals:
         return 0
+
+    dedup_cfg = (
+        dedup_config
+        if isinstance(dedup_config, DeliveryDedupConfig)
+        else None
+    )
 
     # Classify + sort by severity (HIGH first)
     sev_cfg = severity_config if isinstance(severity_config, SeverityConfig) else None
@@ -353,6 +368,7 @@ def deliver_pending_signals(
             source_stats=source_stats,
             config=sev_cfg,
         )
+        signal["severity"] = sev.level
         classified.append((signal, sev.level))
 
     classified.sort(key=lambda x: severity_sort_key(x[1]))
@@ -362,7 +378,42 @@ def deliver_pending_signals(
         classified = classified[:max_per_cycle]
 
     sent_count = 0
+    suppressed_count = 0
     for signal, _sev_level in classified:
+        # Semantic dedup: compare with last delivered for this ticker
+        previous = repository.get_last_delivered_signal(signal["ticker"])
+        if previous is not None:
+            # Attach severity of previous signal for comparison
+            prev_ticker_stats, prev_type_stats, prev_source_stats = (
+                _lookup_stats_for_signal(previous, repository)
+            )
+            prev_sev = classify_signal_severity(
+                previous,
+                ticker_stats=prev_ticker_stats,
+                type_stats=prev_type_stats,
+                source_stats=prev_source_stats,
+                config=sev_cfg,
+            )
+            previous["severity"] = prev_sev.level
+
+        decision = should_deliver_signal(signal, previous, dedup_cfg)
+
+        if not decision.deliver:
+            suppressed_count += 1
+            repository.update_signal_stage(
+                signal["id"], "suppressed_delivery", decision.reason,
+            )
+            logger.info(
+                "signal delivery suppressed",
+                extra={
+                    "component": "signal_delivery",
+                    "signal_id": signal["id"],
+                    "ticker": signal.get("ticker"),
+                    "reason": decision.reason,
+                },
+            )
+            continue
+
         result = deliver_signal(
             signal, bot_token, chat_id,
             repository=repository, logger=logger,
@@ -379,6 +430,7 @@ def deliver_pending_signals(
             "component": "signal_delivery",
             "total": len(signals),
             "sent": sent_count,
+            "suppressed": suppressed_count,
         },
     )
     return sent_count
