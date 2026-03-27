@@ -1,0 +1,3 @@
+interface:
+  display_name: "Outcome Backlog Analysis"
+  short_description: "Analyze unresolved signals, outcome reproducibility, and backlog growth"

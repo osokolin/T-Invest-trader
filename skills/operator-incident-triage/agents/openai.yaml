@@ -1,0 +1,3 @@
+interface:
+  display_name: "Operator Incident Triage"
+  short_description: "Triage alerts, digests, status output, and read-only operator reporting"

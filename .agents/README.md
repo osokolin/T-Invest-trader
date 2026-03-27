@@ -10,6 +10,20 @@ This repository uses a compact multi-agent Codex workflow designed for a trading
 - Reviewer — reviews correctness, risk controls, and maintainability.
 - Committer — creates a commit only when all checks are green.
 
+## Domain agents
+- Source Ingestion Agent — owns upstream fetch, normalization, dedup, and
+  source health boundaries without making trading decisions.
+- Enrichment Agent — owns derived features, additive AI or macro enrichment,
+  and shadow analytics without generating final signals.
+- Decision Agent — owns deterministic signal creation, gating, cooldowns, and
+  rejection reasoning before anything reaches delivery.
+- Delivery Agent — owns Telegram transport, formatting, dedup, and callback
+  handling without changing signal-selection logic.
+- Outcome & Learning Agent — owns reproducible outcome resolution and
+  post-factum learning signals without changing live transport or source flow.
+- Operator Agent — owns alerting, digest, reporting, and read-only operator
+  interfaces without mutating business logic.
+
 ## Why this set
 This is the smallest loop that still gives:
 - scoped planning

@@ -1,0 +1,3 @@
+interface:
+  display_name: "Ingestion Debug"
+  short_description: "Debug source ingestion lag, duplicates, and source-specific failures"

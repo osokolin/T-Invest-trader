@@ -1,0 +1,3 @@
+interface:
+  display_name: "Delivery Safe Verify"
+  short_description: "Verify Telegram delivery behavior without weakening duplicate-send protections"

@@ -1,0 +1,3 @@
+interface:
+  display_name: "Decision Regression Check"
+  short_description: "Check signal-generation regressions, gating changes, and dedup behavior"
