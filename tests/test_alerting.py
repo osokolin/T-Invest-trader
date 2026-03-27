@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -27,6 +28,7 @@ def alerting_config() -> AlertingConfig:
         telegram_gap_minutes=60,
         quote_gap_minutes=30,
         global_context_gap_minutes=60,
+        pending_signals_alert_enabled=True,
         pending_signals_max=50,
         win_rate_min=0.3,
         win_rate_lookback_days=7,
@@ -121,6 +123,26 @@ class TestEvaluateAlerts:
         alerts = evaluate_alerts(alerting_config, mock_repo, mock_logger)
         keys = [a.key for a in alerts]
         assert "pending_signals_high" in keys
+
+    def test_pending_signals_alert_disabled(
+        self, mock_dt, alerting_config, mock_repo, mock_logger,
+    ):
+        self._setup_mock_dt(mock_dt)
+        disabled_config = replace(
+            alerting_config, pending_signals_alert_enabled=False,
+        )
+        mock_repo.get_alerting_health_data.return_value = {
+            "latest_signal_at": _WEDNESDAY,
+            "pending_signals": 100,
+            "latest_telegram_at": _WEDNESDAY,
+            "latest_quote_at": _WEDNESDAY,
+            "latest_global_context_at": _WEDNESDAY,
+            "win_rate_7d_resolved": 0,
+            "win_rate_7d": None,
+        }
+        alerts = evaluate_alerts(disabled_config, mock_repo, mock_logger)
+        keys = [a.key for a in alerts]
+        assert "pending_signals_high" not in keys
 
     def test_win_rate_alert(
         self, mock_dt, alerting_config, mock_repo, mock_logger,
@@ -440,4 +462,5 @@ class TestAlertingConfig:
         assert cfg.enabled is False
         assert cfg.cooldown_seconds == 3600
         assert cfg.signal_gap_minutes == 120
+        assert cfg.pending_signals_alert_enabled is False
         assert cfg.win_rate_min == 0.3

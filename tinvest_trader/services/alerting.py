@@ -96,7 +96,10 @@ def evaluate_alerts(
 
     # Too many pending (unresolved) signals
     pending = health.get("pending_signals", 0)
-    if pending > config.pending_signals_max:
+    if (
+        config.pending_signals_alert_enabled
+        and pending > config.pending_signals_max
+    ):
         alerts.append(Alert(
             key="pending_signals_high",
             category="signal_pipeline",
