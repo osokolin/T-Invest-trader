@@ -58,6 +58,8 @@ _WEDNESDAY = datetime(2026, 3, 18, 12, 0, 0, tzinfo=UTC)  # weekday=2
 _SATURDAY = datetime(2026, 3, 21, 12, 0, 0, tzinfo=UTC)  # weekday=5
 # Wednesday 04:00 UTC = 07:00 MSK — before market open (09:50 MSK)
 _WEDNESDAY_NIGHT = datetime(2026, 3, 18, 4, 0, 0, tzinfo=UTC)  # weekday=2
+# Wednesday 07:00 UTC = 10:00 MSK — within grace period (09:50–10:50 MSK)
+_WEDNESDAY_GRACE = datetime(2026, 3, 18, 7, 0, 0, tzinfo=UTC)  # weekday=2
 
 
 @patch("tinvest_trader.services.alerting.datetime")
@@ -280,6 +282,28 @@ class TestEvaluateAlerts:
         # Non-gap alerts still fire
         assert "pending_signals_high" in keys
         assert "win_rate_low" in keys
+
+    def test_gap_alerts_suppressed_during_grace_period(
+        self, mock_dt, alerting_config, mock_repo, mock_logger,
+    ):
+        """Gap alerts suppressed in first 60 min after market open (09:50–10:50 MSK)."""
+        mock_dt.now.return_value = _WEDNESDAY_GRACE
+        mock_repo.get_alerting_health_data.return_value = {
+            "latest_signal_at": _WEDNESDAY_GRACE - timedelta(minutes=2000),
+            "pending_signals": 0,
+            "latest_telegram_at": _WEDNESDAY_GRACE - timedelta(minutes=120),
+            "latest_quote_at": _WEDNESDAY_GRACE - timedelta(minutes=60),
+            "latest_global_context_at": _WEDNESDAY_GRACE - timedelta(minutes=120),
+            "win_rate_7d_resolved": 0,
+            "win_rate_7d": None,
+        }
+        alerts = evaluate_alerts(alerting_config, mock_repo, mock_logger)
+        keys = [a.key for a in alerts]
+        # Gap alerts suppressed during grace period
+        assert "signal_gap" not in keys
+        assert "telegram_gap" not in keys
+        assert "quote_gap" not in keys
+        assert "global_context_gap" not in keys
 
 
 class TestCooldown:

@@ -59,11 +59,19 @@ def evaluate_alerts(
     # Win rate and pending checks still apply at all times.
     now_msk = now.astimezone(_MSK)
     msk_minutes = now_msk.hour * 60 + now_msk.minute
+    _MARKET_OPEN_MIN = 9 * 60 + 50   # 09:50 MSK
+    _MARKET_CLOSE_MIN = 18 * 60 + 50  # 18:50 MSK
+    _GRACE_PERIOD_MIN = 60             # skip first 60 min after open
+
     market_open = (
         now_msk.weekday() < 5
-        and 9 * 60 + 50 <= msk_minutes <= 18 * 60 + 50
+        and _MARKET_OPEN_MIN <= msk_minutes <= _MARKET_CLOSE_MIN
     )
-    suppress_gap_alerts = not market_open
+    in_grace_period = (
+        market_open
+        and msk_minutes < _MARKET_OPEN_MIN + _GRACE_PERIOD_MIN
+    )
+    suppress_gap_alerts = not market_open or in_grace_period
 
     # -- Signal pipeline alerts --
 

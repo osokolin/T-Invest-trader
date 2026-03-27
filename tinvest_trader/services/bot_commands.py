@@ -6,6 +6,7 @@ All commands are read-only: no trades, no config changes.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -340,6 +341,10 @@ def handle_ticker_stats(
     try:
         by_ticker = repository.get_signal_stats_by_ticker()
     except Exception:
+        logging.getLogger("tinvest_trader").exception(
+            "failed to fetch ticker stats",
+            extra={"component": "bot_commands", "ticker": ticker},
+        )
         return f"Stats unavailable for {ticker}"
 
     ticker_stats: dict | None = None

@@ -134,7 +134,7 @@ def format_enriched_signal_message(
     type_stats: dict | None = None,
 ) -> str:
     """Format an enriched Telegram message for a signal."""
-    from datetime import datetime
+    from datetime import datetime, timedelta, timezone
 
     ticker = signal.get("ticker", "???")
     signal_type = signal.get("signal_type", "???")
@@ -148,7 +148,9 @@ def format_enriched_signal_message(
 
     created_at = signal.get("created_at")
     if isinstance(created_at, datetime):
-        time_str = created_at.strftime("%Y-%m-%d %H:%M")
+        msk = timezone(timedelta(hours=3))
+        created_msk = created_at.astimezone(msk) if created_at.tzinfo else created_at
+        time_str = created_msk.strftime("%Y-%m-%d %H:%M") + " MSK"
     else:
         time_str = str(created_at) if created_at else "n/a"
 
