@@ -179,7 +179,7 @@ class TestFormatEnrichedMessage:
     def test_contains_time(self) -> None:
         severity = SeverityResult(level="MEDIUM", reasons=[])
         msg = format_enriched_signal_message(_make_signal(), severity)
-        assert "2026-03-21 12:05" in msg
+        assert "2026-03-21 15:05 MSK" in msg
 
     def test_contains_ticker_stats(self) -> None:
         severity = SeverityResult(level="HIGH", reasons=["ev ok"])

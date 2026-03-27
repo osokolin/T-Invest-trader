@@ -8,7 +8,9 @@ GUARDRAIL: orchestration only -- delegates to services.
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import pathlib
 import threading
 import time
 from collections.abc import Callable
@@ -33,6 +35,9 @@ if TYPE_CHECKING:
     from tinvest_trader.services.moex_ingestion_service import MoexIngestionService
     from tinvest_trader.services.observation_service import ObservationService
     from tinvest_trader.services.telegram_sentiment_service import TelegramSentimentService
+
+
+HEARTBEAT_PATH = pathlib.Path("/tmp/tinvest_heartbeat")  # noqa: S108
 
 
 class BackgroundRunner:
@@ -795,5 +800,8 @@ class BackgroundRunner:
 
             if next_wait is None:
                 return
+
+            with contextlib.suppress(OSError):
+                HEARTBEAT_PATH.write_text(str(time.time()))
 
             self._stop_event.wait(timeout=next_wait)

@@ -218,6 +218,7 @@ class AlertingConfig:
     telegram_gap_minutes: int = 60
     quote_gap_minutes: int = 30
     global_context_gap_minutes: int = 60
+    pending_signals_alert_enabled: bool = False
     pending_signals_max: int = 50
     win_rate_min: float = 0.3
     win_rate_lookback_days: int = 7
@@ -715,6 +716,9 @@ def load_config() -> AppConfig:
                     "TINVEST_ALERTING_GLOBAL_CONTEXT_GAP_MINUTES", "60",
                 ),
             ),
+            pending_signals_alert_enabled=os.environ.get(
+                "TINVEST_ALERTING_PENDING_SIGNALS_ENABLED", "false",
+            ).lower() == "true",
             pending_signals_max=int(
                 os.environ.get(
                     "TINVEST_ALERTING_PENDING_SIGNALS_MAX", "50",
