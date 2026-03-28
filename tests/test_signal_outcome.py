@@ -95,6 +95,14 @@ class TestResolvePendingSignals:
             return None
 
         repo.get_first_quote_after.side_effect = _get_first_quote
+
+        def _get_latest_quote_before(ticker: str, before: datetime) -> dict | None:
+            if quote_map and ticker in quote_map:
+                return quote_map[ticker]
+            return None
+
+        repo.get_latest_quote_before.side_effect = _get_latest_quote_before
+        repo.bind_signal_price = MagicMock()
         return repo
 
     def test_no_pending_returns_zero(self) -> None:
@@ -174,12 +182,26 @@ class TestResolvePendingSignals:
         call_kwargs = repo.resolve_prediction.call_args[1]
         assert call_kwargs["outcome_label"] == "neutral"
 
-    def test_skips_no_signal_price(self) -> None:
+    def test_auto_binds_missing_signal_price(self) -> None:
+        """Auto-bind price_at_signal from latest quote when missing."""
         pred = _make_prediction(price_at_signal=None)
         repo = self._mock_repo(
             [pred],
             {"SBER": {"price": 105.0, "source_time": NOW}},
         )
+
+        count = resolve_pending_signals(
+            repo, logging.getLogger("test"), now=NOW,
+        )
+
+        assert count == 1
+        repo.bind_signal_price.assert_called_once_with(1, 105.0)
+        repo.resolve_prediction.assert_called_once()
+
+    def test_skips_no_price_no_quote(self) -> None:
+        """No price_at_signal and no quotes available -> skip."""
+        pred = _make_prediction(price_at_signal=None)
+        repo = self._mock_repo([pred], quote_map={})
 
         count = resolve_pending_signals(
             repo, logging.getLogger("test"), now=NOW,

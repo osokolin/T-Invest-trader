@@ -146,6 +146,25 @@ def select_best_per_ticker(
     return best
 
 
+def _lookup_price(
+    repository: TradingRepository,
+    ticker: str,
+    logger: logging.Logger,
+) -> float | None:
+    """Get latest market quote price for ticker. Returns None if unavailable."""
+    try:
+        quote = repository.get_latest_quote_by_ticker(ticker)
+        if quote is not None:
+            return float(quote["price"])
+    except Exception:
+        logger.debug(
+            "signal_generation: price lookup failed for %s",
+            ticker,
+            extra={"component": "signal_generation"},
+        )
+    return None
+
+
 def generate_signals(
     repository: TradingRepository,
     logger: logging.Logger,
@@ -219,10 +238,13 @@ def generate_signals(
             })
             continue
 
+        # Bind price at signal time from latest market quote
+        price_at_signal = _lookup_price(repository, candidate.ticker, logger)
+
         signal_id = repository.insert_signal_prediction(
             ticker=candidate.ticker,
             signal_type=candidate.direction,
-            price_at_signal=None,
+            price_at_signal=price_at_signal,
             confidence=candidate.confidence,
             source="fusion",
             features_json=candidate.features_json,

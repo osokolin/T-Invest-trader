@@ -141,6 +141,9 @@ class Container:
         # Signal generation callable (used by background runner and CLI)
         self._signal_generation_fn = self._build_signal_generation_fn()
 
+        # Signal resolution callable (used by background runner)
+        self._signal_resolution_fn = self._build_signal_resolution_fn()
+
         # Signal delivery callable (used by background runner and CLI)
         self._signal_delivery_fn = self._build_signal_delivery_fn()
 
@@ -503,6 +506,29 @@ class Container:
         )
         return _sync
 
+    def _build_signal_resolution_fn(self):
+        """Build a callable for signal resolution if prerequisites are met."""
+        cfg = self.config.signal_resolution
+        if not cfg.enabled:
+            return None
+        if self.repository is None:
+            return None
+
+        from tinvest_trader.services.signal_outcome import resolve_pending_signals
+
+        def _resolve():
+            return resolve_pending_signals(
+                repository=self.repository,
+                logger=self.logger,
+                eval_window_seconds=cfg.eval_window_seconds,
+            )
+
+        self.logger.info(
+            "signal resolution initialized",
+            extra={"component": "signal_resolution"},
+        )
+        return _resolve
+
     def _build_signal_generation_fn(self):
         """Build a callable for signal generation if prerequisites are met."""
         cfg = self.config.signal_generation
@@ -700,6 +726,8 @@ class Container:
             global_market_data_interval_seconds=self.config.global_market_data.poll_interval_seconds,
             signal_generation_fn=self._signal_generation_fn,
             signal_generation_config=self.config.signal_generation,
+            signal_resolution_fn=self._signal_resolution_fn,
+            signal_resolution_config=self.config.signal_resolution,
             signal_delivery_config=self.config.signal_delivery,
             signal_delivery_fn=self._signal_delivery_fn,
             callback_handler_fn=self._callback_handler_fn,

@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         QuoteSyncConfig,
         SignalDeliveryConfig,
         SignalGenerationConfig,
+        SignalResolutionConfig,
     )
     from tinvest_trader.services.broker_event_ingestion_service import (
         BrokerEventIngestionService,
@@ -70,6 +71,8 @@ class BackgroundRunner:
         alerting_interval_seconds: int = 300,
         signal_generation_fn: Callable[[], object] | None = None,
         signal_generation_config: SignalGenerationConfig | None = None,
+        signal_resolution_fn: Callable[[], int] | None = None,
+        signal_resolution_config: SignalResolutionConfig | None = None,
         daily_digest_fn: Callable[[], object] | None = None,
         daily_digest_config: DailyDigestConfig | None = None,
         time_fn: Callable[[], float] | None = None,
@@ -99,6 +102,8 @@ class BackgroundRunner:
         self._alerting_interval_seconds = alerting_interval_seconds
         self._signal_generation_fn = signal_generation_fn
         self._signal_generation_config = signal_generation_config
+        self._signal_resolution_fn = signal_resolution_fn
+        self._signal_resolution_config = signal_resolution_config
         self._daily_digest_fn = daily_digest_fn
         self._daily_digest_config = daily_digest_config
         self._daily_digest_sent_today: str = ""
@@ -236,6 +241,7 @@ class BackgroundRunner:
             or self._broker_events_is_runnable()
             or self._fusion_is_runnable()
             or self._signal_generation_is_runnable()
+            or self._signal_resolution_is_runnable()
             or self._cbr_is_runnable()
             or self._moex_is_runnable()
             or self._global_context_is_runnable()
@@ -389,6 +395,34 @@ class BackgroundRunner:
         except Exception:
             self._logger.exception(
                 "background signal generation cycle failed",
+                extra={"component": "background_runner"},
+            )
+
+    def _signal_resolution_is_runnable(self) -> bool:
+        return (
+            self._config.run_signal_resolution
+            and self._signal_resolution_fn is not None
+            and self._signal_resolution_config is not None
+        )
+
+    def run_signal_resolution_cycle(self) -> None:
+        """Run one signal resolution cycle safely."""
+        if not self._signal_resolution_is_runnable():
+            return
+
+        try:
+            resolved = self._signal_resolution_fn()
+            if resolved:
+                self._logger.info(
+                    "background signal resolution cycle complete",
+                    extra={
+                        "component": "background_runner",
+                        "resolved": resolved,
+                    },
+                )
+        except Exception:
+            self._logger.exception(
+                "background signal resolution cycle failed",
                 extra={"component": "background_runner"},
             )
 
@@ -602,6 +636,7 @@ class BackgroundRunner:
         next_global_context_run = self._time_fn()
         next_global_market_data_run = self._time_fn()
         next_quote_sync_run = self._time_fn()
+        next_signal_resolution_run = self._time_fn()
         next_signal_delivery_run = self._time_fn()
         next_callback_handler_run = self._time_fn()
         next_alerting_run = self._time_fn()
@@ -738,6 +773,22 @@ class BackgroundRunner:
                     quote_sync_wait
                     if next_wait is None
                     else min(next_wait, quote_sync_wait)
+                )
+
+            if self._signal_resolution_is_runnable():
+                if now >= next_signal_resolution_run:
+                    self.run_signal_resolution_cycle()
+                    interval = self._signal_resolution_config.poll_interval_seconds
+                    next_signal_resolution_run = (
+                        self._time_fn() + max(1, interval)
+                    )
+                sr_wait = max(
+                    0.0, next_signal_resolution_run - self._time_fn(),
+                )
+                next_wait = (
+                    sr_wait
+                    if next_wait is None
+                    else min(next_wait, sr_wait)
                 )
 
             if self._signal_delivery_is_runnable():

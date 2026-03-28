@@ -711,6 +711,30 @@ class TradingRepository:
                 },
             )
 
+    def bind_signal_price(
+        self,
+        prediction_id: int,
+        price_at_signal: float,
+    ) -> None:
+        """Set price_at_signal for an existing prediction (backfill)."""
+        sql = """
+            UPDATE signal_predictions
+            SET price_at_signal = %s
+            WHERE id = %s
+              AND price_at_signal IS NULL
+        """
+        try:
+            with self._pool.get_connection() as conn:
+                conn.execute(sql, (price_at_signal, prediction_id))
+        except Exception:
+            self._logger.exception(
+                "failed to bind signal price",
+                extra={
+                    "component": "postgres",
+                    "prediction_id": prediction_id,
+                },
+            )
+
     def get_signal_stats(self) -> dict:
         """Aggregate signal prediction statistics."""
         sql = """

@@ -138,11 +138,14 @@ class TestEvaluateFusedRow:
 
 
 class TestGenerateSignals:
-    def _mock_repo(self, rows=None, exists=False):
+    def _mock_repo(self, rows=None, exists=False, quote_price=100.0):
         repo = MagicMock()
         repo.list_recent_fused_features.return_value = rows or []
         repo.signal_exists_recent.return_value = exists
         repo.insert_signal_prediction.return_value = 42
+        repo.get_latest_quote_by_ticker.return_value = (
+            {"price": quote_price} if quote_price is not None else None
+        )
         return repo
 
     def _fused_row(self, ticker="SBER", balance=0.6, msgs=5, **kw):
@@ -167,6 +170,20 @@ class TestGenerateSignals:
         assert result.inserted == 1
         assert result.candidates == 1
         repo.insert_signal_prediction.assert_called_once()
+
+    def test_binds_price_at_signal(self):
+        repo = self._mock_repo(rows=[self._fused_row()], quote_price=320.5)
+        logger = MagicMock()
+        generate_signals(repo, logger)
+        call_kwargs = repo.insert_signal_prediction.call_args
+        assert call_kwargs[1]["price_at_signal"] == 320.5
+
+    def test_price_none_when_no_quote(self):
+        repo = self._mock_repo(rows=[self._fused_row()], quote_price=None)
+        logger = MagicMock()
+        generate_signals(repo, logger)
+        call_kwargs = repo.insert_signal_prediction.call_args
+        assert call_kwargs[1]["price_at_signal"] is None
 
     def test_skips_below_threshold(self):
         repo = self._mock_repo(rows=[self._fused_row(balance=0.1)])
@@ -345,6 +362,7 @@ class TestGenerateSignalsPerTickerDedup:
         repo.list_recent_fused_features.return_value = rows or []
         repo.signal_exists_recent.return_value = exists
         repo.insert_signal_prediction.return_value = 42
+        repo.get_latest_quote_by_ticker.return_value = {"price": 100.0}
         return repo
 
     def _fused_row(self, ticker="SBER", balance=0.6, msgs=5, **kw):
