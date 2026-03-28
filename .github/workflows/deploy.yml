@@ -1,14 +1,12 @@
-# Deploy to VPS -- DRAFT
-# Enable after first successful manual deployment.
+# Deploy to VPS via SSH.
 # Required secrets: DEPLOY_HOST, DEPLOY_PORT, DEPLOY_USER, DEPLOY_SSH_KEY
 
 name: Deploy
 
 on:
   workflow_dispatch:
-  # Uncomment after first manual deploy succeeds:
-  # push:
-  #   branches: [main]
+  push:
+    branches: [main]
 
 jobs:
   deploy:
