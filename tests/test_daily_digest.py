@@ -312,11 +312,10 @@ class TestSendDailyDigest:
     def test_skipped_on_saturday(
         self, mock_dt, mock_repo, delivery_config, mock_logger,
     ):
-        from datetime import timezone
         from zoneinfo import ZoneInfo
 
         # Saturday 20:00 MSK
-        sat = datetime(2026, 3, 28, 17, 0, tzinfo=timezone.utc)
+        sat = datetime(2026, 3, 28, 17, 0, tzinfo=UTC)
         mock_dt.now.return_value = sat.astimezone(ZoneInfo("Europe/Moscow"))
         mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
         result = send_daily_digest(mock_repo, delivery_config, mock_logger)
@@ -327,10 +326,9 @@ class TestSendDailyDigest:
     def test_skipped_on_sunday(
         self, mock_dt, mock_repo, delivery_config, mock_logger,
     ):
-        from datetime import timezone
         from zoneinfo import ZoneInfo
 
-        sun = datetime(2026, 3, 29, 17, 0, tzinfo=timezone.utc)
+        sun = datetime(2026, 3, 29, 17, 0, tzinfo=UTC)
         mock_dt.now.return_value = sun.astimezone(ZoneInfo("Europe/Moscow"))
         mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
         result = send_daily_digest(mock_repo, delivery_config, mock_logger)
@@ -340,10 +338,9 @@ class TestSendDailyDigest:
     def test_friday_sends_weekly_summary(
         self, mock_dt, mock_repo, delivery_config, mock_logger,
     ):
-        from datetime import timezone
         from zoneinfo import ZoneInfo
 
-        fri = datetime(2026, 3, 27, 17, 0, tzinfo=timezone.utc)
+        fri = datetime(2026, 3, 27, 17, 0, tzinfo=UTC)
         mock_dt.now.return_value = fri.astimezone(ZoneInfo("Europe/Moscow"))
         mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
         mock_repo.get_daily_digest_data.return_value = {
