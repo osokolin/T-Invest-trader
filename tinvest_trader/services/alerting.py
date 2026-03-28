@@ -111,11 +111,13 @@ def evaluate_alerts(
             ),
         ))
 
-    # Win rate drop
+    # Win rate drop (suppress on weekends — no actionable trades)
+    is_weekend = now_msk.weekday() >= 5
     wr = health.get("win_rate_7d")
     wr_resolved = health.get("win_rate_7d_resolved", 0)
     if (
-        wr is not None
+        not is_weekend
+        and wr is not None
         and wr_resolved >= config.win_rate_min_resolved
         and wr < config.win_rate_min
     ):

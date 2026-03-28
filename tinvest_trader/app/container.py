@@ -691,6 +691,7 @@ class Container:
                 repository=self.repository,
                 delivery_config=delivery_cfg,
                 logger=self.logger,
+                skip_weekends=cfg.skip_weekends,
             )
 
         self.logger.info(

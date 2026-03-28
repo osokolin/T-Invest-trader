@@ -69,12 +69,13 @@ def build_daily_digest(
     )
 
 
-def format_daily_digest(data: DigestData) -> str:
+def format_daily_digest(data: DigestData, *, is_weekly: bool = False) -> str:
     """Format digest data into a compact Telegram-friendly message."""
     lines: list[str] = []
 
     # Header
-    lines.append("Daily Summary (24h)")
+    header = "Weekly Summary (7d)" if is_weekly else "Daily Summary (24h)"
+    lines.append(header)
     lines.append("")
 
     # Core metrics
@@ -205,13 +206,34 @@ def send_daily_digest(
     *,
     dry_run: bool = False,
     lookback_hours: int = 24,
+    skip_weekends: bool = True,
 ) -> dict:
     """Build, format, and optionally send daily digest.
 
+    On weekends (Saturday/Sunday MSK) the digest is skipped.
+    On Friday evenings it becomes a weekly summary (7d lookback).
+
     Returns dict with keys: text, sent, dry_run.
     """
-    data = build_daily_digest(repository, lookback_hours=lookback_hours)
-    text = format_daily_digest(data)
+    from zoneinfo import ZoneInfo
+
+    now_msk = datetime.now(ZoneInfo("Europe/Moscow"))
+    weekday = now_msk.weekday()  # Mon=0 … Sun=6
+
+    if skip_weekends and weekday >= 5:
+        logger.info(
+            "daily digest skipped (weekend)",
+            extra={"component": "daily_digest", "weekday": weekday},
+        )
+        return {"text": "", "sent": False, "dry_run": dry_run,
+                "signals_total": 0, "signals_delivered": 0, "skipped": True}
+
+    # Friday → weekly summary
+    is_weekly = weekday == 4
+    effective_lookback = 168 if is_weekly else lookback_hours
+
+    data = build_daily_digest(repository, lookback_hours=effective_lookback)
+    text = format_daily_digest(data, is_weekly=is_weekly)
 
     result = {
         "text": text,

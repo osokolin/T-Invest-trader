@@ -277,9 +277,9 @@ class TestEvaluateAlerts:
         assert "telegram_gap" not in keys
         assert "quote_gap" not in keys
         assert "global_context_gap" not in keys
-        # Non-gap alerts still fire
+        # Pending still fires; win rate suppressed on weekends
         assert "pending_signals_high" in keys
-        assert "win_rate_low" in keys
+        assert "win_rate_low" not in keys
 
     def test_gap_alerts_suppressed_outside_market_hours(
         self, mock_dt, alerting_config, mock_repo, mock_logger,
