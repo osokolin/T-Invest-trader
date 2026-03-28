@@ -10,14 +10,22 @@ from __future__ import annotations
 
 # Market tag → list of MOEX tickers most directly exposed.
 MARKET_TO_TICKERS: dict[str, tuple[str, ...]] = {
-    "oil": ("LKOH", "ROSN"),
+    "oil": ("LKOH", "ROSN", "TATN", "SNGS", "SIBN"),
     "gas": ("GAZP",),
     "lng": ("NVTK",),
+    "coal": ("MTLR", "RASP"),
+    "gold": ("PLZL", "UGLD", "SELG"),
     "macro": ("SBER", "VTBR", "GAZP", "LKOH"),
-    "risk": ("SBER", "VTBR"),
-    "geopolitics": ("SBER", "GAZP", "LKOH"),
+    "risk": ("SBER", "VTBR", "MOEX"),
+    "geopolitics": ("SBER", "GAZP", "LKOH", "ROSN", "VTBR"),
     "inflation": ("SBER", "VTBR"),
-    "rates": ("SBER", "VTBR"),
+    "rates": ("SBER", "VTBR", "MOEX", "CBOM"),
+    "budget": ("SBER", "VTBR"),
+    "crypto": (),
+    "realestate": ("LSRG", "SMLT", "PIKK"),
+    "china_us": ("SBER", "LKOH", "GAZP"),
+    "deposits": ("SBER", "VTBR", "CBOM", "BSPB"),
+    "economy": ("SBER", "VTBR", "MOEX"),
 }
 
 # Market tag → broad sector classification.
@@ -25,11 +33,19 @@ MARKET_TO_SECTOR: dict[str, str] = {
     "oil": "energy",
     "gas": "gas",
     "lng": "gas",
+    "coal": "energy",
+    "gold": "commodities",
     "macro": "broad",
     "risk": "broad",
     "geopolitics": "broad",
     "inflation": "macro",
     "rates": "financials",
+    "budget": "macro",
+    "crypto": "crypto",
+    "realestate": "realestate",
+    "china_us": "broad",
+    "deposits": "financials",
+    "economy": "macro",
 }
 
 

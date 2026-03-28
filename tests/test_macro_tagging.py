@@ -92,6 +92,80 @@ class TestTagMacroMessage:
         tags = tag_macro_message("рецессия в Европе")
         assert "risk" in tags
 
+    # ── New tags (v2) ──
+
+    def test_coal(self):
+        tags = tag_macro_message("убыток российской угольной отрасли вырос")
+        assert "coal" in tags
+
+    def test_coal_english(self):
+        tags = tag_macro_message("coal prices drop sharply")
+        assert "coal" in tags
+
+    def test_gold(self):
+        tags = tag_macro_message("центр торговли золотом в Гонконге")
+        assert "gold" in tags
+
+    def test_gold_english(self):
+        tags = tag_macro_message("gold hits record high")
+        assert "gold" in tags
+
+    def test_budget(self):
+        tags = tag_macro_message("работаем с расходами бюджета")
+        assert "budget" in tags
+
+    def test_budget_deficit(self):
+        tags = tag_macro_message("дефицит бюджета РФ вырос")
+        assert "budget" in tags
+
+    def test_crypto(self):
+        tags = tag_macro_message("биткоин ниже $69 тыс")
+        assert "crypto" in tags
+
+    def test_crypto_english(self):
+        tags = tag_macro_message("Bitcoin falls below $70k")
+        assert "crypto" in tags
+
+    def test_realestate(self):
+        tags = tag_macro_message("ставки по ипотеке снижаются")
+        assert "realestate" in tags
+
+    def test_realestate_developer(self):
+        tags = tag_macro_message("девелоперы сокращают объёмы строительства")
+        assert "realestate" in tags
+
+    def test_china_us(self):
+        tags = tag_macro_message("торговая война между США и Китаем")
+        assert "china_us" in tags
+
+    def test_china_us_tariffs(self):
+        tags = tag_macro_message("новые пошлины на импорт из Китая")
+        assert "china_us" in tags
+
+    def test_deposits(self):
+        tags = tag_macro_message("ставки по вкладам опустятся до 11-12%")
+        assert "deposits" in tags
+
+    def test_economy(self):
+        tags = tag_macro_message("все экономические индикаторы ухудшаются")
+        assert "economy" in tags
+
+    def test_economy_business_climate(self):
+        tags = tag_macro_message("бизнес-климат в РФ резко ухудшился")
+        assert "economy" in tags
+
+    def test_geopolitics_military(self):
+        tags = tag_macro_message("минобороны РФ сообщает об операции")
+        assert "geopolitics" in tags
+
+    def test_geopolitics_drones(self):
+        tags = tag_macro_message("сбито 6 дронов, летевших на Москву")
+        assert "geopolitics" in tags
+
+    def test_geopolitics_aircraft_carrier(self):
+        tags = tag_macro_message("США отправляют третий авианосец")
+        assert "geopolitics" in tags
+
 
 # ── Mapping ──
 
@@ -116,6 +190,12 @@ class TestMacroMapping:
         assert "LKOH" in tickers
         assert "ROSN" in tickers
 
+    def test_get_affected_tickers_oil_expanded(self):
+        tickers = get_affected_tickers(["oil"])
+        assert "TATN" in tickers
+        assert "SNGS" in tickers
+        assert "SIBN" in tickers
+
     def test_get_affected_tickers_multiple(self):
         tickers = get_affected_tickers(["oil", "gas"])
         assert "LKOH" in tickers
@@ -131,6 +211,29 @@ class TestMacroMapping:
 
     def test_get_affected_tickers_unknown_tag(self):
         assert get_affected_tickers(["unknown"]) == []
+
+    def test_get_affected_tickers_coal(self):
+        tickers = get_affected_tickers(["coal"])
+        assert "MTLR" in tickers
+        assert "RASP" in tickers
+
+    def test_get_affected_tickers_gold(self):
+        tickers = get_affected_tickers(["gold"])
+        assert "PLZL" in tickers
+        assert "UGLD" in tickers
+
+    def test_get_affected_tickers_realestate(self):
+        tickers = get_affected_tickers(["realestate"])
+        assert "LSRG" in tickers
+
+    def test_get_affected_tickers_deposits(self):
+        tickers = get_affected_tickers(["deposits"])
+        assert "SBER" in tickers
+        assert "CBOM" in tickers
+        assert "BSPB" in tickers
+
+    def test_get_affected_tickers_crypto_empty(self):
+        assert get_affected_tickers(["crypto"]) == []
 
     def test_get_sectors_oil(self):
         sectors = get_sectors(["oil"])
@@ -148,3 +251,15 @@ class TestMacroMapping:
 
     def test_get_sectors_empty(self):
         assert get_sectors([]) == []
+
+    def test_get_sectors_coal(self):
+        assert "energy" in get_sectors(["coal"])
+
+    def test_get_sectors_gold(self):
+        assert "commodities" in get_sectors(["gold"])
+
+    def test_get_sectors_realestate(self):
+        assert "realestate" in get_sectors(["realestate"])
+
+    def test_get_sectors_economy(self):
+        assert "macro" in get_sectors(["economy"])
