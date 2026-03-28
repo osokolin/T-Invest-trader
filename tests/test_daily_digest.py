@@ -246,6 +246,12 @@ class TestFormatDailyDigest:
         assert "Shadow:" not in text
         assert "Best:" not in text
 
+    def test_weekly_header(self):
+        data = DigestData(signals_total=10)
+        text = format_daily_digest(data, is_weekly=True)
+        assert "Weekly Summary (7d)" in text
+        assert "Daily Summary" not in text
+
 
 # --- send_daily_digest ---
 
@@ -254,7 +260,8 @@ class TestSendDailyDigest:
     def test_dry_run_does_not_send(self, mock_repo, delivery_config, mock_logger):
         mock_repo.get_daily_digest_data.return_value = {"signals_total": 5}
         result = send_daily_digest(
-            mock_repo, delivery_config, mock_logger, dry_run=True,
+            mock_repo, delivery_config, mock_logger,
+            dry_run=True, skip_weekends=False,
         )
         assert result["dry_run"] is True
         assert result["sent"] is False
@@ -263,7 +270,7 @@ class TestSendDailyDigest:
     def test_missing_credentials_skips_send(self, mock_repo, mock_logger):
         cfg = SignalDeliveryConfig(enabled=True, bot_token="", chat_id="")
         mock_repo.get_daily_digest_data.return_value = {"signals_total": 5}
-        result = send_daily_digest(mock_repo, cfg, mock_logger)
+        result = send_daily_digest(mock_repo, cfg, mock_logger, skip_weekends=False)
         assert result["sent"] is False
 
     @patch("tinvest_trader.services.signal_delivery.send_telegram_message")
@@ -275,7 +282,9 @@ class TestSendDailyDigest:
             "signals_total": 10,
             "signals_delivered": 5,
         }
-        result = send_daily_digest(mock_repo, delivery_config, mock_logger)
+        result = send_daily_digest(
+            mock_repo, delivery_config, mock_logger, skip_weekends=False,
+        )
         assert result["sent"] is True
         mock_send.assert_called_once()
         mock_repo.insert_alert_event.assert_called_once_with(
@@ -293,9 +302,56 @@ class TestSendDailyDigest:
     ):
         mock_send.return_value = False
         mock_repo.get_daily_digest_data.return_value = {"signals_total": 5}
-        result = send_daily_digest(mock_repo, delivery_config, mock_logger)
+        result = send_daily_digest(
+            mock_repo, delivery_config, mock_logger, skip_weekends=False,
+        )
         assert result["sent"] is False
         mock_repo.insert_alert_event.assert_not_called()
+
+    @patch("tinvest_trader.services.daily_digest.datetime")
+    def test_skipped_on_saturday(
+        self, mock_dt, mock_repo, delivery_config, mock_logger,
+    ):
+        from zoneinfo import ZoneInfo
+
+        # Saturday 20:00 MSK
+        sat = datetime(2026, 3, 28, 17, 0, tzinfo=UTC)
+        mock_dt.now.return_value = sat.astimezone(ZoneInfo("Europe/Moscow"))
+        mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+        result = send_daily_digest(mock_repo, delivery_config, mock_logger)
+        assert result.get("skipped") is True
+        mock_repo.get_daily_digest_data.assert_not_called()
+
+    @patch("tinvest_trader.services.daily_digest.datetime")
+    def test_skipped_on_sunday(
+        self, mock_dt, mock_repo, delivery_config, mock_logger,
+    ):
+        from zoneinfo import ZoneInfo
+
+        sun = datetime(2026, 3, 29, 17, 0, tzinfo=UTC)
+        mock_dt.now.return_value = sun.astimezone(ZoneInfo("Europe/Moscow"))
+        mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+        result = send_daily_digest(mock_repo, delivery_config, mock_logger)
+        assert result.get("skipped") is True
+
+    @patch("tinvest_trader.services.daily_digest.datetime")
+    def test_friday_sends_weekly_summary(
+        self, mock_dt, mock_repo, delivery_config, mock_logger,
+    ):
+        from zoneinfo import ZoneInfo
+
+        fri = datetime(2026, 3, 27, 17, 0, tzinfo=UTC)
+        mock_dt.now.return_value = fri.astimezone(ZoneInfo("Europe/Moscow"))
+        mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+        mock_repo.get_daily_digest_data.return_value = {
+            "signals_total": 50,
+            "signals_delivered": 20,
+        }
+        result = send_daily_digest(
+            mock_repo, delivery_config, mock_logger, dry_run=True,
+        )
+        assert "Weekly Summary (7d)" in result["text"]
+        mock_repo.get_daily_digest_data.assert_called_once_with(lookback_hours=168)
 
 
 # --- is_digest_already_sent_today ---

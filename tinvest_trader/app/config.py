@@ -238,6 +238,7 @@ class DailyDigestConfig:
     enabled: bool = False
     hour: int = 20
     minute: int = 0
+    skip_weekends: bool = True
 
 
 @dataclass(frozen=True)
