@@ -61,12 +61,25 @@ def resolve_pending_signals(
         price_at_signal = pred["price_at_signal"]
 
         if price_at_signal is None or price_at_signal == 0:
-            logger.warning(
-                "signal_outcome: skipping prediction %d, no signal price",
-                pred["id"],
-                extra={"component": "signal_outcome"},
+            # Auto-bind: try to find the latest quote before signal time
+            bound_quote = repository.get_latest_quote_before(
+                ticker, pred["created_at"],
             )
-            continue
+            if bound_quote is not None:
+                price_at_signal = float(bound_quote["price"])
+                repository.bind_signal_price(pred["id"], price_at_signal)
+                logger.info(
+                    "signal_outcome: auto-bound price %.4f for prediction %d",
+                    price_at_signal, pred["id"],
+                    extra={"component": "signal_outcome"},
+                )
+            else:
+                logger.debug(
+                    "signal_outcome: skipping prediction %d, no price available",
+                    pred["id"],
+                    extra={"component": "signal_outcome"},
+                )
+                continue
 
         quote = repository.get_first_quote_after(ticker, pred["created_at"])
 

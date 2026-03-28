@@ -78,6 +78,7 @@ class BackgroundConfig:
     run_signal_generation: bool = True
     run_alerting: bool = True
     run_daily_digest: bool = True
+    run_signal_resolution: bool = True
 
 
 @dataclass(frozen=True)
@@ -160,6 +161,13 @@ class SignalCalibrationConfig:
     enable_up: bool = True
     enable_down: bool = True
     min_resolved_for_filter: int = 5
+
+
+@dataclass(frozen=True)
+class SignalResolutionConfig:
+    enabled: bool = True
+    eval_window_seconds: int = 300
+    poll_interval_seconds: int = 120
 
 
 @dataclass(frozen=True)
@@ -269,6 +277,9 @@ class AppConfig:
     )
     global_market_data: GlobalMarketDataConfig = field(
         default_factory=GlobalMarketDataConfig,
+    )
+    signal_resolution: SignalResolutionConfig = field(
+        default_factory=SignalResolutionConfig,
     )
     alerting: AlertingConfig = field(default_factory=AlertingConfig)
     daily_digest: DailyDigestConfig = field(default_factory=DailyDigestConfig)
@@ -681,6 +692,17 @@ def load_config() -> AppConfig:
                     "^GSPC,^NDX,^VIX,BZ=F,DX-Y.NYB",
                 ),
             ),
+        ),
+        signal_resolution=SignalResolutionConfig(
+            enabled=os.environ.get(
+                "TINVEST_SIGNAL_RESOLUTION_ENABLED", "true",
+            ).lower() == "true",
+            eval_window_seconds=int(os.environ.get(
+                "TINVEST_SIGNAL_RESOLUTION_EVAL_WINDOW_SECONDS", "300",
+            )),
+            poll_interval_seconds=int(os.environ.get(
+                "TINVEST_SIGNAL_RESOLUTION_POLL_INTERVAL_SECONDS", "120",
+            )),
         ),
         alerting=AlertingConfig(
             enabled=os.environ.get(
