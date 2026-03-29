@@ -599,6 +599,7 @@ class Container:
                 max_per_cycle=cfg.max_per_cycle,
                 severity_config=sev_cfg,
                 dedup_config=dedup_cfg,
+                weekend_high_only=cfg.weekend_high_only,
             )
 
         self.logger.info(

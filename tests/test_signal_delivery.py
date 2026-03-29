@@ -155,11 +155,13 @@ class TestDedup:
 
         sent1 = deliver_pending_signals(
             "token", "chat", repo, MagicMock(), limit=50,
+            weekend_high_only=False,
         )
         assert sent1 == 1
 
         sent2 = deliver_pending_signals(
             "token", "chat", repo, MagicMock(), limit=50,
+            weekend_high_only=False,
         )
         assert sent2 == 0
 
@@ -176,6 +178,7 @@ class TestDedup:
 
         sent = deliver_pending_signals(
             "token", "chat", repo, MagicMock(), limit=50,
+            weekend_high_only=False,
         )
 
         assert sent == 2
@@ -226,7 +229,7 @@ class TestMaxPerCycle:
 
         sent = deliver_pending_signals(
             "token", "chat", repo, MagicMock(), limit=50,
-            max_per_cycle=2,
+            max_per_cycle=2, weekend_high_only=False,
         )
 
         assert sent == 2
@@ -243,7 +246,7 @@ class TestMaxPerCycle:
 
         sent = deliver_pending_signals(
             "token", "chat", repo, MagicMock(), limit=50,
-            max_per_cycle=0,
+            max_per_cycle=0, weekend_high_only=False,
         )
 
         assert sent == 2
@@ -266,9 +269,63 @@ class TestSeverityOrdering:
 
         sent = deliver_pending_signals(
             "token", "chat", repo, MagicMock(), limit=50,
-            max_per_cycle=1,
+            max_per_cycle=1, weekend_high_only=False,
         )
 
         assert sent == 1
         # The high-confidence signal (id=2) should be delivered
         repo.mark_signal_delivered.assert_called_once_with(2)
+
+
+# -- I. Weekend HIGH-only filter --
+
+
+class TestWeekendHighOnly:
+    @patch("tinvest_trader.services.signal_delivery._is_weekend_msk", return_value=True)
+    @patch("tinvest_trader.services.signal_delivery.send_telegram_message")
+    def test_weekend_suppresses_non_high(
+        self, mock_send: MagicMock, _mock_weekend: MagicMock,
+    ) -> None:
+        """On weekends only HIGH-severity signals are delivered."""
+        mock_send.return_value = True
+        repo = _make_repo()
+        # Provide strong stats so high-confidence signal classifies as HIGH
+        repo.get_signal_stats_by_ticker.return_value = [
+            {"ticker": "STRONG", "resolved": 50, "wins": 35, "avg_return": 0.03},
+        ]
+        repo.get_signal_stats_by_type.return_value = [
+            {"signal_type": "up", "resolved": 100, "wins": 60},
+        ]
+        repo.list_undelivered_signals.return_value = [
+            _make_signal(id=1, confidence=0.20, ticker="WEAK"),
+            _make_signal(id=2, confidence=0.80, ticker="STRONG"),
+        ]
+
+        sent = deliver_pending_signals(
+            "token", "chat", repo, MagicMock(), limit=50,
+            weekend_high_only=True,
+        )
+
+        # Only the HIGH signal should be delivered
+        assert sent == 1
+        repo.mark_signal_delivered.assert_called_once_with(2)
+
+    @patch("tinvest_trader.services.signal_delivery._is_weekend_msk", return_value=False)
+    @patch("tinvest_trader.services.signal_delivery.send_telegram_message")
+    def test_weekday_delivers_all(
+        self, mock_send: MagicMock, _mock_weekend: MagicMock,
+    ) -> None:
+        """On weekdays all signals are delivered regardless of severity."""
+        mock_send.return_value = True
+        repo = _make_repo()
+        repo.list_undelivered_signals.return_value = [
+            _make_signal(id=1, confidence=0.20, ticker="WEAK"),
+            _make_signal(id=2, confidence=0.80, ticker="STRONG"),
+        ]
+
+        sent = deliver_pending_signals(
+            "token", "chat", repo, MagicMock(), limit=50,
+            weekend_high_only=True,
+        )
+
+        assert sent == 2
