@@ -20,6 +20,13 @@ if TYPE_CHECKING:
     from tinvest_trader.infra.storage.repository import TradingRepository
 
 
+def _is_weekend_msk() -> bool:
+    """Return True if current time in Moscow is Saturday or Sunday."""
+    from zoneinfo import ZoneInfo
+
+    return datetime.now(ZoneInfo("Europe/Moscow")).weekday() >= 5
+
+
 @dataclass
 class DeliveryResult:
     """Result of a signal delivery attempt."""
@@ -326,6 +333,7 @@ def deliver_pending_signals(
     max_per_cycle: int = 0,
     severity_config: object | None = None,
     dedup_config: object | None = None,
+    weekend_high_only: bool = True,
 ) -> int:
     """Deliver undelivered resolved signals, ordered by severity.
 
@@ -372,6 +380,20 @@ def deliver_pending_signals(
         classified.append((signal, sev.level))
 
     classified.sort(key=lambda x: severity_sort_key(x[1]))
+
+    # Weekend filter: only HIGH signals on Sat/Sun (MSK)
+    if weekend_high_only and _is_weekend_msk():
+        weekend_before = len(classified)
+        classified = [(s, lv) for s, lv in classified if lv == "HIGH"]
+        skipped = weekend_before - len(classified)
+        if skipped:
+            logger.info(
+                "weekend filter: suppressed non-HIGH signals",
+                extra={
+                    "component": "signal_delivery",
+                    "suppressed": skipped,
+                },
+            )
 
     # Apply max-per-cycle limit
     if max_per_cycle > 0:
