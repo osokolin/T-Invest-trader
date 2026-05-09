@@ -188,7 +188,9 @@ class SignalDeliveryConfig:
     proxy_pass: str = ""
     max_per_cycle: int = 0
     high_confidence_threshold: float = 0.6
-    high_ev_threshold: float = 0.02
+    high_ev_threshold: float = 0.00015
+    min_resolved_for_stats: int = 10
+    min_win_rate_for_strong_ev: float = 0.35
     semantic_dedup_enabled: bool = True
     confidence_delta: float = 0.10
     repeat_after_minutes: int = 240
@@ -634,7 +636,15 @@ def load_config() -> AppConfig:
                 os.environ.get("TINVEST_SIGNAL_HIGH_CONFIDENCE_THRESHOLD", "0.6"),
             ),
             high_ev_threshold=float(
-                os.environ.get("TINVEST_SIGNAL_HIGH_EV_THRESHOLD", "0.02"),
+                os.environ.get("TINVEST_SIGNAL_HIGH_EV_THRESHOLD", "0.00015"),
+            ),
+            min_resolved_for_stats=int(
+                os.environ.get("TINVEST_SIGNAL_MIN_RESOLVED_FOR_STATS", "10"),
+            ),
+            min_win_rate_for_strong_ev=float(
+                os.environ.get(
+                    "TINVEST_SIGNAL_MIN_WIN_RATE_FOR_STRONG_EV", "0.35",
+                ),
             ),
             semantic_dedup_enabled=os.environ.get(
                 "TINVEST_SIGNAL_DELIVERY_SEMANTIC_DEDUP_ENABLED", "true",
