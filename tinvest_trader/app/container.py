@@ -579,6 +579,8 @@ class Container:
         sev_cfg = SeverityConfig(
             high_confidence=cfg.high_confidence_threshold,
             high_ev=cfg.high_ev_threshold,
+            min_resolved_for_stats=cfg.min_resolved_for_stats,
+            min_win_rate_for_strong_ev=cfg.min_win_rate_for_strong_ev,
         )
         dedup_cfg = DeliveryDedupConfig(
             enabled=cfg.semantic_dedup_enabled,

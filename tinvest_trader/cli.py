@@ -1097,6 +1097,8 @@ def _run_send_test_signal(
     sev_cfg = SeverityConfig(
         high_confidence=cfg.high_confidence_threshold,
         high_ev=cfg.high_ev_threshold,
+        min_resolved_for_stats=cfg.min_resolved_for_stats,
+        min_win_rate_for_strong_ev=cfg.min_win_rate_for_strong_ev,
     )
     severity = classify_signal_severity(signal, config=sev_cfg)
     text = format_enriched_signal_message(signal, severity)
@@ -1142,6 +1144,8 @@ def _run_deliver_signals(config: AppConfig, container: Container) -> int:
     sev_cfg = SeverityConfig(
         high_confidence=cfg.high_confidence_threshold,
         high_ev=cfg.high_ev_threshold,
+        min_resolved_for_stats=cfg.min_resolved_for_stats,
+        min_win_rate_for_strong_ev=cfg.min_win_rate_for_strong_ev,
     )
 
     sent = deliver_pending_signals(
@@ -1202,6 +1206,8 @@ def _run_preview_signal_message(
     sev_cfg = SeverityConfig(
         high_confidence=cfg.high_confidence_threshold,
         high_ev=cfg.high_ev_threshold,
+        min_resolved_for_stats=cfg.min_resolved_for_stats,
+        min_win_rate_for_strong_ev=cfg.min_win_rate_for_strong_ev,
     )
     severity = classify_signal_severity(
         signal,

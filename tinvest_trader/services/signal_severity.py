@@ -15,8 +15,9 @@ class SeverityConfig:
     """Thresholds for severity classification."""
 
     high_confidence: float = 0.6
-    high_ev: float = 0.02
-    min_resolved_for_stats: int = 3
+    high_ev: float = 0.00015
+    min_resolved_for_stats: int = 10
+    min_win_rate_for_strong_ev: float = 0.35
 
 
 @dataclass(frozen=True)
@@ -70,7 +71,7 @@ def classify_signal_severity(
         avg_ret = ticker_stats.get("avg_return", 0.0) or 0.0
         wr = wins / resolved if resolved else 0.0
         ev = _compute_ev(wr, avg_ret)
-        if ev > cfg.high_ev:
+        if ev > cfg.high_ev and wr >= cfg.min_win_rate_for_strong_ev:
             score += 2
             reasons.append(f"ticker EV {ev:+.4f} (strong)")
         elif ev > 0:

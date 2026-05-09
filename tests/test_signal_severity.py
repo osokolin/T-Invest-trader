@@ -78,6 +78,15 @@ class TestClassifyHigh:
         result = classify_signal_severity(signal, ticker_stats=ticker_stats)
         assert result.level == "HIGH"
 
+    def test_high_confidence_and_prod_scale_strong_ev(self) -> None:
+        signal = _make_signal(confidence=0.75)
+        ticker_stats = _make_ticker_stats(
+            wins=40, resolved=100, avg_return=0.0005,
+        )
+        result = classify_signal_severity(signal, ticker_stats=ticker_stats)
+        assert result.level == "HIGH"
+        assert any("strong" in r for r in result.reasons)
+
     def test_high_confidence_strong_ev_with_source(self) -> None:
         signal = _make_signal(confidence=0.75)
         ticker_stats = _make_ticker_stats(wins=12, resolved=15, avg_return=0.01)
@@ -105,6 +114,19 @@ class TestClassifyMedium:
         ticker_stats = _make_ticker_stats(wins=5, resolved=15, avg_return=-0.002)
         result = classify_signal_severity(signal, ticker_stats=ticker_stats)
         assert result.level == "MEDIUM"
+
+    def test_low_win_rate_positive_ev_not_strong(self) -> None:
+        signal = _make_signal(confidence=0.75)
+        ticker_stats = _make_ticker_stats(
+            wins=33, resolved=100, avg_return=0.001,
+        )
+        type_stats = _make_type_stats(wins=30, resolved=100)
+        result = classify_signal_severity(
+            signal, ticker_stats=ticker_stats, type_stats=type_stats,
+        )
+        assert result.level == "MEDIUM"
+        assert any("positive" in r for r in result.reasons)
+        assert not any("strong" in r for r in result.reasons)
 
 
 class TestClassifyLow:

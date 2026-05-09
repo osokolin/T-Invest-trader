@@ -20,6 +20,13 @@ def test_config_fields_populated(config):
     assert config.logging.level == "INFO"
 
 
+def test_signal_delivery_severity_defaults(config):
+    assert config.signal_delivery.high_confidence_threshold == 0.6
+    assert config.signal_delivery.high_ev_threshold == 0.00015
+    assert config.signal_delivery.min_resolved_for_stats == 10
+    assert config.signal_delivery.min_win_rate_for_strong_ev == 0.35
+
+
 def test_database_config_defaults(config):
     assert isinstance(config.database, DatabaseConfig)
     assert config.database.postgres_dsn == ""
