@@ -144,6 +144,30 @@ Classifies each signal as aligned, against, or neutral relative to recent global
 
 **All shadow data is visible in Grafana and the daily digest.** When an experiment shows consistent positive impact, it can be promoted to an active decision gate.
 
+## AI Research Report v1
+
+AI Research Report v1 generates an auditable explanation report for an existing ticker. It builds a deterministic snapshot first, then passes only that curated snapshot to an AI research provider.
+
+It does **not** place orders, change strategy, generate autonomous trades, or alter signal generation. The model is instructed not to invent prices, news, indicators, or events. Missing data is reported as missing.
+
+Current provider support is intentionally minimal:
+
+- `stub` -- local deterministic provider for tests and operator dry research
+- real network providers are not wired yet
+
+Run locally with the stub provider:
+
+```bash
+python -m tinvest_trader.cli analyze-ticker SBER --provider stub
+```
+
+Or configure:
+
+```bash
+TINVEST_AI_RESEARCH_PROVIDER=stub
+TINVEST_AI_RESEARCH_MODEL=stub-research-v1
+```
+
 ## Telegram Bot
 
 ### Commands
@@ -179,6 +203,7 @@ All features are controlled via environment variables. Every feature defaults to
 | Global market data | `TINVEST_GLOBAL_MARKET_DATA_ENABLED` | Index/commodity prices |
 | Signal delivery | `TINVEST_SIGNAL_DELIVERY_ENABLED`, `TINVEST_BOT_TOKEN`, `TINVEST_CHAT_ID` | Telegram bot |
 | AI analysis | `TINVEST_ANTHROPIC_API_KEY`, `TINVEST_AI_MODEL` | Claude API |
+| AI research | `TINVEST_AI_RESEARCH_PROVIDER`, `TINVEST_AI_RESEARCH_MODEL` | Auditable ticker research reports |
 | Calibration | `TINVEST_SIGNAL_CALIBRATION_ENABLED`, `TINVEST_MIN_CONFIDENCE` | Decision thresholds |
 | Alerting | `TINVEST_ALERTING_ENABLED` | Operator alerts |
 | Daily digest | `TINVEST_DAILY_DIGEST_ENABLED`, `TINVEST_DAILY_DIGEST_HOUR` | Daily summary |

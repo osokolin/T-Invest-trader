@@ -245,6 +245,12 @@ class DailyDigestConfig:
 
 
 @dataclass(frozen=True)
+class AIResearchConfig:
+    provider: str = ""
+    model: str = "stub-research-v1"
+
+
+@dataclass(frozen=True)
 class LoggingConfig:
     level: str = "INFO"
     json_output: bool = True
@@ -287,6 +293,7 @@ class AppConfig:
     )
     alerting: AlertingConfig = field(default_factory=AlertingConfig)
     daily_digest: DailyDigestConfig = field(default_factory=DailyDigestConfig)
+    ai_research: AIResearchConfig = field(default_factory=AIResearchConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     environment: str = "sandbox"
 
@@ -784,6 +791,10 @@ def load_config() -> AppConfig:
             minute=int(
                 os.environ.get("TINVEST_DAILY_DIGEST_MINUTE", "0"),
             ),
+        ),
+        ai_research=AIResearchConfig(
+            provider=os.environ.get("TINVEST_AI_RESEARCH_PROVIDER", ""),
+            model=os.environ.get("TINVEST_AI_RESEARCH_MODEL", "stub-research-v1"),
         ),
         moex=MoexConfig(
             enabled=os.environ.get(

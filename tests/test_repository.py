@@ -16,6 +16,7 @@ from tinvest_trader.domain.models import (
     OrderIntent,
 )
 from tinvest_trader.infra.storage.repository import TradingRepository
+from tinvest_trader.services.ai_research.schemas import ResearchReport, ResearchSnapshot
 
 
 def _make_repo():
@@ -254,3 +255,66 @@ def test_fetch_operational_summary():
         "signal_observations": 4,
         "market_snapshots": 5,
     }
+
+
+def test_insert_ai_research_report():
+    repo, conn = _make_repo()
+    cur = MagicMock()
+    cur.fetchone.return_value = (42,)
+    conn.execute.return_value = cur
+    snapshot = ResearchSnapshot(
+        ticker="SBER",
+        generated_at=datetime(2026, 5, 27, tzinfo=UTC),
+        latest_quote={"price": 320.5},
+    )
+    report = ResearchReport(
+        ticker="SBER",
+        created_at=datetime(2026, 5, 27, tzinfo=UTC),
+        model="stub-research-v1",
+        bull_case="bull",
+        bear_case="bear",
+        skeptic_notes="skeptic",
+        risk_notes="risk",
+        final_summary="summary",
+        confidence=0.5,
+        raw_response_json={"provider": "stub"},
+    )
+
+    report_id = repo.insert_ai_research_report(report, snapshot)
+
+    assert report_id == 42
+    conn.commit.assert_called_once()
+    sql, params = conn.execute.call_args[0]
+    assert "ai_research_reports" in sql
+    assert params[0] == "SBER"
+    assert '"price": 320.5' in params[3]
+
+
+def test_get_latest_ai_research_report():
+    repo, conn = _make_repo()
+    created_at = datetime(2026, 5, 27, tzinfo=UTC)
+    cur = MagicMock()
+    cur.fetchone.return_value = (
+        1,
+        "SBER",
+        created_at,
+        "stub-research-v1",
+        {"ticker": "SBER"},
+        "bull",
+        "bear",
+        "skeptic",
+        "risk",
+        "summary",
+        0.5,
+        {"provider": "stub"},
+    )
+    conn.execute.return_value = cur
+
+    report = repo.get_latest_ai_research_report("sber")
+
+    assert report is not None
+    assert report["ticker"] == "SBER"
+    assert report["confidence"] == 0.5
+    sql, params = conn.execute.call_args[0]
+    assert "ORDER BY created_at DESC" in sql
+    assert params == ("SBER",)

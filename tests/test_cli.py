@@ -16,6 +16,7 @@ def _make_config() -> SimpleNamespace:
         ),
         observation=SimpleNamespace(enabled=True),
         background=SimpleNamespace(enabled=True),
+        ai_research=SimpleNamespace(provider="", model="stub-research-v1"),
     )
 
 

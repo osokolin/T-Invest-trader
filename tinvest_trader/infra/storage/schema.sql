@@ -688,3 +688,26 @@ CREATE INDEX IF NOT EXISTS idx_macro_messages_tags
     ON macro_messages USING GIN (tags);
 CREATE INDEX IF NOT EXISTS idx_macro_messages_channel
     ON macro_messages (channel_name, created_at DESC);
+
+-- ============================================================
+-- AI Research Report v1 (explanation only, no execution)
+-- ============================================================
+
+-- Stores auditable AI research reports generated from curated snapshots.
+-- This is an explanation/research layer only and does not affect trading.
+CREATE TABLE IF NOT EXISTS ai_research_reports (
+    id                  BIGSERIAL PRIMARY KEY,
+    ticker              TEXT NOT NULL,
+    created_at          TIMESTAMPTZ NOT NULL,
+    model               TEXT NOT NULL,
+    snapshot_json       JSONB NOT NULL,
+    bull_case           TEXT NOT NULL,
+    bear_case           TEXT NOT NULL,
+    skeptic_notes       TEXT NOT NULL,
+    risk_notes          TEXT NOT NULL,
+    final_summary       TEXT NOT NULL,
+    confidence          REAL,
+    raw_response_json   JSONB
+);
+CREATE INDEX IF NOT EXISTS idx_ai_research_reports_ticker_created
+    ON ai_research_reports (ticker, created_at DESC);
