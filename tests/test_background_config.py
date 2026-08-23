@@ -18,6 +18,7 @@ def test_background_config_from_env(monkeypatch):
     monkeypatch.setenv("TINVEST_BACKGROUND_OBSERVATION_INTERVAL_SECONDS", "90")
     monkeypatch.setenv("TINVEST_BACKGROUND_RUN_SENTIMENT", "false")
     monkeypatch.setenv("TINVEST_BACKGROUND_RUN_OBSERVATION", "true")
+    monkeypatch.setenv("TINVEST_BACKGROUND_RUN_SIGNAL_RESOLUTION", "false")
     from tinvest_trader.app.config import load_config
 
     cfg = load_config()
@@ -26,3 +27,4 @@ def test_background_config_from_env(monkeypatch):
     assert cfg.background.observation_interval_seconds == 90
     assert cfg.background.run_sentiment is False
     assert cfg.background.run_observation is True
+    assert cfg.background.run_signal_resolution is False
