@@ -31,6 +31,7 @@ from tinvest_trader.services.global_context_ingestion import (
 )
 from tinvest_trader.services.moex_ingestion_service import MoexIngestionService
 from tinvest_trader.services.observation_service import ObservationService
+from tinvest_trader.services.paper_portfolio_service import PaperPortfolioService
 from tinvest_trader.services.tbank_event_fetch_policy import FetchPolicyConfig
 from tinvest_trader.services.telegram_sentiment_service import TelegramSentimentService
 from tinvest_trader.services.trading_service import TradingService
@@ -61,6 +62,9 @@ class Container:
     cbr_ingestion_service: CbrIngestionService | None = field(init=False, default=None)
     moex_ingestion_service: MoexIngestionService | None = field(init=False, default=None)
     global_context_service: GlobalContextIngestionService | None = field(
+        init=False, default=None,
+    )
+    paper_portfolio_service: PaperPortfolioService | None = field(
         init=False, default=None,
     )
     background_runner: BackgroundRunner | None = field(init=False, default=None)
@@ -143,6 +147,10 @@ class Container:
 
         # Signal resolution callable (used by background runner)
         self._signal_resolution_fn = self._build_signal_resolution_fn()
+
+        # Paper portfolio (optional, isolated from broker execution)
+        if self.config.paper_portfolio.enabled:
+            self._wire_paper_portfolio()
 
         # Signal delivery callable (used by background runner and CLI)
         self._signal_delivery_fn = self._build_signal_delivery_fn()
@@ -529,6 +537,32 @@ class Container:
         )
         return _resolve
 
+    def _wire_paper_portfolio(self) -> None:
+        """Wire the persistent virtual portfolio when storage is available."""
+        if self.repository is None:
+            self.logger.warning(
+                "paper portfolio disabled: database unavailable",
+                extra={"component": "paper_portfolio"},
+            )
+            return
+
+        self.paper_portfolio_service = PaperPortfolioService(
+            repository=self.repository,
+            config=self.config.paper_portfolio,
+            logger=self.logger,
+        )
+        self.logger.info(
+            "paper portfolio initialized",
+            extra={
+                "component": "paper_portfolio",
+                "portfolio": self.config.paper_portfolio.name,
+                "initial_cash": self.config.paper_portfolio.initial_cash,
+                "max_open_positions": (
+                    self.config.paper_portfolio.max_open_positions
+                ),
+            },
+        )
+
     def _build_signal_generation_fn(self):
         """Build a callable for signal generation if prerequisites are met."""
         cfg = self.config.signal_generation
@@ -732,6 +766,8 @@ class Container:
             signal_generation_config=self.config.signal_generation,
             signal_resolution_fn=self._signal_resolution_fn,
             signal_resolution_config=self.config.signal_resolution,
+            paper_portfolio_service=self.paper_portfolio_service,
+            paper_portfolio_config=self.config.paper_portfolio,
             signal_delivery_config=self.config.signal_delivery,
             signal_delivery_fn=self._signal_delivery_fn,
             callback_handler_fn=self._callback_handler_fn,
@@ -751,6 +787,7 @@ class Container:
                 "run_fusion": self.fusion_service is not None,
                 "run_cbr": self.cbr_ingestion_service is not None,
                 "run_moex": self.moex_ingestion_service is not None,
+                "run_paper_portfolio": self.paper_portfolio_service is not None,
             },
         )
 

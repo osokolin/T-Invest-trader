@@ -79,6 +79,7 @@ class BackgroundConfig:
     run_alerting: bool = True
     run_daily_digest: bool = True
     run_signal_resolution: bool = True
+    run_paper_portfolio: bool = True
 
 
 @dataclass(frozen=True)
@@ -168,6 +169,21 @@ class SignalResolutionConfig:
     enabled: bool = True
     eval_window_seconds: int = 300
     poll_interval_seconds: int = 120
+
+
+@dataclass(frozen=True)
+class PaperPortfolioConfig:
+    """Configuration for the virtual portfolio used in shadow trading."""
+
+    enabled: bool = False
+    name: str = "shadow-v1"
+    initial_cash: float = 1_000_000.0
+    position_fraction: float = 0.10
+    max_open_positions: int = 5
+    commission_rate: float = 0.0005
+    slippage_rate: float = 0.0005
+    poll_interval_seconds: int = 60
+    entry_stages: tuple[str, ...] = ("delivered",)
 
 
 @dataclass(frozen=True)
@@ -285,6 +301,9 @@ class AppConfig:
     signal_resolution: SignalResolutionConfig = field(
         default_factory=SignalResolutionConfig,
     )
+    paper_portfolio: PaperPortfolioConfig = field(
+        default_factory=PaperPortfolioConfig,
+    )
     alerting: AlertingConfig = field(default_factory=AlertingConfig)
     daily_digest: DailyDigestConfig = field(default_factory=DailyDigestConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
@@ -398,6 +417,9 @@ def load_config() -> AppConfig:
             ).lower() == "true",
             run_signal_resolution=os.environ.get(
                 "TINVEST_BACKGROUND_RUN_SIGNAL_RESOLUTION", "true",
+            ).lower() == "true",
+            run_paper_portfolio=os.environ.get(
+                "TINVEST_BACKGROUND_RUN_PAPER_PORTFOLIO", "true",
             ).lower() == "true",
         ),
         signal_generation=SignalGenerationConfig(
@@ -717,6 +739,33 @@ def load_config() -> AppConfig:
             )),
             poll_interval_seconds=int(os.environ.get(
                 "TINVEST_SIGNAL_RESOLUTION_POLL_INTERVAL_SECONDS", "120",
+            )),
+        ),
+        paper_portfolio=PaperPortfolioConfig(
+            enabled=os.environ.get(
+                "TINVEST_PAPER_PORTFOLIO_ENABLED", "false",
+            ).lower() == "true",
+            name=os.environ.get("TINVEST_PAPER_PORTFOLIO_NAME", "shadow-v1"),
+            initial_cash=float(os.environ.get(
+                "TINVEST_PAPER_PORTFOLIO_INITIAL_CASH", "1000000",
+            )),
+            position_fraction=float(os.environ.get(
+                "TINVEST_PAPER_PORTFOLIO_POSITION_FRACTION", "0.10",
+            )),
+            max_open_positions=int(os.environ.get(
+                "TINVEST_PAPER_PORTFOLIO_MAX_OPEN_POSITIONS", "5",
+            )),
+            commission_rate=float(os.environ.get(
+                "TINVEST_PAPER_PORTFOLIO_COMMISSION_RATE", "0.0005",
+            )),
+            slippage_rate=float(os.environ.get(
+                "TINVEST_PAPER_PORTFOLIO_SLIPPAGE_RATE", "0.0005",
+            )),
+            poll_interval_seconds=int(os.environ.get(
+                "TINVEST_PAPER_PORTFOLIO_POLL_INTERVAL_SECONDS", "60",
+            )),
+            entry_stages=_parse_csv(os.environ.get(
+                "TINVEST_PAPER_PORTFOLIO_ENTRY_STAGES", "delivered",
             )),
         ),
         alerting=AlertingConfig(

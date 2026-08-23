@@ -490,6 +490,42 @@ ALTER TABLE signal_predictions ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
 CREATE INDEX IF NOT EXISTS idx_signal_predictions_pipeline_stage
     ON signal_predictions (pipeline_stage) WHERE pipeline_stage IS NOT NULL;
 
+-- Paper portfolios are independent, persistent shadow-trading experiments.
+-- They never represent broker positions or order requests.
+CREATE TABLE IF NOT EXISTS paper_portfolios (
+    name            TEXT PRIMARY KEY,
+    initial_cash    NUMERIC(20, 2) NOT NULL,
+    currency        TEXT NOT NULL DEFAULT 'RUB',
+    started_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS paper_portfolio_positions (
+    id                  BIGSERIAL PRIMARY KEY,
+    portfolio_name      TEXT NOT NULL REFERENCES paper_portfolios(name),
+    prediction_id       BIGINT NOT NULL,
+    ticker              TEXT NOT NULL,
+    direction           TEXT NOT NULL,
+    entry_price         NUMERIC(20, 9) NOT NULL,
+    entry_time          TIMESTAMPTZ NOT NULL,
+    notional            NUMERIC(20, 2) NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'open',
+    exit_price          NUMERIC(20, 9),
+    exit_time           TIMESTAMPTZ,
+    gross_return_pct    NUMERIC(12, 8),
+    net_return_pct      NUMERIC(12, 8),
+    gross_pnl           NUMERIC(20, 2),
+    costs               NUMERIC(20, 2),
+    net_pnl             NUMERIC(20, 2),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (portfolio_name, prediction_id)
+);
+CREATE INDEX IF NOT EXISTS idx_paper_positions_portfolio_status
+    ON paper_portfolio_positions (portfolio_name, status, entry_time DESC);
+CREATE INDEX IF NOT EXISTS idx_paper_positions_prediction
+    ON paper_portfolio_positions (prediction_id);
+
 -- AI shadow gating columns (nullable for backward compatibility).
 -- ai_gate_decision: ALLOW, CAUTION, BLOCK (shadow-mode only, never affects execution)
 -- ai_gate_reason: short explanation of the gating decision

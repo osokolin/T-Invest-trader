@@ -100,6 +100,31 @@ def test_cli_db_summary_prints_counts(monkeypatch, capsys):
     assert "market_snapshots: 18" in output
 
 
+def test_cli_paper_portfolio_stats_prints_summary(monkeypatch, capsys):
+    config = _make_config()
+    config.paper_portfolio = SimpleNamespace(name="shadow-v1")
+    container = _make_container()
+    container.repository.get_paper_portfolio_summary.return_value = {
+        "name": "shadow-v1",
+        "initial_cash": 100_000.0,
+        "currency": "RUB",
+        "started_at": "2026-08-23T00:00:00Z",
+        "open_positions": 1,
+        "closed_positions": 2,
+        "open_notional": 10_000.0,
+        "realized_pnl": 500.0,
+        "wins": 1,
+        "avg_net_return_pct": 0.002,
+    }
+    monkeypatch.setattr("tinvest_trader.cli.load_config", lambda: config)
+    monkeypatch.setattr("tinvest_trader.cli.build_container", lambda cfg: container)
+
+    exit_code = main(["paper-portfolio-stats"])
+
+    assert exit_code == 0
+    assert "paper_portfolio: shadow-v1" in capsys.readouterr().out
+
+
 def test_cli_db_summary_handles_missing_database(monkeypatch, capsys):
     config = _make_config()
     container = _make_container()

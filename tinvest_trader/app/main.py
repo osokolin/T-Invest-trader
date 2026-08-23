@@ -79,6 +79,17 @@ def main() -> None:
     else:
         logger.info("moex pipeline disabled", extra={"component": "moex"})
 
+    if container.paper_portfolio_service is not None:
+        logger.info(
+            "paper portfolio ready",
+            extra={"component": "paper_portfolio"},
+        )
+    else:
+        logger.info(
+            "paper portfolio disabled",
+            extra={"component": "paper_portfolio"},
+        )
+
     # Background runner status
     if container.background_runner is not None:
         logger.info("background runner enabled", extra={"component": "background_runner"})
