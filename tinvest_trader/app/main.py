@@ -101,6 +101,17 @@ def main() -> None:
             extra={"component": "market_activity"},
         )
 
+    if container.market_activity_outcome_service is not None:
+        logger.info(
+            "market activity outcome calibration ready",
+            extra={"component": "market_activity_outcomes"},
+        )
+    else:
+        logger.info(
+            "market activity outcome calibration disabled",
+            extra={"component": "market_activity_outcomes"},
+        )
+
     # Background runner status
     if container.background_runner is not None:
         logger.info("background runner enabled", extra={"component": "background_runner"})

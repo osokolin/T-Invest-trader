@@ -29,6 +29,9 @@ from tinvest_trader.services.fusion_service import FusionService
 from tinvest_trader.services.global_context_ingestion import (
     GlobalContextIngestionService,
 )
+from tinvest_trader.services.market_activity_outcome_service import (
+    MarketActivityOutcomeService,
+)
 from tinvest_trader.services.market_activity_service import MarketActivityService
 from tinvest_trader.services.moex_ingestion_service import MoexIngestionService
 from tinvest_trader.services.observation_service import ObservationService
@@ -69,6 +72,9 @@ class Container:
         init=False, default=None,
     )
     market_activity_service: MarketActivityService | None = field(
+        init=False, default=None,
+    )
+    market_activity_outcome_service: MarketActivityOutcomeService | None = field(
         init=False, default=None,
     )
     background_runner: BackgroundRunner | None = field(init=False, default=None)
@@ -149,6 +155,10 @@ class Container:
         # Candle-based activity monitor (observational only)
         if self.config.market_activity.enabled:
             self._wire_market_activity()
+
+        # Historical calibration of activity spikes (shadow only)
+        if self.config.market_activity_outcomes.enabled:
+            self._wire_market_activity_outcomes()
 
         # Signal generation callable (used by background runner and CLI)
         self._signal_generation_fn = self._build_signal_generation_fn()
@@ -546,6 +556,30 @@ class Container:
             },
         )
 
+    def _wire_market_activity_outcomes(self) -> None:
+        """Wire local, shadow-only activity outcome calibration."""
+        if self.repository is None:
+            self.logger.warning(
+                "market activity outcomes disabled: database unavailable",
+                extra={"component": "market_activity_outcomes"},
+            )
+            return
+        self.market_activity_outcome_service = MarketActivityOutcomeService(
+            repository=self.repository,
+            config=self.config.market_activity_outcomes,
+            logger=self.logger,
+        )
+        self.logger.info(
+            "market activity outcome calibration initialized",
+            extra={
+                "component": "market_activity_outcomes",
+                "horizons_minutes": (
+                    self.config.market_activity_outcomes.horizons_minutes
+                ),
+                "eod_enabled": self.config.market_activity_outcomes.eod_enabled,
+            },
+        )
+
     def _build_signal_resolution_fn(self):
         """Build a callable for signal resolution if prerequisites are met."""
         cfg = self.config.signal_resolution
@@ -804,6 +838,10 @@ class Container:
             market_activity_interval_seconds=(
                 self.config.market_activity.poll_interval_seconds
             ),
+            market_activity_outcome_service=self.market_activity_outcome_service,
+            market_activity_outcome_interval_seconds=(
+                self.config.market_activity_outcomes.poll_interval_seconds
+            ),
             signal_delivery_config=self.config.signal_delivery,
             signal_delivery_fn=self._signal_delivery_fn,
             callback_handler_fn=self._callback_handler_fn,
@@ -825,6 +863,9 @@ class Container:
                 "run_moex": self.moex_ingestion_service is not None,
                 "run_paper_portfolio": self.paper_portfolio_service is not None,
                 "run_market_activity": self.market_activity_service is not None,
+                "run_market_activity_outcomes": (
+                    self.market_activity_outcome_service is not None
+                ),
             },
         )
 

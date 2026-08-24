@@ -115,6 +115,36 @@ def test_runner_market_activity_failure_is_safe():
     observation_service.observe_all.assert_called_once_with()
 
 
+def test_runner_market_activity_outcome_cycle_calls_service():
+    outcome_service = MagicMock()
+    runner = BackgroundRunner(
+        config=BackgroundConfig(enabled=True),
+        logger=logging.getLogger("test"),
+        market_activity_outcome_service=outcome_service,
+    )
+
+    runner.run_market_activity_outcome_cycle()
+
+    outcome_service.resolve_all.assert_called_once_with()
+
+
+def test_runner_market_activity_outcome_failure_is_safe():
+    outcome_service = MagicMock()
+    outcome_service.resolve_all.side_effect = RuntimeError("boom")
+    observation_service = MagicMock()
+    runner = BackgroundRunner(
+        config=BackgroundConfig(enabled=True),
+        logger=logging.getLogger("test"),
+        observation_service=observation_service,
+        market_activity_outcome_service=outcome_service,
+    )
+
+    runner.run_market_activity_outcome_cycle()
+    runner.run_observation_cycle()
+
+    observation_service.observe_all.assert_called_once_with()
+
+
 def test_runner_sentiment_failure_is_safe():
     sentiment_service = MagicMock()
     sentiment_service.ingest_all_channels.side_effect = RuntimeError("boom")

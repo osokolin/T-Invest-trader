@@ -125,6 +125,29 @@ def test_cli_paper_portfolio_stats_prints_summary(monkeypatch, capsys):
     assert "paper_portfolio: shadow-v1" in capsys.readouterr().out
 
 
+def test_cli_market_activity_outcomes_prints_comparison(monkeypatch, capsys):
+    config = _make_config()
+    container = _make_container()
+    container.repository.get_market_activity_outcome_report.return_value = [{
+        "horizon": "5m",
+        "sample_size": 10,
+        "momentum_avg_return": 0.01,
+        "reversion_avg_return": -0.01,
+        "momentum_win_rate": 0.6,
+        "reversion_win_rate": 0.3,
+    }]
+    monkeypatch.setattr("tinvest_trader.cli.load_config", lambda: config)
+    monkeypatch.setattr("tinvest_trader.cli.build_container", lambda cfg: container)
+
+    exit_code = main(["market-activity-outcomes"])
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "momentum avg/win" in output
+    assert "5m" in output
+    assert "60.0%" in output
+
+
 def test_cli_db_summary_handles_missing_database(monkeypatch, capsys):
     config = _make_config()
     container = _make_container()

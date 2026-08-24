@@ -320,3 +320,52 @@ def test_fetch_operational_summary():
         "signal_observations": 4,
         "market_snapshots": 5,
     }
+
+
+def test_list_market_activity_spikes_filters_completed_horizons():
+    repo, conn = _make_repo()
+    cur = MagicMock()
+    cur.fetchall.return_value = []
+    conn.execute.return_value = cur
+    since = datetime(2026, 8, 1, tzinfo=UTC)
+
+    result = repo.list_market_activity_spikes_for_outcomes(
+        since=since,
+        limit=100,
+        horizons=("5m", "15m", "eod"),
+    )
+
+    assert result == []
+    sql, params = conn.execute.call_args.args
+    assert "market_activity_spike_outcomes" in sql
+    assert "count(DISTINCT r.horizon)" in sql
+    assert params == (since, ["5m", "15m", "eod"], 3, 100)
+
+
+def test_insert_market_activity_spike_outcome_is_idempotent():
+    repo, conn = _make_repo()
+    conn.execute.return_value.fetchone.return_value = (42,)
+    now = datetime(2026, 8, 24, 12, 0, tzinfo=UTC)
+
+    inserted = repo.insert_market_activity_spike_outcome({
+        "spike_id": 7,
+        "ticker": "SBER",
+        "figi": "BBG004730N88",
+        "spike_time": now,
+        "horizon": "5m",
+        "direction": "up",
+        "entry_price": 100.0,
+        "outcome_price": 101.0,
+        "raw_return_pct": 0.01,
+        "momentum_return_pct": 0.01,
+        "reversion_return_pct": -0.01,
+        "momentum_outcome": "win",
+        "reversion_outcome": "loss",
+        "outcome_time": now,
+        "resolved_at": now,
+    })
+
+    assert inserted is True
+    sql = conn.execute.call_args.args[0]
+    assert "market_activity_spike_outcomes" in sql
+    assert "ON CONFLICT (spike_id, horizon) DO NOTHING" in sql

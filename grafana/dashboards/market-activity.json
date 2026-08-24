@@ -95,6 +95,49 @@
       }],
       "title": "Latest Candle Observations",
       "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 34 },
+      "id": 8,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "table",
+        "rawSql": "SELECT horizon, count(*) AS samples, avg(momentum_return_pct) AS momentum_avg_return, avg((momentum_outcome = 'win')::int) AS momentum_win_rate, avg(reversion_return_pct) AS reversion_avg_return, avg((reversion_outcome = 'win')::int) AS reversion_win_rate FROM market_activity_spike_outcomes WHERE $__timeFilter(resolved_at) AND ('${ticker}' = 'All' OR ticker = '${ticker}') GROUP BY horizon ORDER BY CASE horizon WHEN '5m' THEN 1 WHEN '15m' THEN 2 WHEN '60m' THEN 3 WHEN 'eod' THEN 4 ELSE 5 END",
+        "refId": "A"
+      }],
+      "title": "Momentum vs Reversion · Calibration by Horizon",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 42 },
+      "id": 9,
+      "options": { "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "datasource": { "type": "postgres", "uid": "postgres" }, "format": "time_series", "rawSql": "SELECT resolved_at AS time, momentum_return_pct AS value, ticker || ' ' || horizon || ' momentum' AS metric FROM market_activity_spike_outcomes WHERE $__timeFilter(resolved_at) AND ('${ticker}' = 'All' OR ticker = '${ticker}') ORDER BY resolved_at ASC", "refId": "A" },
+        { "datasource": { "type": "postgres", "uid": "postgres" }, "format": "time_series", "rawSql": "SELECT resolved_at AS time, reversion_return_pct AS value, ticker || ' ' || horizon || ' reversion' AS metric FROM market_activity_spike_outcomes WHERE $__timeFilter(resolved_at) AND ('${ticker}' = 'All' OR ticker = '${ticker}') ORDER BY resolved_at ASC", "refId": "B" }
+      ],
+      "title": "Resolved Strategy Returns",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 42 },
+      "id": 10,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "table",
+        "rawSql": "SELECT resolved_at AS time, ticker, horizon, direction, entry_price, outcome_price, raw_return_pct, momentum_outcome, reversion_outcome FROM market_activity_spike_outcomes WHERE $__timeFilter(resolved_at) AND ('${ticker}' = 'All' OR ticker = '${ticker}') ORDER BY resolved_at DESC LIMIT 200",
+        "refId": "A"
+      }],
+      "title": "Latest Resolved Spike Outcomes",
+      "type": "table"
     }
   ],
   "refresh": "1m",

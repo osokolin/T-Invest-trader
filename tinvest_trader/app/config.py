@@ -81,6 +81,7 @@ class BackgroundConfig:
     run_signal_resolution: bool = True
     run_paper_portfolio: bool = True
     run_market_activity: bool = True
+    run_market_activity_outcomes: bool = True
 
 
 @dataclass(frozen=True)
@@ -208,6 +209,21 @@ class MarketActivityConfig:
 
 
 @dataclass(frozen=True)
+class MarketActivityOutcomeConfig:
+    """Settings for shadow evaluation of detected activity spikes."""
+
+    enabled: bool = False
+    poll_interval_seconds: int = 60
+    horizons_minutes: tuple[int, ...] = (5, 15, 60)
+    neutral_threshold_pct: float = 0.0005
+    eod_enabled: bool = True
+    eod_hour_moscow: int = 23
+    eod_minute_moscow: int = 50
+    lookback_days: int = 30
+    resolution_limit: int = 500
+
+
+@dataclass(frozen=True)
 class SignalDeliveryConfig:
     enabled: bool = False
     bot_token: str = ""
@@ -306,6 +322,9 @@ class AppConfig:
     quote_sync: QuoteSyncConfig = field(default_factory=QuoteSyncConfig)
     market_activity: MarketActivityConfig = field(
         default_factory=MarketActivityConfig,
+    )
+    market_activity_outcomes: MarketActivityOutcomeConfig = field(
+        default_factory=MarketActivityOutcomeConfig,
     )
     signal_delivery: SignalDeliveryConfig = field(
         default_factory=SignalDeliveryConfig,
@@ -441,6 +460,9 @@ def load_config() -> AppConfig:
             ).lower() == "true",
             run_market_activity=os.environ.get(
                 "TINVEST_BACKGROUND_RUN_MARKET_ACTIVITY", "true",
+            ).lower() == "true",
+            run_market_activity_outcomes=os.environ.get(
+                "TINVEST_BACKGROUND_RUN_MARKET_ACTIVITY_OUTCOMES", "true",
             ).lower() == "true",
         ),
         signal_generation=SignalGenerationConfig(
@@ -683,6 +705,41 @@ def load_config() -> AppConfig:
             )),
             price_change_spike_pct=float(os.environ.get(
                 "TINVEST_MARKET_ACTIVITY_PRICE_CHANGE_SPIKE_PCT", "0.01",
+            )),
+        ),
+        market_activity_outcomes=MarketActivityOutcomeConfig(
+            enabled=os.environ.get(
+                "TINVEST_MARKET_ACTIVITY_OUTCOMES_ENABLED", "false",
+            ).lower() == "true",
+            poll_interval_seconds=int(os.environ.get(
+                "TINVEST_MARKET_ACTIVITY_OUTCOMES_POLL_INTERVAL_SECONDS", "60",
+            )),
+            horizons_minutes=tuple(
+                int(value)
+                for value in _parse_csv(os.environ.get(
+                    "TINVEST_MARKET_ACTIVITY_OUTCOMES_HORIZONS_MINUTES",
+                    "5,15,60",
+                ))
+                if int(value) > 0
+            ),
+            neutral_threshold_pct=float(os.environ.get(
+                "TINVEST_MARKET_ACTIVITY_OUTCOMES_NEUTRAL_THRESHOLD_PCT",
+                "0.0005",
+            )),
+            eod_enabled=os.environ.get(
+                "TINVEST_MARKET_ACTIVITY_OUTCOMES_EOD_ENABLED", "true",
+            ).lower() == "true",
+            eod_hour_moscow=int(os.environ.get(
+                "TINVEST_MARKET_ACTIVITY_OUTCOMES_EOD_HOUR_MOSCOW", "23",
+            )),
+            eod_minute_moscow=int(os.environ.get(
+                "TINVEST_MARKET_ACTIVITY_OUTCOMES_EOD_MINUTE_MOSCOW", "50",
+            )),
+            lookback_days=int(os.environ.get(
+                "TINVEST_MARKET_ACTIVITY_OUTCOMES_LOOKBACK_DAYS", "30",
+            )),
+            resolution_limit=int(os.environ.get(
+                "TINVEST_MARKET_ACTIVITY_OUTCOMES_RESOLUTION_LIMIT", "500",
             )),
         ),
         signal_delivery=SignalDeliveryConfig(

@@ -2526,6 +2526,158 @@ class TradingRepository:
             )
             return False
 
+    def list_market_activity_spikes_for_outcomes(
+        self,
+        *,
+        since: datetime,
+        limit: int,
+        horizons: tuple[str, ...],
+    ) -> list[dict]:
+        """Return recent spikes still missing at least one expected outcome."""
+        sql = """
+            SELECT s.id, s.ticker, s.figi, s.candle_time, s.candle_interval,
+                   s.spike_type, s.metrics_json, o.close_price
+            FROM market_activity_spikes s
+            JOIN market_activity_observations o
+              ON o.figi = s.figi
+             AND o.candle_time = s.candle_time
+             AND o.candle_interval = s.candle_interval
+            WHERE s.candle_time >= %s
+              AND (
+                  SELECT count(DISTINCT r.horizon)
+                  FROM market_activity_spike_outcomes r
+                  WHERE r.spike_id = s.id
+                    AND r.horizon = ANY(%s)
+              ) < %s
+            ORDER BY s.candle_time ASC, s.id ASC
+            LIMIT %s
+        """
+        columns = (
+            "id", "ticker", "figi", "candle_time", "candle_interval",
+            "spike_type", "metrics", "entry_price",
+        )
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(
+                sql,
+                (since, list(horizons), len(horizons), max(1, limit)),
+            ).fetchall()
+        return [dict(zip(columns, row, strict=True)) for row in rows]
+
+    def market_activity_outcome_exists(self, spike_id: int, horizon: str) -> bool:
+        """Check whether one spike horizon has already been resolved."""
+        sql = """
+            SELECT 1
+            FROM market_activity_spike_outcomes
+            WHERE spike_id = %s AND horizon = %s
+            LIMIT 1
+        """
+        with self._pool.get_connection() as conn:
+            return conn.execute(sql, (spike_id, horizon)).fetchone() is not None
+
+    def get_market_activity_price_after(
+        self,
+        *,
+        figi: str,
+        candle_interval: str,
+        target_time: datetime,
+        latest_time: datetime,
+    ) -> dict | None:
+        """Return the first stored candle close in a bounded target window."""
+        sql = """
+            SELECT close_price, candle_time
+            FROM market_activity_observations
+            WHERE figi = %s
+              AND candle_interval = %s
+              AND candle_time >= %s
+              AND candle_time <= %s
+            ORDER BY candle_time ASC
+            LIMIT 1
+        """
+        with self._pool.get_connection() as conn:
+            row = conn.execute(
+                sql,
+                (figi, candle_interval, target_time, latest_time),
+            ).fetchone()
+        if row is None:
+            return None
+        return {"price": float(row[0]), "candle_time": row[1]}
+
+    def get_market_activity_price_before(
+        self,
+        *,
+        figi: str,
+        candle_interval: str,
+        after_time: datetime,
+        target_time: datetime,
+    ) -> dict | None:
+        """Return the last stored candle close before a session boundary."""
+        sql = """
+            SELECT close_price, candle_time
+            FROM market_activity_observations
+            WHERE figi = %s
+              AND candle_interval = %s
+              AND candle_time > %s
+              AND candle_time <= %s
+            ORDER BY candle_time DESC
+            LIMIT 1
+        """
+        with self._pool.get_connection() as conn:
+            row = conn.execute(
+                sql,
+                (figi, candle_interval, after_time, target_time),
+            ).fetchone()
+        if row is None:
+            return None
+        return {"price": float(row[0]), "candle_time": row[1]}
+
+    def insert_market_activity_spike_outcome(self, outcome: dict) -> bool:
+        """Persist one shadow spike evaluation idempotently."""
+        sql = """
+            INSERT INTO market_activity_spike_outcomes
+                (spike_id, ticker, figi, spike_time, horizon, direction,
+                 entry_price, outcome_price, raw_return_pct,
+                 momentum_return_pct, reversion_return_pct,
+                 momentum_outcome, reversion_outcome, outcome_time, resolved_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (spike_id, horizon) DO NOTHING
+            RETURNING id
+        """
+        values = (
+            outcome["spike_id"], outcome["ticker"], outcome["figi"],
+            outcome["spike_time"], outcome["horizon"], outcome["direction"],
+            outcome["entry_price"], outcome["outcome_price"],
+            outcome["raw_return_pct"], outcome["momentum_return_pct"],
+            outcome["reversion_return_pct"], outcome["momentum_outcome"],
+            outcome["reversion_outcome"], outcome["outcome_time"],
+            outcome["resolved_at"],
+        )
+        with self._pool.get_connection() as conn:
+            return conn.execute(sql, values).fetchone() is not None
+
+    def get_market_activity_outcome_report(self) -> list[dict]:
+        """Return aggregate momentum/reversion calibration by horizon."""
+        sql = """
+            SELECT horizon,
+                   count(*) AS sample_size,
+                   avg(momentum_return_pct) AS momentum_avg_return,
+                   avg(reversion_return_pct) AS reversion_avg_return,
+                   avg((momentum_outcome = 'win')::int) AS momentum_win_rate,
+                   avg((reversion_outcome = 'win')::int) AS reversion_win_rate
+            FROM market_activity_spike_outcomes
+            GROUP BY horizon
+            ORDER BY CASE horizon
+                WHEN '5m' THEN 1 WHEN '15m' THEN 2
+                WHEN '60m' THEN 3 WHEN 'eod' THEN 4 ELSE 5
+            END
+        """
+        columns = (
+            "horizon", "sample_size", "momentum_avg_return",
+            "reversion_avg_return", "momentum_win_rate", "reversion_win_rate",
+        )
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql).fetchall()
+        return [dict(zip(columns, row, strict=True)) for row in rows]
+
     def get_latest_quote_by_ticker(self, ticker: str) -> dict | None:
         """Return the most recent quote for a ticker."""
         sql = """

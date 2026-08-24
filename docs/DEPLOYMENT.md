@@ -143,6 +143,28 @@ TINVEST_BACKGROUND_RUN_MARKET_ACTIVITY=true
 The initial cycle backfills the requested candle lookback. Repeated cycles are
 idempotent and only add unseen candle observations or spikes.
 
+To compare momentum and reversion after each spike without affecting signals
+or trading, enable the local outcome resolver:
+
+```
+TINVEST_MARKET_ACTIVITY_OUTCOMES_ENABLED=true
+TINVEST_MARKET_ACTIVITY_OUTCOMES_POLL_INTERVAL_SECONDS=60
+TINVEST_MARKET_ACTIVITY_OUTCOMES_HORIZONS_MINUTES=5,15,60
+TINVEST_MARKET_ACTIVITY_OUTCOMES_NEUTRAL_THRESHOLD_PCT=0.0005
+TINVEST_MARKET_ACTIVITY_OUTCOMES_EOD_ENABLED=true
+TINVEST_MARKET_ACTIVITY_OUTCOMES_EOD_HOUR_MOSCOW=23
+TINVEST_MARKET_ACTIVITY_OUTCOMES_EOD_MINUTE_MOSCOW=50
+TINVEST_MARKET_ACTIVITY_OUTCOMES_LOOKBACK_DAYS=30
+TINVEST_BACKGROUND_RUN_MARKET_ACTIVITY_OUTCOMES=true
+```
+
+The resolver reads only stored market-activity candles. Inspect its aggregate
+results in the `Market Activity Monitor` dashboard or run:
+
+```
+python -m tinvest_trader.cli market-activity-outcomes
+```
+
 To confirm the datasource is connected:
 1. Log in to Grafana
 2. Open `Connections` -> `Data sources`
