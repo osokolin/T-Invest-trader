@@ -586,6 +586,48 @@ CREATE INDEX IF NOT EXISTS idx_market_quotes_figi_source_time
     ON market_quotes (figi, source_time ASC);
 
 -- ============================================================
+-- Market activity monitor (observational only)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS market_activity_observations (
+    id                  BIGSERIAL PRIMARY KEY,
+    ticker              TEXT NOT NULL,
+    figi                TEXT NOT NULL,
+    candle_time         TIMESTAMPTZ NOT NULL,
+    candle_interval     TEXT NOT NULL,
+    open_price          NUMERIC(20, 9) NOT NULL,
+    high_price          NUMERIC(20, 9) NOT NULL,
+    low_price           NUMERIC(20, 9) NOT NULL,
+    close_price         NUMERIC(20, 9) NOT NULL,
+    volume              BIGINT NOT NULL,
+    baseline_volume     NUMERIC(20, 4),
+    volume_ratio        NUMERIC(20, 6),
+    price_change_pct    NUMERIC(12, 8),
+    range_pct           NUMERIC(12, 8),
+    recorded_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (figi, candle_time, candle_interval)
+);
+CREATE INDEX IF NOT EXISTS idx_market_activity_observation_ticker_time
+    ON market_activity_observations (ticker, candle_time DESC);
+
+CREATE TABLE IF NOT EXISTS market_activity_spikes (
+    id                  BIGSERIAL PRIMARY KEY,
+    ticker              TEXT NOT NULL,
+    figi                TEXT NOT NULL,
+    candle_time         TIMESTAMPTZ NOT NULL,
+    candle_interval     TEXT NOT NULL,
+    spike_type          TEXT NOT NULL,
+    severity            TEXT NOT NULL,
+    score               NUMERIC(8, 2) NOT NULL,
+    reason              TEXT NOT NULL,
+    metrics_json        JSONB NOT NULL DEFAULT '{}'::jsonb,
+    recorded_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (figi, candle_time, candle_interval, spike_type)
+);
+CREATE INDEX IF NOT EXISTS idx_market_activity_spike_ticker_time
+    ON market_activity_spikes (ticker, candle_time DESC);
+
+-- ============================================================
 -- Source-aware weighting (shadow mode)
 -- ============================================================
 

@@ -119,6 +119,72 @@ def test_get_dividends_uses_real_api_and_maps_response(monkeypatch):
     assert seen_requests[0]["payload"]["instrumentId"] == "BBG000B9XRY4"
 
 
+def test_get_candles_uses_market_data_api_and_normalizes_ohlcv(monkeypatch):
+    seen_request: dict = {}
+
+    def fake_urlopen(request, timeout):  # noqa: ANN001
+        seen_request.update(
+            url=request.full_url,
+            payload=json.loads(request.data.decode("utf-8")),
+            timeout=timeout,
+        )
+        return _FakeHttpResponse(
+            {
+                "candles": [
+                    {
+                        "open": {"units": "100", "nano": 0},
+                        "high": {"units": "103", "nano": 0},
+                        "low": {"units": "99", "nano": 500000000},
+                        "close": {"units": "102", "nano": 250000000},
+                        "volume": "1234",
+                        "time": "2026-08-24T10:00:00Z",
+                        "isComplete": True,
+                    },
+                ],
+            },
+        )
+
+    monkeypatch.setattr(
+        "tinvest_trader.infra.tbank.client.urllib_request.urlopen",
+        fake_urlopen,
+    )
+    client = _make_client()
+
+    candles = client.get_candles(
+        instrument_id="real-uid-sber",
+        from_time=datetime(2026, 8, 24, 9, 0),
+        to_time=datetime(2026, 8, 24, 10, 0),
+        interval="CANDLE_INTERVAL_1_MIN",
+    )
+
+    assert candles == [{
+        "open": 100.0,
+        "high": 103.0,
+        "low": 99.5,
+        "close": 102.25,
+        "volume": 1234,
+        "time": "2026-08-24T10:00:00Z",
+        "is_complete": True,
+    }]
+    assert seen_request["url"].endswith("/GetCandles")
+    assert seen_request["payload"]["instrumentId"] == "real-uid-sber"
+    assert seen_request["payload"]["interval"] == "CANDLE_INTERVAL_1_MIN"
+    assert seen_request["payload"]["candleSourceType"] == "CANDLE_SOURCE_EXCHANGE"
+
+
+def test_get_candles_stays_offline_without_token():
+    client = _make_client(token="")
+
+    candles = client.get_candles(
+        instrument_id="BBG004730N88",
+        from_time=datetime(2026, 8, 24, 9, 0),
+        to_time=datetime(2026, 8, 24, 10, 0),
+        interval="CANDLE_INTERVAL_1_MIN",
+    )
+
+    assert candles == []
+
+
 def test_get_asset_reports_resolves_synthetic_stub_uid(monkeypatch):
     seen_payloads: list[dict] = []
 

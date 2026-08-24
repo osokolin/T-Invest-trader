@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from tinvest_trader.services.global_context_ingestion import (
         GlobalContextIngestionService,
     )
+    from tinvest_trader.services.market_activity_service import MarketActivityService
     from tinvest_trader.services.moex_ingestion_service import MoexIngestionService
     from tinvest_trader.services.observation_service import ObservationService
     from tinvest_trader.services.paper_portfolio_service import PaperPortfolioService
@@ -77,6 +78,8 @@ class BackgroundRunner:
         signal_resolution_config: SignalResolutionConfig | None = None,
         paper_portfolio_service: PaperPortfolioService | None = None,
         paper_portfolio_config: PaperPortfolioConfig | None = None,
+        market_activity_service: MarketActivityService | None = None,
+        market_activity_interval_seconds: int = 60,
         daily_digest_fn: Callable[[], object] | None = None,
         daily_digest_config: DailyDigestConfig | None = None,
         time_fn: Callable[[], float] | None = None,
@@ -110,6 +113,8 @@ class BackgroundRunner:
         self._signal_resolution_config = signal_resolution_config
         self._paper_portfolio_service = paper_portfolio_service
         self._paper_portfolio_config = paper_portfolio_config
+        self._market_activity_service = market_activity_service
+        self._market_activity_interval_seconds = market_activity_interval_seconds
         self._daily_digest_fn = daily_digest_fn
         self._daily_digest_config = daily_digest_config
         self._daily_digest_sent_today: str = ""
@@ -249,6 +254,7 @@ class BackgroundRunner:
             or self._signal_generation_is_runnable()
             or self._signal_resolution_is_runnable()
             or self._paper_portfolio_is_runnable()
+            or self._market_activity_is_runnable()
             or self._cbr_is_runnable()
             or self._moex_is_runnable()
             or self._global_context_is_runnable()
@@ -441,6 +447,12 @@ class BackgroundRunner:
             and self._paper_portfolio_service is not None
         )
 
+    def _market_activity_is_runnable(self) -> bool:
+        return (
+            self._config.run_market_activity
+            and self._market_activity_service is not None
+        )
+
     def run_paper_portfolio_cycle(self) -> None:
         """Run one virtual portfolio cycle safely."""
         if not self._paper_portfolio_is_runnable():
@@ -458,6 +470,22 @@ class BackgroundRunner:
         except Exception:
             self._logger.exception(
                 "background paper portfolio cycle failed",
+                extra={"component": "background_runner"},
+            )
+
+    def run_market_activity_cycle(self) -> None:
+        """Run one market-activity observation cycle safely."""
+        if not self._market_activity_is_runnable():
+            return
+        try:
+            result = self._market_activity_service.observe_all()
+            self._logger.info(
+                "background market activity cycle complete",
+                extra={"component": "background_runner", "result": str(result)},
+            )
+        except Exception:
+            self._logger.exception(
+                "background market activity cycle failed",
                 extra={"component": "background_runner"},
             )
 
@@ -673,6 +701,7 @@ class BackgroundRunner:
         next_quote_sync_run = self._time_fn()
         next_signal_resolution_run = self._time_fn()
         next_paper_portfolio_run = self._time_fn()
+        next_market_activity_run = self._time_fn()
         next_signal_delivery_run = self._time_fn()
         next_callback_handler_run = self._time_fn()
         next_alerting_run = self._time_fn()
@@ -841,6 +870,21 @@ class BackgroundRunner:
                     paper_wait
                     if next_wait is None
                     else min(next_wait, paper_wait)
+                )
+
+            if self._market_activity_is_runnable():
+                if now >= next_market_activity_run:
+                    self.run_market_activity_cycle()
+                    next_market_activity_run = self._time_fn() + max(
+                        1, self._market_activity_interval_seconds,
+                    )
+                market_activity_wait = max(
+                    0.0, next_market_activity_run - self._time_fn(),
+                )
+                next_wait = (
+                    market_activity_wait
+                    if next_wait is None
+                    else min(next_wait, market_activity_wait)
                 )
 
             if self._signal_delivery_is_runnable():

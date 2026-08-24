@@ -2450,6 +2450,82 @@ class TradingRepository:
             )
         return inserted
 
+    # -- Market activity monitor (observational only) --
+
+    def insert_market_activity_observation(self, observation: dict) -> bool:
+        """Append one normalized OHLCV activity observation idempotently."""
+        sql = """
+            INSERT INTO market_activity_observations
+                (ticker, figi, candle_time, candle_interval,
+                 open_price, high_price, low_price, close_price, volume,
+                 baseline_volume, volume_ratio, price_change_pct, range_pct)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (figi, candle_time, candle_interval) DO NOTHING
+            RETURNING id
+        """
+        values = (
+            observation["ticker"],
+            observation["figi"],
+            observation["candle_time"],
+            observation["candle_interval"],
+            observation["open_price"],
+            observation["high_price"],
+            observation["low_price"],
+            observation["close_price"],
+            observation["volume"],
+            observation.get("baseline_volume"),
+            observation.get("volume_ratio"),
+            observation.get("price_change_pct"),
+            observation.get("range_pct"),
+        )
+        try:
+            with self._pool.get_connection() as conn:
+                return conn.execute(sql, values).fetchone() is not None
+        except Exception:
+            self._logger.exception(
+                "failed to insert market activity observation",
+                extra={
+                    "component": "postgres",
+                    "ticker": observation.get("ticker"),
+                },
+            )
+            return False
+
+    def insert_market_activity_spike(self, spike: dict) -> bool:
+        """Append one explainable market-activity spike idempotently."""
+        sql = """
+            INSERT INTO market_activity_spikes
+                (ticker, figi, candle_time, candle_interval, spike_type,
+                 severity, score, reason, metrics_json)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+            ON CONFLICT (figi, candle_time, candle_interval, spike_type)
+            DO NOTHING
+            RETURNING id
+        """
+        values = (
+            spike["ticker"],
+            spike["figi"],
+            spike["candle_time"],
+            spike["candle_interval"],
+            spike["spike_type"],
+            spike["severity"],
+            spike["score"],
+            spike["reason"],
+            json.dumps(spike["metrics"]),
+        )
+        try:
+            with self._pool.get_connection() as conn:
+                return conn.execute(sql, values).fetchone() is not None
+        except Exception:
+            self._logger.exception(
+                "failed to insert market activity spike",
+                extra={
+                    "component": "postgres",
+                    "ticker": spike.get("ticker"),
+                },
+            )
+            return False
+
     def get_latest_quote_by_ticker(self, ticker: str) -> dict | None:
         """Return the most recent quote for a ticker."""
         sql = """
