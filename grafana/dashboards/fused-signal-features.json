@@ -15,11 +15,12 @@
       }
     ]
   },
+  "description": "Features produced by fusion before signal generation, combining sentiment, broker events, and MOEX market context.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
   "id": null,
-  "links": [],
+  "links": [{ "asDropdown": true, "includeVars": true, "keepTime": true, "tags": ["tinvest"], "targetBlank": false, "title": "T-Invest dashboards", "tooltip": "Open another T-Invest dashboard", "type": "dashboards" }],
   "liveNow": false,
   "panels": [
     {
@@ -336,7 +337,7 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "Fused Signal Features",
+  "title": "Fusion Inputs & Features",
   "uid": "fused-signal-features",
   "version": 1,
   "weekStart": ""

@@ -1,0 +1,394 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Virtual portfolio performance from newly delivered signals. This dashboard never represents broker positions or real orders.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "asDropdown": true,
+      "includeVars": true,
+      "keepTime": true,
+      "tags": ["tinvest"],
+      "targetBlank": false,
+      "title": "T-Invest dashboards",
+      "tooltip": "Open another T-Invest dashboard",
+      "type": "dashboards"
+    }
+  ],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 50,
+      "title": "Portfolio Snapshot · Virtual Only",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "description": "Initial virtual cash plus realized net PnL. Open positions are not marked to market.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyRUB",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1000000 }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT (portfolio.initial_cash + COALESCE(sum(position.net_pnl) FILTER (WHERE position.status = 'closed'), 0))::double precision AS \"Realized Equity\" FROM paper_portfolios portfolio LEFT JOIN paper_portfolio_positions position ON position.portfolio_name = portfolio.name WHERE portfolio.name = ${portfolio:sqlstring} GROUP BY portfolio.initial_cash;",
+          "refId": "A"
+        }
+      ],
+      "title": "Realized Equity",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "description": "Net result from closed virtual positions after configured commission and slippage.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyRUB",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 0 }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(sum(net_pnl), 0)::double precision AS \"Realized PnL\" FROM paper_portfolio_positions WHERE portfolio_name = ${portfolio:sqlstring} AND status = 'closed';",
+          "refId": "A"
+        }
+      ],
+      "title": "Realized PnL",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "description": "Number of currently open virtual positions.",
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) AS \"Open Positions\" FROM paper_portfolio_positions WHERE portfolio_name = ${portfolio:sqlstring} AND status = 'open';",
+          "refId": "A"
+        }
+      ],
+      "title": "Open Positions",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "description": "Number of virtual positions with a resolved signal outcome.",
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) AS \"Closed Positions\" FROM paper_portfolio_positions WHERE portfolio_name = ${portfolio:sqlstring} AND status = 'closed';",
+          "refId": "A"
+        }
+      ],
+      "title": "Closed Positions",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "description": "Share of closed virtual positions with positive net PnL.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 0.45 }, { "color": "green", "value": 0.55 }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) FILTER (WHERE net_pnl > 0)::numeric / NULLIF(count(*), 0) AS \"Win Rate\" FROM paper_portfolio_positions WHERE portfolio_name = ${portfolio:sqlstring} AND status = 'closed';",
+          "refId": "A"
+        }
+      ],
+      "title": "Win Rate",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "description": "Average return after commission and slippage across closed positions.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 0 }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "id": 6,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT avg(net_return_pct)::double precision AS \"Avg Net Return\" FROM paper_portfolio_positions WHERE portfolio_name = ${portfolio:sqlstring} AND status = 'closed';",
+          "refId": "A"
+        }
+      ],
+      "title": "Avg Net Return",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "id": 51,
+      "title": "Positions",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "description": "Current virtual exposure. Entry values come from delivered signals, not broker orders.",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 10, "x": 0, "y": 6 },
+      "id": 7,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT position.entry_time, position.ticker, upper(position.direction) AS direction, position.entry_price, position.notional, prediction.source_channel, prediction.confidence FROM paper_portfolio_positions position JOIN signal_predictions prediction ON prediction.id = position.prediction_id WHERE position.portfolio_name = ${portfolio:sqlstring} AND position.status = 'open' ORDER BY position.entry_time DESC;",
+          "refId": "A"
+        }
+      ],
+      "title": "Open Virtual Positions",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "description": "Most recently closed virtual positions with costs and net outcome.",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 14, "x": 10, "y": 6 },
+      "id": 8,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT position.exit_time, position.ticker, upper(position.direction) AS direction, position.entry_price, position.exit_price, position.notional, position.net_return_pct, position.costs, position.net_pnl, prediction.source_channel FROM paper_portfolio_positions position JOIN signal_predictions prediction ON prediction.id = position.prediction_id WHERE position.portfolio_name = ${portfolio:sqlstring} AND position.status = 'closed' ORDER BY position.exit_time DESC LIMIT 100;",
+          "refId": "A"
+        }
+      ],
+      "title": "Recent Closed Positions",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "id": 52,
+      "title": "Realized Performance",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "description": "Running sum of net PnL from closed positions in the selected time range.",
+      "fieldConfig": { "defaults": { "unit": "currencyRUB" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+      "id": 9,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT exit_time AS time, sum(net_pnl) OVER (ORDER BY exit_time, id)::double precision AS \"Cumulative Net PnL\" FROM paper_portfolio_positions WHERE portfolio_name = ${portfolio:sqlstring} AND status = 'closed' AND $__timeFilter(exit_time) ORDER BY exit_time;",
+          "refId": "A"
+        }
+      ],
+      "title": "Cumulative Net PnL",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "description": "Net PnL grouped by close date. Costs are already included.",
+      "fieldConfig": { "defaults": { "unit": "currencyRUB" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+      "id": 10,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(exit_time, '1d'), sum(net_pnl)::double precision AS \"Daily Net PnL\" FROM paper_portfolio_positions WHERE portfolio_name = ${portfolio:sqlstring} AND status = 'closed' AND $__timeFilter(exit_time) GROUP BY 1 ORDER BY 1;",
+          "refId": "A"
+        }
+      ],
+      "title": "Daily Net PnL",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
+      "id": 53,
+      "title": "What Is Working",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "description": "Closed-position performance grouped by ticker. Use larger samples before changing strategy thresholds.",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "id": 11,
+      "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "displayName": "net_pnl", "desc": true }] },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT ticker, count(*) AS closed_positions, count(*) FILTER (WHERE net_pnl > 0)::numeric / NULLIF(count(*), 0) AS win_rate, avg(net_return_pct) AS avg_net_return, sum(net_pnl) AS net_pnl FROM paper_portfolio_positions WHERE portfolio_name = ${portfolio:sqlstring} AND status = 'closed' GROUP BY ticker ORDER BY net_pnl DESC;",
+          "refId": "A"
+        }
+      ],
+      "title": "Performance by Ticker",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "description": "Closed-position performance attributed to the primary Telegram channel stored on each signal.",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "id": 12,
+      "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "displayName": "net_pnl", "desc": true }] },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(prediction.source_channel, 'unattributed') AS source_channel, count(*) AS closed_positions, count(*) FILTER (WHERE position.net_pnl > 0)::numeric / NULLIF(count(*), 0) AS win_rate, avg(position.net_return_pct) AS avg_net_return, sum(position.net_pnl) AS net_pnl FROM paper_portfolio_positions position JOIN signal_predictions prediction ON prediction.id = position.prediction_id WHERE position.portfolio_name = ${portfolio:sqlstring} AND position.status = 'closed' GROUP BY 1 ORDER BY net_pnl DESC;",
+          "refId": "A"
+        }
+      ],
+      "title": "Performance by Telegram Source",
+      "type": "table"
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": ["tinvest", "paper", "portfolio", "operator"],
+  "templating": {
+    "list": [
+      {
+        "current": { "selected": true, "text": "shadow-v1", "value": "shadow-v1" },
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "definition": "SELECT name FROM paper_portfolios ORDER BY started_at DESC",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Portfolio",
+        "multi": false,
+        "name": "portfolio",
+        "options": [],
+        "query": "SELECT name FROM paper_portfolios ORDER BY started_at DESC",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      }
+    ]
+  },
+  "time": { "from": "now-30d", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Paper Trading",
+  "uid": "paper-trading",
+  "version": 1,
+  "weekStart": "monday"
+}

@@ -12,11 +12,12 @@
       }
     ]
   },
+  "description": "Primary operator view for signal throughput, delivered-signal outcomes, paper trading, and shadow experiments.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
   "id": null,
-  "links": [],
+  "links": [{ "asDropdown": true, "includeVars": true, "keepTime": true, "tags": ["tinvest"], "targetBlank": false, "title": "T-Invest dashboards", "tooltip": "Open another T-Invest dashboard", "type": "dashboards" }],
   "liveNow": false,
   "panels": [
     {
@@ -51,7 +52,8 @@
           "refId": "A"
         }
       ],
-      "title": "Generated (24h)",
+      "description": "Signals created by the generation pipeline during the last 24 hours.",
+      "title": "Generated Signals · 24h",
       "type": "stat"
     },
     {
@@ -86,7 +88,8 @@
           "refId": "A"
         }
       ],
-      "title": "Delivered (24h)",
+      "description": "Signals delivered to the configured Telegram destination during the last 24 hours.",
+      "title": "Delivered Signals · 24h",
       "type": "stat"
     },
     {
@@ -121,7 +124,8 @@
           "refId": "A"
         }
       ],
-      "title": "Suppressed (24h, dedup)",
+      "description": "Repeat deliveries blocked by delivery deduplication during the last 24 hours.",
+      "title": "Duplicate Deliveries Blocked · 24h",
       "type": "stat"
     },
     {
@@ -157,7 +161,8 @@
           "refId": "A"
         }
       ],
-      "title": "Delivery Rate (24h)",
+      "description": "Share of generated signals that reached the delivered pipeline stage in the last 24 hours.",
+      "title": "Delivery Rate · 24h",
       "type": "stat"
     },
     {
@@ -261,11 +266,12 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT avg(return_pct) AS \"EV (all time)\" FROM signal_predictions WHERE resolved_at IS NOT NULL AND pipeline_stage = 'delivered';",
+          "rawSql": "SELECT avg(return_pct) AS \"Avg Return (all time)\" FROM signal_predictions WHERE resolved_at IS NOT NULL AND pipeline_stage = 'delivered';",
           "refId": "A"
         }
       ],
-      "title": "EV (all time, delivered)",
+      "description": "Average resolved return across all delivered signals. This is historical signal performance, not paper-portfolio PnL.",
+      "title": "Avg Return · All Time",
       "type": "stat"
     },
     {
@@ -313,7 +319,7 @@
         "cellHeight": "sm",
         "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
         "showHeader": true,
-        "sortBy": [{ "displayName": "ev", "desc": true }]
+        "sortBy": [{ "displayName": "avg_return", "desc": true }]
       },
       "targets": [
         {
@@ -321,11 +327,12 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT source_channel, count(*) AS signals, count(*) FILTER (WHERE resolved_at IS NOT NULL) AS resolved, round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 3) AS win_rate, round(avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 5) AS ev FROM signal_predictions WHERE pipeline_stage = 'delivered' AND source_channel IS NOT NULL GROUP BY source_channel ORDER BY signals DESC;",
+          "rawSql": "SELECT source_channel, count(*) AS signals, count(*) FILTER (WHERE resolved_at IS NOT NULL) AS resolved, round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 3) AS win_rate, round(avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 5) AS avg_return FROM signal_predictions WHERE pipeline_stage = 'delivered' AND source_channel IS NOT NULL GROUP BY source_channel HAVING count(*) FILTER (WHERE resolved_at IS NOT NULL) >= 5 ORDER BY avg_return DESC;",
           "refId": "A"
         }
       ],
-      "title": "Top Sources by EV (delivered, min 5 resolved)",
+      "description": "Delivered-signal results by primary Telegram channel. Channels appear only after at least five resolved signals.",
+      "title": "Telegram Source Performance · Min 5 Resolved",
       "type": "table"
     },
     {
@@ -337,7 +344,7 @@
         "cellHeight": "sm",
         "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
         "showHeader": true,
-        "sortBy": [{ "displayName": "ev", "desc": true }]
+        "sortBy": [{ "displayName": "avg_return", "desc": true }]
       },
       "targets": [
         {
@@ -345,24 +352,146 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT ticker, count(*) AS signals, count(*) FILTER (WHERE resolved_at IS NOT NULL) AS resolved, round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 3) AS win_rate, round(avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 5) AS ev FROM signal_predictions WHERE pipeline_stage = 'delivered' GROUP BY ticker HAVING count(*) FILTER (WHERE resolved_at IS NOT NULL) >= 5 ORDER BY ev DESC;",
+          "rawSql": "SELECT ticker, count(*) AS signals, count(*) FILTER (WHERE resolved_at IS NOT NULL) AS resolved, round(avg(CASE WHEN outcome_label = 'win' THEN 1.0 ELSE 0.0 END) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 3) AS win_rate, round(avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 5) AS avg_return FROM signal_predictions WHERE pipeline_stage = 'delivered' GROUP BY ticker HAVING count(*) FILTER (WHERE resolved_at IS NOT NULL) >= 5 ORDER BY avg_return DESC;",
           "refId": "A"
         }
       ],
-      "title": "Top Tickers by EV (delivered, min 5 resolved)",
+      "description": "Delivered-signal results by ticker. Tickers appear only after at least five resolved signals.",
+      "title": "Ticker Performance · Min 5 Resolved",
       "type": "table"
     },
     {
       "collapsed": false,
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 12 },
+      "id": 30,
+      "title": "Paper Trading · Virtual Positions Only",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "description": "Initial virtual cash plus realized net PnL for the most recently started paper portfolio.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyRUB",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1000000 }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 13 },
+      "id": 31,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH latest_portfolio AS (SELECT name, initial_cash FROM paper_portfolios ORDER BY started_at DESC LIMIT 1) SELECT (portfolio.initial_cash + COALESCE(sum(position.net_pnl) FILTER (WHERE position.status = 'closed'), 0))::double precision AS \"Realized Equity\" FROM latest_portfolio portfolio LEFT JOIN paper_portfolio_positions position ON position.portfolio_name = portfolio.name GROUP BY portfolio.initial_cash;",
+          "refId": "A"
+        }
+      ],
+      "title": "Paper Realized Equity",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "description": "Net result after modeled commission and slippage for closed virtual positions.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyRUB",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 0 }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 13 },
+      "id": 32,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH latest_portfolio AS (SELECT name FROM paper_portfolios ORDER BY started_at DESC LIMIT 1) SELECT COALESCE(sum(position.net_pnl), 0)::double precision AS \"Realized PnL\" FROM latest_portfolio portfolio LEFT JOIN paper_portfolio_positions position ON position.portfolio_name = portfolio.name AND position.status = 'closed';",
+          "refId": "A"
+        }
+      ],
+      "title": "Paper Realized PnL",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "description": "Current count of open virtual positions in the latest paper portfolio.",
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 13 },
+      "id": 33,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH latest_portfolio AS (SELECT name FROM paper_portfolios ORDER BY started_at DESC LIMIT 1) SELECT count(position.id) AS \"Open Positions\" FROM latest_portfolio portfolio LEFT JOIN paper_portfolio_positions position ON position.portfolio_name = portfolio.name AND position.status = 'open';",
+          "refId": "A"
+        }
+      ],
+      "title": "Paper Open Positions",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "description": "Resolved virtual positions available for performance evaluation.",
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 13 },
+      "id": 34,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH latest_portfolio AS (SELECT name FROM paper_portfolios ORDER BY started_at DESC LIMIT 1) SELECT count(position.id) AS \"Closed Positions\" FROM latest_portfolio portfolio LEFT JOIN paper_portfolio_positions position ON position.portfolio_name = portfolio.name AND position.status = 'closed';",
+          "refId": "A"
+        }
+      ],
+      "title": "Paper Closed Positions",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 },
       "id": 20,
-      "title": "Shadow Experiments",
+      "title": "Experimental Filters · Observational Only",
       "type": "row"
     },
     {
       "datasource": { "type": "postgres", "uid": "postgres" },
       "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 13 },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 18 },
       "id": 9,
       "options": {
         "cellHeight": "sm",
@@ -385,7 +514,7 @@
     {
       "datasource": { "type": "postgres", "uid": "postgres" },
       "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 13 },
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 18 },
       "id": 10,
       "options": {
         "cellHeight": "sm",
@@ -408,7 +537,7 @@
     {
       "datasource": { "type": "postgres", "uid": "postgres" },
       "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 13 },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 18 },
       "id": 11,
       "options": {
         "cellHeight": "sm",

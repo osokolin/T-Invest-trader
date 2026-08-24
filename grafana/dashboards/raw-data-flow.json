@@ -12,11 +12,12 @@
       }
     ]
   },
+  "description": "Low-level debugging view for raw ingestion, generated signals, quote updates, and global context flow.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
   "id": null,
-  "links": [],
+  "links": [{ "asDropdown": true, "includeVars": true, "keepTime": true, "tags": ["tinvest"], "targetBlank": false, "title": "T-Invest dashboards", "tooltip": "Open another T-Invest dashboard", "type": "dashboards" }],
   "liveNow": false,
   "panels": [
     {
@@ -403,12 +404,12 @@
   ],
   "refresh": "30s",
   "schemaVersion": 39,
-  "tags": ["raw-data", "debugging"],
+  "tags": ["tinvest", "raw-data", "debugging"],
   "templating": { "list": [] },
   "time": { "from": "now-6h", "to": "now" },
   "timepicker": {},
   "timezone": "",
-  "title": "Raw Data Flow",
+  "title": "Pipeline Debugging · Raw Data Flow",
   "uid": "raw-data-flow",
   "version": 1
 }

@@ -12,11 +12,12 @@
       }
     ]
   },
+  "description": "Operational freshness and error view for ingestion, quotes, global context, broker events, and AI coverage.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
   "id": null,
-  "links": [],
+  "links": [{ "asDropdown": true, "includeVars": true, "keepTime": true, "tags": ["tinvest"], "targetBlank": false, "title": "T-Invest dashboards", "tooltip": "Open another T-Invest dashboard", "type": "dashboards" }],
   "liveNow": false,
   "panels": [
     {
@@ -466,7 +467,7 @@
   "time": { "from": "now-24h", "to": "now" },
   "timepicker": {},
   "timezone": "",
-  "title": "Data & Infrastructure Health",
+  "title": "Data Freshness & Pipeline Health",
   "uid": "data-infra-health",
   "version": 1,
   "weekStart": ""

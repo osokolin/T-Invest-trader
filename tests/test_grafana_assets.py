@@ -9,11 +9,20 @@ def test_dashboard_json_files_are_present_and_valid() -> None:
     dashboard_files = {
         "telegram-sentiment.json": "Telegram Sentiment",
         "broker-events.json": "Broker Events",
-        "signal-observations.json": "Signal Observations",
-        "fused-signal-features.json": "Fused Signal Features",
+        "signal-observations.json": "Sentiment Observations",
+        "fused-signal-features.json": "Fusion Inputs & Features",
         "cbr-events.json": "CBR Events",
         "moex-market-history.json": "MOEX Market History",
-        "combined-overview.json": "Combined Overview",
+        "combined-overview.json": "Combined Market Context",
+        "operator-overview.json": "Operator Overview",
+        "paper-trading.json": "Paper Trading",
+        "data-infra-health.json": "Data Freshness & Pipeline Health",
+        "raw-data-flow.json": "Pipeline Debugging · Raw Data Flow",
+        "signal-pipeline-funnel.json": "Signal Lifecycle",
+        "analytics-ai-source-global.json": (
+            "Signal Research · Sources, AI & Global Context"
+        ),
+        "macro-impact.json": "Macro Context Impact",
     }
 
     for filename, expected_title in dashboard_files.items():
@@ -24,6 +33,61 @@ def test_dashboard_json_files_are_present_and_valid() -> None:
         assert dashboard["title"] == expected_title
         assert dashboard["uid"]
         assert dashboard["panels"]
+
+
+def test_all_dashboards_have_operator_friendly_metadata() -> None:
+    dashboard_paths = sorted((GRAFANA_ROOT / "dashboards").glob("*.json"))
+    dashboard_uids: set[str] = set()
+
+    for dashboard_path in dashboard_paths:
+        dashboard = json.loads(dashboard_path.read_text())
+        assert dashboard["description"].strip()
+        assert "tinvest" in dashboard["tags"]
+        assert any(
+            link.get("type") == "dashboards"
+            and link.get("tags") == ["tinvest"]
+            for link in dashboard["links"]
+        )
+        assert dashboard["uid"] not in dashboard_uids
+        dashboard_uids.add(dashboard["uid"])
+        panel_ids = [panel["id"] for panel in dashboard["panels"]]
+        assert len(panel_ids) == len(set(panel_ids))
+
+
+def test_paper_trading_dashboard_is_virtual_only() -> None:
+    dashboard = json.loads(
+        (GRAFANA_ROOT / "dashboards" / "paper-trading.json").read_text(),
+    )
+    titles = {panel["title"] for panel in dashboard["panels"]}
+    queries = [
+        target.get("rawSql", "")
+        for panel in dashboard["panels"]
+        for target in panel.get("targets", [])
+    ]
+    combined_queries = "\n".join(queries)
+
+    assert "Realized Equity" in titles
+    assert "Open Virtual Positions" in titles
+    assert "Performance by Telegram Source" in titles
+    assert "paper_portfolios" in combined_queries
+    assert "paper_portfolio_positions" in combined_queries
+    assert "order_intents" not in combined_queries
+    assert "execution_events" not in combined_queries
+
+
+def test_operator_source_performance_enforces_resolved_sample_size() -> None:
+    dashboard = json.loads(
+        (GRAFANA_ROOT / "dashboards" / "operator-overview.json").read_text(),
+    )
+    panel = next(
+        item
+        for item in dashboard["panels"]
+        if item["title"] == "Telegram Source Performance · Min 5 Resolved"
+    )
+
+    assert "HAVING count(*) FILTER (WHERE resolved_at IS NOT NULL) >= 5" in (
+        panel["targets"][0]["rawSql"]
+    )
 
 
 def test_broker_events_timeseries_query_avoids_coalesce_inside_grafana_macros() -> None:
