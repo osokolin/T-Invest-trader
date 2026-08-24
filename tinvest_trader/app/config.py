@@ -396,6 +396,9 @@ def load_config() -> AppConfig:
             run_daily_digest=os.environ.get(
                 "TINVEST_BACKGROUND_RUN_DAILY_DIGEST", "true",
             ).lower() == "true",
+            run_signal_resolution=os.environ.get(
+                "TINVEST_BACKGROUND_RUN_SIGNAL_RESOLUTION", "true",
+            ).lower() == "true",
         ),
         signal_generation=SignalGenerationConfig(
             enabled=os.environ.get(
