@@ -246,6 +246,19 @@ def build_parser() -> argparse.ArgumentParser:
         "signal_id", type=int, help="Signal prediction ID",
     )
 
+    # -- analyze-ticker --
+    research_parser = subparsers.add_parser(
+        "analyze-ticker",
+        help="Generate an auditable AI research report for a ticker",
+    )
+    research_parser.add_argument(
+        "ticker", type=str, help="Ticker symbol (e.g. SBER)",
+    )
+    research_parser.add_argument(
+        "--provider", type=str, default=None,
+        help="AI research provider override (currently: stub)",
+    )
+
     # -- source-weighting-report --
     sw_report_parser = subparsers.add_parser(
         "source-weighting-report",
@@ -572,6 +585,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "test-ai-analysis":
             return _run_test_ai_analysis(
                 config, container, signal_id=args.signal_id,
+            )
+        if args.command == "analyze-ticker":
+            return _run_analyze_ticker(
+                config, container,
+                ticker=args.ticker,
+                provider_override=args.provider,
             )
     finally:
         _close_container(container)
@@ -1038,6 +1057,59 @@ def _run_signal_calibration_report(
     by_ticker = repository.get_signal_stats_by_ticker()
     by_type = repository.get_signal_stats_by_type()
     print(format_calibration_report(cal, by_ticker, by_type))
+    return 0
+
+
+def _run_analyze_ticker(
+    config: AppConfig,
+    container: Container,
+    *,
+    ticker: str,
+    provider_override: str | None = None,
+) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.ai_research import (
+        AIResearchOrchestrator,
+        StubAIResearchProvider,
+        UnknownTickerError,
+    )
+
+    provider_name = (provider_override or config.ai_research.provider).strip().lower()
+    if provider_name != "stub":
+        print(
+            "AI research provider is not configured. "
+            "Set TINVEST_AI_RESEARCH_PROVIDER=stub or pass --provider stub.",
+        )
+        return 1
+
+    orchestrator = AIResearchOrchestrator(
+        repository=repository,
+        provider=StubAIResearchProvider(),
+        logger=container.logger,
+        model=config.ai_research.model,
+    )
+    try:
+        report, snapshot = orchestrator.generate_report(ticker)
+    except UnknownTickerError as exc:
+        print(str(exc))
+        return 1
+
+    print(f"Ticker: {report.ticker}")
+    conf = "n/a" if report.confidence is None else f"{report.confidence:.2f}"
+    print(f"Confidence: {conf}")
+    print(f"Bull case: {report.bull_case}")
+    print(f"Bear case: {report.bear_case}")
+    print(f"Skeptic notes: {report.skeptic_notes}")
+    print(f"Risk notes: {report.risk_notes}")
+    print(f"Final summary: {report.final_summary}")
+    if snapshot.warnings:
+        print("Warnings:")
+        for warning in snapshot.warnings:
+            print(f"- {warning}")
     return 0
 
 

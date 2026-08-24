@@ -818,6 +818,44 @@ class TradingRepository:
             for r in rows
         ]
 
+    def get_research_signal_summary(self, ticker: str) -> dict | None:
+        """Return compact signal performance context for AI research."""
+        sql = """
+            SELECT
+                count(*) AS total,
+                count(resolved_at) AS resolved,
+                count(*) FILTER (WHERE outcome_label = 'win') AS wins,
+                count(*) FILTER (WHERE outcome_label = 'loss') AS losses,
+                count(*) FILTER (WHERE outcome_label = 'neutral') AS neutrals,
+                avg(return_pct) FILTER (WHERE resolved_at IS NOT NULL)
+                    AS avg_return,
+                max(created_at) AS latest_signal_at,
+                count(*) FILTER (WHERE pipeline_stage = 'delivered')
+                    AS delivered,
+                count(*) FILTER (WHERE pipeline_stage = 'suppressed_delivery')
+                    AS suppressed_delivery
+            FROM signal_predictions
+            WHERE ticker = %s
+        """
+        with self._pool.get_connection() as conn:
+            row = conn.execute(sql, (ticker.upper(),)).fetchone()
+        if not row or row[0] == 0:
+            return None
+        resolved = row[1]
+        wins = row[2]
+        return {
+            "total": row[0],
+            "resolved": resolved,
+            "wins": wins,
+            "losses": row[3],
+            "neutrals": row[4],
+            "win_rate": (wins / resolved) if resolved else None,
+            "avg_return": float(row[5]) if row[5] is not None else None,
+            "latest_signal_at": row[6],
+            "delivered": row[7],
+            "suppressed_delivery": row[8],
+        }
+
     # -- Source performance attribution --
 
     def get_signal_stats_by_source(self) -> list[dict]:
@@ -2981,6 +3019,79 @@ class TradingRepository:
 
         return {"latest": latest, "previous_close": previous_close}
 
+    def get_research_broker_event_summary(self, ticker: str) -> dict | None:
+        """Return compact broker event context for AI research."""
+        sql = """
+            SELECT
+                COALESCE(sum(cnt), 0) AS total,
+                max(event_time) AS latest_event_time,
+                jsonb_object_agg(event_type, cnt) AS by_event_type
+            FROM (
+                SELECT event_type, count(*) AS cnt, max(event_time) AS event_time
+                FROM broker_event_features
+                WHERE ticker = %s
+                GROUP BY event_type
+            ) grouped
+        """
+        with self._pool.get_connection() as conn:
+            row = conn.execute(sql, (ticker.upper(),)).fetchone()
+        if not row or row[0] == 0:
+            return None
+        return {
+            "total": row[0],
+            "latest_event_time": row[1],
+            "by_event_type": row[2],
+        }
+
+    def get_research_sentiment_summary(self, ticker: str) -> dict | None:
+        """Return compact Telegram sentiment context for AI research."""
+        sql = """
+            SELECT
+                count(*) AS total,
+                count(*) FILTER (WHERE label = 'positive') AS positive,
+                count(*) FILTER (WHERE label = 'negative') AS negative,
+                count(*) FILTER (WHERE label = 'neutral') AS neutral,
+                max(scored_at) AS latest_scored_at
+            FROM telegram_sentiment_events
+            WHERE ticker = %s
+              AND scored_at >= now() - interval '24 hours'
+        """
+        with self._pool.get_connection() as conn:
+            row = conn.execute(sql, (ticker.upper(),)).fetchone()
+        if not row or row[0] == 0:
+            return None
+        return {
+            "lookback_hours": 24,
+            "total": row[0],
+            "positive": row[1],
+            "negative": row[2],
+            "neutral": row[3],
+            "latest_scored_at": row[4],
+        }
+
+    def get_research_macro_summary(self, ticker: str) -> dict | None:
+        """Return compact macro tag context for AI research."""
+        sql = """
+            SELECT
+                count(*) AS total,
+                max(created_at) AS latest_created_at,
+                array_agg(DISTINCT tag) FILTER (WHERE tag IS NOT NULL) AS tags
+            FROM macro_messages
+            LEFT JOIN LATERAL unnest(tags) AS tag ON TRUE
+            WHERE affected_tickers @> ARRAY[%s]::TEXT[]
+              AND created_at >= now() - interval '24 hours'
+        """
+        with self._pool.get_connection() as conn:
+            row = conn.execute(sql, (ticker.upper(),)).fetchone()
+        if not row or row[0] == 0:
+            return None
+        return {
+            "lookback_hours": 24,
+            "total": row[0],
+            "latest_created_at": row[1],
+            "tags": row[2] or [],
+        }
+
     # -- CBR events --
 
     def insert_cbr_feed_raw(self, item: CbrFeedItem) -> bool:
@@ -3479,6 +3590,62 @@ class TradingRepository:
                 extra={"component": "repository"},
             )
         return result
+
+    # -- AI research reports --
+
+    def insert_ai_research_report(self, report, snapshot) -> int:
+        """Persist an auditable AI research report and its input snapshot."""
+        sql = """
+            INSERT INTO ai_research_reports
+                (ticker, created_at, model, snapshot_json,
+                 bull_case, bear_case, skeptic_notes, risk_notes,
+                 final_summary, confidence, raw_response_json)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """
+        raw_response_json = (
+            json.dumps(report.raw_response_json, default=str)
+            if report.raw_response_json is not None
+            else None
+        )
+        with self._pool.get_connection() as conn:
+            row = conn.execute(sql, (
+                report.ticker,
+                report.created_at,
+                report.model,
+                json.dumps(snapshot.to_dict(), default=str),
+                report.bull_case,
+                report.bear_case,
+                report.skeptic_notes,
+                report.risk_notes,
+                report.final_summary,
+                report.confidence,
+                raw_response_json,
+            )).fetchone()
+            conn.commit()
+        return int(row[0])
+
+    def get_latest_ai_research_report(self, ticker: str) -> dict | None:
+        """Return latest AI research report for a ticker."""
+        sql = """
+            SELECT id, ticker, created_at, model, snapshot_json,
+                   bull_case, bear_case, skeptic_notes, risk_notes,
+                   final_summary, confidence, raw_response_json
+            FROM ai_research_reports
+            WHERE ticker = %s
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+        """
+        columns = (
+            "id", "ticker", "created_at", "model", "snapshot_json",
+            "bull_case", "bear_case", "skeptic_notes", "risk_notes",
+            "final_summary", "confidence", "raw_response_json",
+        )
+        with self._pool.get_connection() as conn:
+            row = conn.execute(sql, (ticker.upper(),)).fetchone()
+        if row is None:
+            return None
+        return dict(zip(columns, row, strict=True))
 
     # ------------------------------------------------------------------
     # Macro tagging (shadow)

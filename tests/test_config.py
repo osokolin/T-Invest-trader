@@ -27,6 +27,21 @@ def test_signal_delivery_severity_defaults(config):
     assert config.signal_delivery.min_win_rate_for_strong_ev == 0.35
 
 
+def test_ai_research_defaults(config):
+    assert config.ai_research.provider == ""
+    assert config.ai_research.model == "stub-research-v1"
+
+
+def test_ai_research_from_env(monkeypatch):
+    monkeypatch.setenv("TINVEST_AI_RESEARCH_PROVIDER", "stub")
+    monkeypatch.setenv("TINVEST_AI_RESEARCH_MODEL", "stub-custom")
+    from tinvest_trader.app.config import load_config
+
+    cfg = load_config()
+    assert cfg.ai_research.provider == "stub"
+    assert cfg.ai_research.model == "stub-custom"
+
+
 def test_database_config_defaults(config):
     assert isinstance(config.database, DatabaseConfig)
     assert config.database.postgres_dsn == ""
