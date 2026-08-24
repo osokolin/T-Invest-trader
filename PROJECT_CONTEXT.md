@@ -82,6 +82,12 @@ API client, storage, logging.
 ### 8. Journaling & Observability
 Structured logging of all events.
 
+### 9. Shadow Market Activity Research
+T-Bank minute candles are persisted as activity observations and explainable
+volume/price spikes. A separate outcome resolver compares momentum and
+reversion at configurable horizons using stored candles only. This research
+path cannot create signals, positions, order intents, or broker orders.
+
 ---
 
 ## Environments

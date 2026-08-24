@@ -89,6 +89,10 @@ def test_market_activity_dashboard_references_observations_and_spikes() -> None:
 
     assert "market_activity_observations" in query_text
     assert "market_activity_spikes" in query_text
+    assert "market_activity_spike_outcomes" in query_text
+    assert "Momentum vs Reversion · Calibration by Horizon" in {
+        panel["title"] for panel in dashboard["panels"]
+    }
     assert "order_intents" not in query_text
 
 

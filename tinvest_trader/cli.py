@@ -162,6 +162,10 @@ def build_parser() -> argparse.ArgumentParser:
         "paper-portfolio-stats",
         help="Show realized statistics for the virtual portfolio",
     )
+    subparsers.add_parser(
+        "market-activity-outcomes",
+        help="Compare momentum and reversion after market activity spikes",
+    )
 
     # -- signal-calibration-report --
     subparsers.add_parser(
@@ -467,6 +471,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_signal_stats(container)
         if args.command == "paper-portfolio-stats":
             return _run_paper_portfolio_stats(config, container)
+        if args.command == "market-activity-outcomes":
+            return _run_market_activity_outcomes(container)
         if args.command == "signal-calibration-report":
             return _run_signal_calibration_report(container, config)
         if args.command == "market-binding-debug":
@@ -1033,6 +1039,21 @@ def _run_paper_portfolio_stats(config: AppConfig, container: Container) -> int:
 
     summary = repository.get_paper_portfolio_summary(config.paper_portfolio.name)
     print(format_paper_portfolio_summary(summary))
+    return 0
+
+
+def _run_market_activity_outcomes(container: Container) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.market_activity_outcome_service import (
+        format_market_activity_outcome_report,
+    )
+
+    rows = repository.get_market_activity_outcome_report()
+    print(format_market_activity_outcome_report(rows))
     return 0
 
 

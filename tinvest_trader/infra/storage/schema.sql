@@ -627,6 +627,30 @@ CREATE TABLE IF NOT EXISTS market_activity_spikes (
 CREATE INDEX IF NOT EXISTS idx_market_activity_spike_ticker_time
     ON market_activity_spikes (ticker, candle_time DESC);
 
+CREATE TABLE IF NOT EXISTS market_activity_spike_outcomes (
+    id                  BIGSERIAL PRIMARY KEY,
+    spike_id            BIGINT NOT NULL REFERENCES market_activity_spikes(id),
+    ticker              TEXT NOT NULL,
+    figi                TEXT NOT NULL,
+    spike_time          TIMESTAMPTZ NOT NULL,
+    horizon             TEXT NOT NULL,
+    direction           TEXT NOT NULL,
+    entry_price         NUMERIC(20, 9) NOT NULL,
+    outcome_price       NUMERIC(20, 9) NOT NULL,
+    raw_return_pct      NUMERIC(12, 8) NOT NULL,
+    momentum_return_pct NUMERIC(12, 8) NOT NULL,
+    reversion_return_pct NUMERIC(12, 8) NOT NULL,
+    momentum_outcome    TEXT NOT NULL,
+    reversion_outcome   TEXT NOT NULL,
+    outcome_time        TIMESTAMPTZ NOT NULL,
+    resolved_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (spike_id, horizon)
+);
+CREATE INDEX IF NOT EXISTS idx_market_activity_outcome_ticker_time
+    ON market_activity_spike_outcomes (ticker, spike_time DESC);
+CREATE INDEX IF NOT EXISTS idx_market_activity_outcome_horizon_resolved
+    ON market_activity_spike_outcomes (horizon, resolved_at DESC);
+
 -- ============================================================
 -- Source-aware weighting (shadow mode)
 -- ============================================================

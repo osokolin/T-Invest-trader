@@ -45,6 +45,18 @@ Market Data → Strategy → Risk → Execution → Portfolio → Reconciliation
 5. Update state
 6. Reconcile
 
+## Shadow Market Activity Flow
+
+1. T-Bank closed candles → `MarketActivityService`
+2. Observations → `market_activity_observations`
+3. Explainable spikes → `market_activity_spikes`
+4. Stored future candles → `MarketActivityOutcomeService`
+5. Momentum/reversion results → `market_activity_spike_outcomes`
+6. Read-only inspection → CLI and Grafana
+
+The shadow activity flow is isolated from signal generation, paper portfolio,
+execution, and order placement.
+
 ---
 
 ## Safety Critical Areas
