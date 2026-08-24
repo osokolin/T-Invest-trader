@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 from tinvest_trader.services.signal_generation import (
@@ -152,6 +153,7 @@ class TestGenerateSignals:
         row = {
             "id": kw.get("id", 1),
             "ticker": ticker,
+            "figi": kw.get("figi"),
             "window": kw.get("window", "15m"),
             "observation_time": kw.get(
                 "observation_time", "2026-03-23T10:00:00",
@@ -184,6 +186,43 @@ class TestGenerateSignals:
         generate_signals(repo, logger)
         call_kwargs = repo.insert_signal_prediction.call_args
         assert call_kwargs[1]["price_at_signal"] is None
+
+    def test_persists_primary_telegram_source(self):
+        observation_time = datetime(2026, 3, 23, 10, 0, tzinfo=UTC)
+        repo = self._mock_repo(rows=[self._fused_row(
+            figi="BBG004730N88",
+            observation_time=observation_time,
+        )])
+        repo.find_primary_sentiment_source.return_value = {
+            "source_channel": "markettwits",
+            "source_message_id": "123",
+            "source_message_db_id": 456,
+        }
+
+        result = generate_signals(repo, MagicMock())
+
+        repo.find_primary_sentiment_source.assert_called_once_with(
+            ticker="SBER",
+            figi="BBG004730N88",
+            observation_time=observation_time,
+            window="15m",
+        )
+        kwargs = repo.insert_signal_prediction.call_args.kwargs
+        assert kwargs["source_channel"] == "markettwits"
+        assert kwargs["source_message_id"] == "123"
+        assert kwargs["source_message_db_id"] == 456
+        assert kwargs["features_json"]["primary_source_channel"] == "markettwits"
+        assert result.signals[0]["source_channel"] == "markettwits"
+
+    def test_skips_source_lookup_without_datetime_observation_time(self):
+        repo = self._mock_repo(rows=[self._fused_row()])
+
+        generate_signals(repo, MagicMock())
+
+        repo.find_primary_sentiment_source.assert_not_called()
+        kwargs = repo.insert_signal_prediction.call_args.kwargs
+        assert kwargs["source_channel"] is None
+        assert "primary_source_channel" not in kwargs["features_json"]
 
     def test_skips_below_threshold(self):
         repo = self._mock_repo(rows=[self._fused_row(balance=0.1)])
