@@ -148,16 +148,10 @@ class TelethonMessageSource(MessageSource):
 
         kwargs = {}
         if self._proxy is not None:
-            import socks
-            proxy_type_map = {
-                "socks5": socks.SOCKS5,
-                "socks4": socks.SOCKS4,
-                "http": socks.HTTP,
-            }
             ptype, phost, pport, puser, ppass = self._proxy
-            stype = proxy_type_map.get(ptype.lower())
-            if stype is not None:
-                kwargs["proxy"] = (stype, phost, pport, True, puser, ppass)
+            if ptype.lower() in {"socks5", "socks4", "http"}:
+                # Telethon 1.44 uses python-socks for proxy transport.
+                kwargs["proxy"] = (ptype.lower(), phost, pport, True, puser, ppass)
 
         return TelegramClient(
             self._session_path,

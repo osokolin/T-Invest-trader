@@ -15,6 +15,7 @@ dependencies = [
 telegram = [
     "telethon>=1.36",
     "pysocks>=1.7",
+    "python-socks[asyncio]>=2.4",
 ]
 dev = [
     "pytest>=8.0",
