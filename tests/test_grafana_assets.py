@@ -16,6 +16,7 @@ def test_dashboard_json_files_are_present_and_valid() -> None:
         "combined-overview.json": "Combined Market Context",
         "operator-overview.json": "Operator Overview",
         "paper-trading.json": "Paper Trading",
+        "market-activity.json": "Market Activity Monitor",
         "data-infra-health.json": "Data Freshness & Pipeline Health",
         "raw-data-flow.json": "Pipeline Debugging · Raw Data Flow",
         "signal-pipeline-funnel.json": "Signal Lifecycle",
@@ -73,6 +74,22 @@ def test_paper_trading_dashboard_is_virtual_only() -> None:
     assert "paper_portfolio_positions" in combined_queries
     assert "order_intents" not in combined_queries
     assert "execution_events" not in combined_queries
+
+
+def test_market_activity_dashboard_references_observations_and_spikes() -> None:
+    dashboard = json.loads(
+        (GRAFANA_ROOT / "dashboards" / "market-activity.json").read_text(),
+    )
+    queries = [
+        target.get("rawSql", "")
+        for panel in dashboard["panels"]
+        for target in panel.get("targets", [])
+    ]
+    query_text = "\n".join(queries)
+
+    assert "market_activity_observations" in query_text
+    assert "market_activity_spikes" in query_text
+    assert "order_intents" not in query_text
 
 
 def test_operator_source_performance_enforces_resolved_sample_size() -> None:

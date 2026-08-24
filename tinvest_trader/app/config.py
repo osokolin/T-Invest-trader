@@ -80,6 +80,7 @@ class BackgroundConfig:
     run_daily_digest: bool = True
     run_signal_resolution: bool = True
     run_paper_portfolio: bool = True
+    run_market_activity: bool = True
 
 
 @dataclass(frozen=True)
@@ -193,6 +194,20 @@ class QuoteSyncConfig:
 
 
 @dataclass(frozen=True)
+class MarketActivityConfig:
+    """Settings for observational market-activity spike detection."""
+
+    enabled: bool = False
+    poll_interval_seconds: int = 60
+    candle_interval: str = "CANDLE_INTERVAL_1_MIN"
+    lookback_minutes: int = 60
+    baseline_candles: int = 20
+    min_volume: int = 1
+    volume_spike_multiplier: float = 3.0
+    price_change_spike_pct: float = 0.01
+
+
+@dataclass(frozen=True)
 class SignalDeliveryConfig:
     enabled: bool = False
     bot_token: str = ""
@@ -289,6 +304,9 @@ class AppConfig:
         default_factory=SignalCalibrationConfig,
     )
     quote_sync: QuoteSyncConfig = field(default_factory=QuoteSyncConfig)
+    market_activity: MarketActivityConfig = field(
+        default_factory=MarketActivityConfig,
+    )
     signal_delivery: SignalDeliveryConfig = field(
         default_factory=SignalDeliveryConfig,
     )
@@ -420,6 +438,9 @@ def load_config() -> AppConfig:
             ).lower() == "true",
             run_paper_portfolio=os.environ.get(
                 "TINVEST_BACKGROUND_RUN_PAPER_PORTFOLIO", "true",
+            ).lower() == "true",
+            run_market_activity=os.environ.get(
+                "TINVEST_BACKGROUND_RUN_MARKET_ACTIVITY", "true",
             ).lower() == "true",
         ),
         signal_generation=SignalGenerationConfig(
@@ -636,6 +657,33 @@ def load_config() -> AppConfig:
                     "TINVEST_QUOTE_SYNC_POLL_INTERVAL_SECONDS", "60",
                 ),
             ),
+        ),
+        market_activity=MarketActivityConfig(
+            enabled=os.environ.get(
+                "TINVEST_MARKET_ACTIVITY_ENABLED", "false",
+            ).lower() == "true",
+            poll_interval_seconds=int(os.environ.get(
+                "TINVEST_MARKET_ACTIVITY_POLL_INTERVAL_SECONDS", "60",
+            )),
+            candle_interval=os.environ.get(
+                "TINVEST_MARKET_ACTIVITY_CANDLE_INTERVAL",
+                "CANDLE_INTERVAL_1_MIN",
+            ),
+            lookback_minutes=int(os.environ.get(
+                "TINVEST_MARKET_ACTIVITY_LOOKBACK_MINUTES", "60",
+            )),
+            baseline_candles=int(os.environ.get(
+                "TINVEST_MARKET_ACTIVITY_BASELINE_CANDLES", "20",
+            )),
+            min_volume=int(os.environ.get(
+                "TINVEST_MARKET_ACTIVITY_MIN_VOLUME", "1",
+            )),
+            volume_spike_multiplier=float(os.environ.get(
+                "TINVEST_MARKET_ACTIVITY_VOLUME_SPIKE_MULTIPLIER", "3.0",
+            )),
+            price_change_spike_pct=float(os.environ.get(
+                "TINVEST_MARKET_ACTIVITY_PRICE_CHANGE_SPIKE_PCT", "0.01",
+            )),
         ),
         signal_delivery=SignalDeliveryConfig(
             enabled=os.environ.get(

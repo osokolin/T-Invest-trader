@@ -29,6 +29,7 @@ from tinvest_trader.services.fusion_service import FusionService
 from tinvest_trader.services.global_context_ingestion import (
     GlobalContextIngestionService,
 )
+from tinvest_trader.services.market_activity_service import MarketActivityService
 from tinvest_trader.services.moex_ingestion_service import MoexIngestionService
 from tinvest_trader.services.observation_service import ObservationService
 from tinvest_trader.services.paper_portfolio_service import PaperPortfolioService
@@ -65,6 +66,9 @@ class Container:
         init=False, default=None,
     )
     paper_portfolio_service: PaperPortfolioService | None = field(
+        init=False, default=None,
+    )
+    market_activity_service: MarketActivityService | None = field(
         init=False, default=None,
     )
     background_runner: BackgroundRunner | None = field(init=False, default=None)
@@ -141,6 +145,10 @@ class Container:
 
         # Quote sync callable (used by background runner and CLI)
         self._quote_sync_fn = self._build_quote_sync_fn()
+
+        # Candle-based activity monitor (observational only)
+        if self.config.market_activity.enabled:
+            self._wire_market_activity()
 
         # Signal generation callable (used by background runner and CLI)
         self._signal_generation_fn = self._build_signal_generation_fn()
@@ -514,6 +522,30 @@ class Container:
         )
         return _sync
 
+    def _wire_market_activity(self) -> None:
+        """Wire market-activity monitoring when storage is available."""
+        if self.repository is None:
+            self.logger.warning(
+                "market activity disabled: database unavailable",
+                extra={"component": "market_activity"},
+            )
+            return
+        self.market_activity_service = MarketActivityService(
+            client=self.tbank_client,
+            repository=self.repository,
+            config=self.config.market_activity,
+            logger=self.logger,
+        )
+        self.logger.info(
+            "market activity monitor initialized",
+            extra={
+                "component": "market_activity",
+                "poll_interval_seconds": (
+                    self.config.market_activity.poll_interval_seconds
+                ),
+            },
+        )
+
     def _build_signal_resolution_fn(self):
         """Build a callable for signal resolution if prerequisites are met."""
         cfg = self.config.signal_resolution
@@ -768,6 +800,10 @@ class Container:
             signal_resolution_config=self.config.signal_resolution,
             paper_portfolio_service=self.paper_portfolio_service,
             paper_portfolio_config=self.config.paper_portfolio,
+            market_activity_service=self.market_activity_service,
+            market_activity_interval_seconds=(
+                self.config.market_activity.poll_interval_seconds
+            ),
             signal_delivery_config=self.config.signal_delivery,
             signal_delivery_fn=self._signal_delivery_fn,
             callback_handler_fn=self._callback_handler_fn,
@@ -788,6 +824,7 @@ class Container:
                 "run_cbr": self.cbr_ingestion_service is not None,
                 "run_moex": self.moex_ingestion_service is not None,
                 "run_paper_portfolio": self.paper_portfolio_service is not None,
+                "run_market_activity": self.market_activity_service is not None,
             },
         )
 

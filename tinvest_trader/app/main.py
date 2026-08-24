@@ -90,6 +90,17 @@ def main() -> None:
             extra={"component": "paper_portfolio"},
         )
 
+    if container.market_activity_service is not None:
+        logger.info(
+            "market activity monitor ready",
+            extra={"component": "market_activity"},
+        )
+    else:
+        logger.info(
+            "market activity monitor disabled",
+            extra={"component": "market_activity"},
+        )
+
     # Background runner status
     if container.background_runner is not None:
         logger.info("background runner enabled", extra={"component": "background_runner"})

@@ -106,6 +106,7 @@ Start with these operational dashboards:
 
 - `Operator Overview` -- signal throughput, outcomes, and the latest paper portfolio
 - `Paper Trading` -- virtual positions, realized PnL, and source/ticker attribution
+- `Market Activity Monitor` -- T-Bank candle volume and price spikes; observational only
 - `Data Freshness & Pipeline Health` -- ingestion freshness and source errors
 - `Signal Lifecycle` -- generation, filtering, delivery, and outcomes
 
@@ -118,6 +119,29 @@ Use these drill-down dashboards when investigating a source or pipeline stage:
 
 Every dashboard includes a `T-Invest dashboards` dropdown that preserves the
 selected time range while navigating between views.
+
+## Market Activity Monitor
+
+The market activity monitor uses T-Bank minute candles for tracked instruments.
+It writes candle observations and explainable volume/price spikes to Postgres;
+it does not create signals, virtual positions, orders, or broker requests.
+
+Enable it in `.env` only after the application revision with this module is
+deployed:
+
+```
+TINVEST_MARKET_ACTIVITY_ENABLED=true
+TINVEST_MARKET_ACTIVITY_POLL_INTERVAL_SECONDS=60
+TINVEST_MARKET_ACTIVITY_CANDLE_INTERVAL=CANDLE_INTERVAL_1_MIN
+TINVEST_MARKET_ACTIVITY_LOOKBACK_MINUTES=60
+TINVEST_MARKET_ACTIVITY_BASELINE_CANDLES=20
+TINVEST_MARKET_ACTIVITY_VOLUME_SPIKE_MULTIPLIER=3.0
+TINVEST_MARKET_ACTIVITY_PRICE_CHANGE_SPIKE_PCT=0.01
+TINVEST_BACKGROUND_RUN_MARKET_ACTIVITY=true
+```
+
+The initial cycle backfills the requested candle lookback. Repeated cycles are
+idempotent and only add unseen candle observations or spikes.
 
 To confirm the datasource is connected:
 1. Log in to Grafana

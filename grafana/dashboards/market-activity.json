@@ -1,0 +1,121 @@
+{
+  "annotations": { "list": [] },
+  "description": "T-Bank minute-candle activity monitoring. Observational only: no signals, virtual positions, or orders are created here.",
+  "editable": false,
+  "links": [
+    { "asDropdown": true, "includeTimeRange": true, "keepTimeRange": true, "tags": ["tinvest"], "title": "Open another T-Invest dashboard", "type": "dashboards" }
+  ],
+  "panels": [
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "table",
+        "rawSql": "SELECT candle_time AS time, ticker, spike_type, severity, score, reason, recorded_at FROM market_activity_spikes WHERE $__timeFilter(candle_time) AND ('${ticker}' = 'All' OR ticker = '${ticker}') ORDER BY candle_time DESC LIMIT 100",
+        "refId": "A"
+      }],
+      "title": "Latest Activity Spikes",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 10 }, { "color": "red", "value": 30 }] } }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 9 },
+      "id": 2,
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "textMode": "auto" },
+      "targets": [{ "datasource": { "type": "postgres", "uid": "postgres" }, "format": "table", "rawSql": "SELECT count(*) AS value FROM market_activity_spikes WHERE candle_time >= now() - interval '1 hour'", "refId": "A" }],
+      "title": "Spikes in Last Hour",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 3 }, { "color": "red", "value": 5 }] } }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 9 },
+      "id": 3,
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "textMode": "auto" },
+      "targets": [{ "datasource": { "type": "postgres", "uid": "postgres" }, "format": "table", "rawSql": "SELECT COALESCE(max(volume_ratio), 0) AS value FROM market_activity_observations WHERE candle_time >= now() - interval '1 hour'", "refId": "A" }],
+      "title": "Highest Volume Ratio · 1h",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 9 },
+      "id": 4,
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "textMode": "auto" },
+      "targets": [{ "datasource": { "type": "postgres", "uid": "postgres" }, "format": "table", "rawSql": "SELECT COALESCE(max(abs(price_change_pct)), 0) AS value FROM market_activity_observations WHERE candle_time >= now() - interval '1 hour'", "refId": "A" }],
+      "title": "Largest 1-Minute Move · 1h",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 16 },
+      "id": 5,
+      "options": { "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "time_series",
+        "rawSql": "SELECT candle_time AS time, volume_ratio AS value, ticker AS metric FROM market_activity_observations WHERE $__timeFilter(candle_time) AND volume_ratio IS NOT NULL AND ('${ticker}' = 'All' OR ticker = '${ticker}') ORDER BY candle_time ASC",
+        "refId": "A"
+      }],
+      "title": "Volume Relative to Recent Baseline",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 16 },
+      "id": 6,
+      "options": { "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "time_series",
+        "rawSql": "SELECT candle_time AS time, price_change_pct AS value, ticker AS metric FROM market_activity_observations WHERE $__timeFilter(candle_time) AND ('${ticker}' = 'All' OR ticker = '${ticker}') ORDER BY candle_time ASC",
+        "refId": "A"
+      }],
+      "title": "One-Minute Price Change",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 25 },
+      "id": 7,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "table",
+        "rawSql": "SELECT candle_time AS time, ticker, close_price, volume, baseline_volume, volume_ratio, price_change_pct, range_pct FROM market_activity_observations WHERE $__timeFilter(candle_time) AND ('${ticker}' = 'All' OR ticker = '${ticker}') ORDER BY candle_time DESC LIMIT 200",
+        "refId": "A"
+      }],
+      "title": "Latest Candle Observations",
+      "type": "table"
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": ["tinvest", "market-data", "observability"],
+  "templating": {
+    "list": [{
+      "current": { "selected": true, "text": "All", "value": "All" },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "definition": "SELECT DISTINCT ticker FROM market_activity_observations ORDER BY 1",
+      "includeAll": true,
+      "label": "Ticker",
+      "name": "ticker",
+      "options": [],
+      "query": "SELECT DISTINCT ticker FROM market_activity_observations ORDER BY 1",
+      "refresh": 2,
+      "type": "query"
+    }]
+  },
+  "time": { "from": "now-6h", "to": "now" },
+  "title": "Market Activity Monitor",
+  "uid": "market-activity",
+  "version": 1
+}

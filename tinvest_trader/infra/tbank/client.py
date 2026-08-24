@@ -1,14 +1,14 @@
 """T-Invest (T-Bank) API client.
 
-Market-data and order methods are still stubbed for now, while broker-event
-methods use the real InstrumentsService REST endpoints.
+Selected market-data and broker-event methods use real REST endpoints; order
+methods remain stubbed while the project operates in paper/shadow mode.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
@@ -271,23 +271,87 @@ class TBankClient:
         )
         return result
 
-    def get_recent_candles(self, figi: str, interval: str) -> list[dict]:
-        """Return broker-shaped candle list (stub)."""
-        self._logger.info(
-            "get_recent_candles (stub)",
-            extra={"component": "tbank_client", "figi": figi},
+    def get_candles(
+        self,
+        instrument_id: str,
+        from_time: datetime,
+        to_time: datetime,
+        interval: str,
+    ) -> list[dict]:
+        """Fetch normalized OHLCV candles from MarketDataService/GetCandles."""
+        if not self._has_token():
+            self._logger.info(
+                "get_candles skipped: no token",
+                extra={"component": "tbank_client", "instrument_id": instrument_id},
+            )
+            return []
+
+        response = self._post_market_data_service(
+            method_name="GetCandles",
+            payload={
+                "instrumentId": self._normalize_instrument_id(instrument_id),
+                "from": self._format_timestamp(from_time),
+                "to": self._format_timestamp(to_time),
+                "interval": interval,
+                "candleSourceType": "CANDLE_SOURCE_EXCHANGE",
+            },
         )
-        stub_price = {"currency": "RUB", "units": 100, "nano": 0}
-        return [
-            {
+        candles: list[dict] = []
+        for item in response.get("candles", []):
+            if not isinstance(item, dict):
+                continue
+            open_price = self._quotation_to_float(item.get("open"))
+            high_price = self._quotation_to_float(item.get("high"))
+            low_price = self._quotation_to_float(item.get("low"))
+            close_price = self._quotation_to_float(item.get("close"))
+            if None in (open_price, high_price, low_price, close_price):
+                continue
+            candles.append({
+                "open": open_price,
+                "high": high_price,
+                "low": low_price,
+                "close": close_price,
+                "volume": int(item.get("volume", 0) or 0),
+                "time": item.get("time", ""),
+                "is_complete": bool(item.get("isComplete", False)),
+            })
+        return candles
+
+    def get_recent_candles(self, figi: str, interval: str) -> list[dict]:
+        """Return legacy broker-shaped candles for MarketDataService callers."""
+        if not self._has_token():
+            stub_price = {"currency": "RUB", "units": 100, "nano": 0}
+            return [{
                 "open": stub_price,
                 "high": {**stub_price, "units": 101},
                 "low": {**stub_price, "units": 99},
                 "close": stub_price,
                 "volume": 1000,
-                "time": None,
-            },
-        ]
+                "time": datetime.now(UTC),
+            }]
+
+        api_interval = {
+            "1min": "CANDLE_INTERVAL_1_MIN",
+            "5min": "CANDLE_INTERVAL_5_MIN",
+            "15min": "CANDLE_INTERVAL_15_MIN",
+            "hour": "CANDLE_INTERVAL_HOUR",
+            "day": "CANDLE_INTERVAL_DAY",
+        }.get(interval, "CANDLE_INTERVAL_5_MIN")
+        now = datetime.now(UTC)
+        candles = self.get_candles(
+            instrument_id=figi,
+            from_time=now - timedelta(days=1),
+            to_time=now,
+            interval=api_interval,
+        )
+        return [{
+            "open": self._float_to_quotation(candle["open"]),
+            "high": self._float_to_quotation(candle["high"]),
+            "low": self._float_to_quotation(candle["low"]),
+            "close": self._float_to_quotation(candle["close"]),
+            "volume": candle["volume"],
+            "time": candle["time"],
+        } for candle in candles]
 
     # -- Structured event methods (real API when token-backed) --
 
@@ -520,6 +584,26 @@ class TBankClient:
     def _format_timestamp(self, value: datetime) -> str:
         normalized = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
         return normalized.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+    @staticmethod
+    def _quotation_to_float(value: object) -> float | None:
+        if not isinstance(value, dict):
+            return None
+        try:
+            return int(value.get("units", 0) or 0) + (
+                int(value.get("nano", 0) or 0) / 1_000_000_000
+            )
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _float_to_quotation(value: float) -> dict:
+        units = int(value)
+        nano = round((value - units) * 1_000_000_000)
+        if nano >= 1_000_000_000:
+            units += 1
+            nano -= 1_000_000_000
+        return {"currency": "RUB", "units": units, "nano": nano}
 
     def _post_instruments_service(self, method_name: str, payload: dict) -> dict:
         if not self._has_token():
