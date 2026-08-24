@@ -1,4 +1,4 @@
-"""A/B virtual portfolios for market-activity momentum and reversion.
+"""A/B/C virtual portfolios for market-activity experiments.
 
 This service has no broker client, execution engine, order, or signal dependency.
 """
@@ -19,16 +19,17 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class ActivityPaperCycleResult:
-    """Summary of one safe and idempotent A/B portfolio cycle."""
+    """Summary of one safe and idempotent virtual portfolio cycle."""
 
     opened: int = 0
     closed: int = 0
     skipped: int = 0
+    deferred: int = 0
     failed_portfolios: int = 0
 
 
 class ActivityPaperStrategyService:
-    """Simulate constrained momentum and reversion positions after spikes."""
+    """Simulate constrained activity-spike experiments without broker orders."""
 
     def __init__(
         self,
@@ -43,20 +44,21 @@ class ActivityPaperStrategyService:
         self._now_fn = now_fn or (lambda: datetime.now(UTC))
 
     def run_cycle(self) -> ActivityPaperCycleResult:
-        """Close resolved positions, then evaluate fresh spikes for both arms."""
+        """Close resolved positions, then evaluate fresh spikes for every arm."""
         now = self._normalized_now()
-        opened = closed = skipped = failed = 0
+        opened = closed = skipped = deferred = failed = 0
         for name, strategy in self._experiments():
             try:
                 portfolio = self._ensure_portfolio(name, strategy, now)
                 closed += self._close_resolved(name)
-                arm_opened, arm_skipped = self._open_candidates(
+                arm_opened, arm_skipped, arm_deferred = self._open_candidates(
                     portfolio=portfolio,
                     strategy=strategy,
                     now=now,
                 )
                 opened += arm_opened
                 skipped += arm_skipped
+                deferred += arm_deferred
             except Exception:
                 failed += 1
                 self._logger.exception(
@@ -72,6 +74,7 @@ class ActivityPaperStrategyService:
             opened=opened,
             closed=closed,
             skipped=skipped,
+            deferred=deferred,
             failed_portfolios=failed,
         )
         self._logger.info(
@@ -81,10 +84,16 @@ class ActivityPaperStrategyService:
         return result
 
     def _experiments(self) -> tuple[tuple[str, str], ...]:
-        return (
+        experiments = [
             (self._config.momentum_portfolio_name, "momentum"),
             (self._config.reversion_portfolio_name, "reversion"),
-        )
+        ]
+        if self._config.volume_confirmed_enabled:
+            experiments.append((
+                self._config.volume_confirmed_portfolio_name,
+                "volume_confirmed",
+            ))
+        return tuple(experiments)
 
     def _ensure_portfolio(
         self,
@@ -139,7 +148,7 @@ class ActivityPaperStrategyService:
         portfolio: dict,
         strategy: str,
         now: datetime,
-    ) -> tuple[int, int]:
+    ) -> tuple[int, int, int]:
         summary = self._repository.get_activity_paper_summary(portfolio["name"])
         if summary is None:
             raise RuntimeError(f"activity paper portfolio unavailable: {portfolio['name']}")
@@ -159,19 +168,46 @@ class ActivityPaperStrategyService:
             summary["initial_cash"] * self._config.position_fraction,
         )
         latest_by_ticker: dict[str, datetime] = {}
-        opened = skipped = 0
+        opened = skipped = deferred = 0
 
-        for candidate in self._repository.list_activity_paper_entry_candidates(
+        for raw_candidate in self._repository.list_activity_paper_entry_candidates(
             portfolio["name"],
         ):
-            ticker = candidate["ticker"]
-            stored_latest = candidate.get("latest_entry_time")
+            ticker = raw_candidate["ticker"]
+            stored_latest = raw_candidate.get("latest_entry_time")
             if stored_latest is not None:
                 stored_latest = self._as_aware(stored_latest)
                 current_latest = latest_by_ticker.get(ticker)
                 if current_latest is None or stored_latest > current_latest:
                     latest_by_ticker[ticker] = stored_latest
-            reason = self._skip_reason(
+
+            reason = self._quality_skip_reason(raw_candidate, strategy)
+            if reason is not None:
+                self._record_decision(
+                    portfolio["name"], raw_candidate, "skip", reason, now,
+                )
+                skipped += 1
+                continue
+
+            candidate, confirmation_reason = self._prepare_candidate(
+                candidate=raw_candidate,
+                strategy=strategy,
+                now=now,
+            )
+            if confirmation_reason == "confirmation_pending":
+                deferred += 1
+                continue
+            if confirmation_reason is not None:
+                self._record_decision(
+                    portfolio["name"], raw_candidate, "skip",
+                    confirmation_reason, now,
+                )
+                skipped += 1
+                continue
+            if candidate is None:
+                raise RuntimeError("activity paper candidate preparation failed")
+
+            reason = self._risk_skip_reason(
                 candidate=candidate,
                 now=now,
                 open_count=open_count,
@@ -209,9 +245,68 @@ class ActivityPaperStrategyService:
             open_by_ticker[ticker] += 1
             latest_by_ticker[ticker] = self._as_aware(candidate["entry_time"])
             available_cash -= notional
-        return opened, skipped
+        return opened, skipped, deferred
 
-    def _skip_reason(
+    def _quality_skip_reason(self, candidate: dict, strategy: str) -> str | None:
+        if candidate["score"] < self._config.min_score:
+            return "score_below_minimum"
+        if candidate["severity"] not in self._config.allowed_severities:
+            return "severity_not_allowed"
+        if strategy == "volume_confirmed":
+            if candidate["spike_type"] != "volume":
+                return "spike_type_not_volume"
+            return None
+        if candidate["price_change_pct"] == 0:
+            return "flat_direction"
+        if candidate["spike_type"] not in self._config.allowed_spike_types:
+            return "spike_type_not_allowed"
+        return None
+
+    def _prepare_candidate(
+        self,
+        *,
+        candidate: dict,
+        strategy: str,
+        now: datetime,
+    ) -> tuple[dict | None, str | None]:
+        if strategy != "volume_confirmed":
+            return candidate, None
+
+        confirmation_time = candidate.get("confirmation_time")
+        if confirmation_time is None:
+            max_age = timedelta(minutes=max(
+                0,
+                self._config.max_candidate_age_minutes,
+            ))
+            if now - self._as_aware(candidate["entry_time"]) > max_age:
+                return None, "confirmation_missing"
+            return None, "confirmation_pending"
+
+        spike_time = self._as_aware(candidate["entry_time"])
+        confirmation_time = self._as_aware(confirmation_time)
+        max_delay = timedelta(minutes=max(
+            0,
+            self._config.volume_confirmation_max_delay_minutes,
+        ))
+        if confirmation_time <= spike_time or confirmation_time - spike_time > max_delay:
+            return None, "confirmation_too_late"
+
+        confirmation_price = candidate.get("confirmation_price")
+        confirmation_move = candidate.get("confirmation_move_pct")
+        if confirmation_price is None or confirmation_move is None:
+            return None, "confirmation_unavailable"
+        min_move = max(0.0, self._config.volume_confirmation_min_move_pct)
+        if abs(confirmation_move) < min_move:
+            return None, "confirmation_move_below_minimum"
+
+        return {
+            **candidate,
+            "entry_time": confirmation_time,
+            "entry_price": confirmation_price,
+            "price_change_pct": confirmation_move,
+        }, None
+
+    def _risk_skip_reason(
         self,
         *,
         candidate: dict,
@@ -221,14 +316,6 @@ class ActivityPaperStrategyService:
         available_cash: float,
         latest_entry_time: datetime | None,
     ) -> str | None:
-        if candidate["price_change_pct"] == 0:
-            return "flat_direction"
-        if candidate["score"] < self._config.min_score:
-            return "score_below_minimum"
-        if candidate["severity"] not in self._config.allowed_severities:
-            return "severity_not_allowed"
-        if candidate["spike_type"] not in self._config.allowed_spike_types:
-            return "spike_type_not_allowed"
         max_age = timedelta(minutes=max(0, self._config.max_candidate_age_minutes))
         if now - self._as_aware(candidate["entry_time"]) > max_age:
             return "candidate_stale"
@@ -263,9 +350,11 @@ class ActivityPaperStrategyService:
     @staticmethod
     def _direction(price_change_pct: float, strategy: str) -> str:
         momentum = "up" if price_change_pct > 0 else "down"
-        if strategy == "momentum":
+        if strategy in {"momentum", "volume_confirmed"}:
             return momentum
-        return "down" if momentum == "up" else "up"
+        if strategy == "reversion":
+            return "down" if momentum == "up" else "up"
+        raise ValueError(f"unsupported activity paper strategy: {strategy}")
 
     def _normalized_now(self) -> datetime:
         return self._as_aware(self._now_fn()).astimezone(UTC)
@@ -276,20 +365,21 @@ class ActivityPaperStrategyService:
 
 
 def format_activity_paper_summary(rows: list[dict | None]) -> str:
-    """Format both A/B portfolio summaries for operational inspection."""
+    """Format enabled virtual portfolio summaries for operational inspection."""
     available = [row for row in rows if row is not None]
     if not available:
         return "activity paper strategy has not started yet"
     lines = [
-        "portfolio                  strategy   horizon  open  closed  win rate  pnl",
-        "-------------------------  ---------  -------  ----  ------  --------  --------",
+        "portfolio                       strategy          horizon  open  closed  win rate  pnl",
+        "------------------------------  ----------------  -------  "
+        "----  ------  --------  --------",
     ]
     for row in available:
         closed = int(row["closed_positions"])
         win_rate = row["wins"] / closed if closed else None
         win_text = f"{win_rate:>7.1%}" if win_rate is not None else "    n/a"
         lines.append(
-            f"{row['name']:<25}  {row['strategy']:<9}  {row['horizon']:<7}  "
+            f"{row['name']:<30}  {row['strategy']:<16}  {row['horizon']:<7}  "
             f"{int(row['open_positions']):>4}  {closed:>6}  {win_text}  "
             f"{row['realized_pnl']:>8.2f}"
         )

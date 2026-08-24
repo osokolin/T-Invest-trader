@@ -168,18 +168,26 @@ python -m tinvest_trader.cli market-activity-outcomes
 ## Activity Paper Strategy
 
 The activity paper strategy runs equal-capital momentum and reversion
-experiments from new market-activity spikes. It stores virtual positions and
-explainable enter/skip decisions only. It has no broker client, order, or
-execution dependency.
+experiments from new market-activity spikes. An optional third experiment
+observes pure-volume spikes and enters at the first following closed candle
+only when that candle confirms a configured minimum price direction. It stores
+virtual positions and explainable enter/skip decisions only. It has no broker
+client, order, or execution dependency.
 
 The configured horizon must also be enabled in the market-activity outcome
-resolver. Enable the experiment with conservative defaults:
+resolver. The confirmed-volume arm enters at the confirmation close and uses
+the existing spike-horizon outcome price; its return is calculated from that
+actual virtual entry price. Enable the experiment with conservative defaults:
 
 ```
 TINVEST_ACTIVITY_PAPER_ENABLED=true
 TINVEST_ACTIVITY_PAPER_POLL_INTERVAL_SECONDS=60
 TINVEST_ACTIVITY_PAPER_MOMENTUM_NAME=activity-momentum-v1
 TINVEST_ACTIVITY_PAPER_REVERSION_NAME=activity-reversion-v1
+TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_ENABLED=false
+TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_NAME=activity-volume-confirmed-v1
+TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMATION_MIN_MOVE_PCT=0.002
+TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMATION_MAX_DELAY_MINUTES=3
 TINVEST_ACTIVITY_PAPER_HORIZON=15m
 TINVEST_ACTIVITY_PAPER_INITIAL_CASH=1000000
 TINVEST_ACTIVITY_PAPER_POSITION_FRACTION=0.02
@@ -195,7 +203,7 @@ TINVEST_ACTIVITY_PAPER_MAX_CANDIDATE_AGE_MINUTES=10
 TINVEST_BACKGROUND_RUN_ACTIVITY_PAPER_STRATEGY=true
 ```
 
-Inspect both arms with the `Activity Paper Strategy` Grafana dashboard or:
+Inspect all enabled arms with the `Activity Paper Strategy` Grafana dashboard or:
 
 ```
 python -m tinvest_trader.cli activity-paper-stats

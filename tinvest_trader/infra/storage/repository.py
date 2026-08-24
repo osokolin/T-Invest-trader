@@ -2741,7 +2741,10 @@ class TradingRepository:
         """Return open positions whose configured spike outcome is available."""
         sql = """
             SELECT p.id, p.spike_id, p.ticker, p.direction, p.notional,
-                   o.outcome_price, o.raw_return_pct, o.outcome_time
+                   o.outcome_price,
+                   (o.outcome_price - p.entry_price)
+                       / NULLIF(p.entry_price, 0) AS raw_return_pct,
+                   o.outcome_time
             FROM activity_paper_positions p
             JOIN market_activity_spike_outcomes o
               ON o.spike_id = p.spike_id AND o.horizon = p.horizon
@@ -2801,6 +2804,10 @@ class TradingRepository:
             SELECT s.id, s.ticker, s.figi, s.candle_time, s.spike_type,
                    s.severity, s.score, o.close_price,
                    (s.metrics_json->>'price_change_pct')::double precision,
+                   confirmation.candle_time,
+                   confirmation.close_price,
+                   (confirmation.close_price - o.close_price)
+                       / NULLIF(o.close_price, 0) AS confirmation_move_pct,
                    (
                        SELECT max(previous.entry_time)
                        FROM activity_paper_positions previous
@@ -2813,6 +2820,16 @@ class TradingRepository:
              AND o.candle_time = s.candle_time
              AND o.candle_interval = s.candle_interval
             JOIN activity_paper_portfolios portfolio ON portfolio.name = %s
+            LEFT JOIN LATERAL (
+                SELECT next_observation.candle_time,
+                       next_observation.close_price
+                FROM market_activity_observations next_observation
+                WHERE next_observation.figi = s.figi
+                  AND next_observation.candle_interval = s.candle_interval
+                  AND next_observation.candle_time > s.candle_time
+                ORDER BY next_observation.candle_time ASC
+                LIMIT 1
+            ) confirmation ON TRUE
             LEFT JOIN activity_paper_positions position
               ON position.portfolio_name = portfolio.name
              AND position.spike_id = s.id
@@ -2827,6 +2844,8 @@ class TradingRepository:
         columns = (
             "spike_id", "ticker", "figi", "entry_time", "spike_type",
             "severity", "score", "entry_price", "price_change_pct",
+            "confirmation_time", "confirmation_price",
+            "confirmation_move_pct",
             "latest_entry_time",
         )
         with self._pool.get_connection() as conn:
@@ -2839,6 +2858,14 @@ class TradingRepository:
             candidate["price_change_pct"] = float(
                 candidate["price_change_pct"] or 0.0,
             )
+            if candidate["confirmation_price"] is not None:
+                candidate["confirmation_price"] = float(
+                    candidate["confirmation_price"],
+                )
+            if candidate["confirmation_move_pct"] is not None:
+                candidate["confirmation_move_pct"] = float(
+                    candidate["confirmation_move_pct"],
+                )
             candidates.append(candidate)
         return candidates
 

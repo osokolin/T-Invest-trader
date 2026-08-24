@@ -1,6 +1,6 @@
 {
   "annotations": { "list": [] },
-  "description": "A/B virtual portfolio comparison for market-activity momentum and reversion. No broker positions or orders are represented.",
+  "description": "A/B/C virtual portfolio comparison for market-activity momentum, reversion, and confirmed-volume experiments. No broker positions or orders are represented.",
   "editable": false,
   "links": [
     { "asDropdown": true, "includeTimeRange": true, "keepTimeRange": true, "tags": ["tinvest"], "title": "Open another T-Invest dashboard", "type": "dashboards" }
@@ -18,7 +18,7 @@
         "rawSql": "SELECT portfolio.name, portfolio.strategy, portfolio.horizon, portfolio.initial_cash + COALESCE(sum(position.net_pnl) FILTER (WHERE position.status = 'closed'), 0) AS realized_equity, count(position.id) FILTER (WHERE position.status = 'open') AS open_positions, count(position.id) FILTER (WHERE position.status = 'closed') AS closed_positions, count(position.id) FILTER (WHERE position.status = 'closed' AND position.net_pnl > 0)::numeric / NULLIF(count(position.id) FILTER (WHERE position.status = 'closed'), 0) AS win_rate, avg(position.net_return_pct) FILTER (WHERE position.status = 'closed') AS avg_net_return, COALESCE(sum(position.net_pnl) FILTER (WHERE position.status = 'closed'), 0) AS realized_pnl FROM activity_paper_portfolios portfolio LEFT JOIN activity_paper_positions position ON position.portfolio_name = portfolio.name WHERE portfolio.name IN (${portfolio:sqlstring}) GROUP BY portfolio.name, portfolio.strategy, portfolio.horizon, portfolio.initial_cash ORDER BY portfolio.strategy",
         "refId": "A"
       }],
-      "title": "Momentum vs Reversion · Portfolio Comparison",
+      "title": "Virtual Portfolio Comparison",
       "type": "table"
     },
     {
@@ -124,6 +124,21 @@
         "refId": "A"
       }],
       "title": "Performance by Ticker",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 39 },
+      "id": 9,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "table",
+        "rawSql": "SELECT portfolio.name AS portfolio_name, count(spike.id) AS candidates, count(position.id) AS entered, count(decision.id) FILTER (WHERE decision.decision = 'skip') AS skipped, GREATEST(count(spike.id) - count(position.id) - count(decision.id) FILTER (WHERE decision.decision = 'skip'), 0) AS pending FROM activity_paper_portfolios portfolio LEFT JOIN market_activity_spikes spike ON spike.candle_time >= portfolio.started_at AND $__timeFilter(spike.candle_time) LEFT JOIN activity_paper_positions position ON position.portfolio_name = portfolio.name AND position.spike_id = spike.id LEFT JOIN activity_paper_decisions decision ON decision.portfolio_name = portfolio.name AND decision.spike_id = spike.id WHERE portfolio.name IN (${portfolio:sqlstring}) GROUP BY portfolio.name ORDER BY portfolio.name",
+        "refId": "A"
+      }],
+      "title": "Candidate Funnel · Selected Range",
       "type": "table"
     }
   ],

@@ -1,7 +1,7 @@
 """Tests for infra/storage/repository.py -- audit trail write path."""
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 from tinvest_trader.domain.enums import OrderSide, OrderStatus, OrderType, TradingStatus
@@ -409,8 +409,57 @@ def test_list_activity_paper_candidates_excludes_prior_decisions():
     sql, params = conn.execute.call_args.args
     assert "activity_paper_decisions" in sql
     assert "activity_paper_positions" in sql
+    assert "LEFT JOIN LATERAL" in sql
+    assert "confirmation_move_pct" in sql
     assert "s.candle_time >= portfolio.started_at" in sql
     assert params == ("activity-momentum-v1",)
+
+
+def test_activity_paper_candidate_maps_following_confirmation_candle():
+    repo, conn = _make_repo()
+    spike_time = datetime(2026, 8, 24, 12, 0, tzinfo=UTC)
+    confirmation_time = spike_time + timedelta(minutes=1)
+    conn.execute.return_value.fetchall.return_value = [(
+        7, "SBER", "BBG004730N88", spike_time, "volume", "high", 80,
+        100, 0.0, confirmation_time, 100.2, 0.002, None,
+    )]
+
+    result = repo.list_activity_paper_entry_candidates(
+        "activity-volume-confirmed-v1",
+    )
+
+    assert result == [{
+        "spike_id": 7,
+        "ticker": "SBER",
+        "figi": "BBG004730N88",
+        "entry_time": spike_time,
+        "spike_type": "volume",
+        "severity": "high",
+        "score": 80.0,
+        "entry_price": 100.0,
+        "price_change_pct": 0.0,
+        "confirmation_time": confirmation_time,
+        "confirmation_price": 100.2,
+        "confirmation_move_pct": 0.002,
+        "latest_entry_time": None,
+    }]
+
+
+def test_resolved_activity_positions_use_virtual_entry_price():
+    repo, conn = _make_repo()
+    now = datetime(2026, 8, 24, 12, 15, tzinfo=UTC)
+    conn.execute.return_value.fetchall.return_value = [(
+        9, 7, "SBER", "up", 10_000, 101.0, 0.008, now,
+    )]
+
+    result = repo.list_resolved_activity_paper_positions(
+        "activity-volume-confirmed-v1",
+    )
+
+    assert result[0]["raw_return_pct"] == 0.008
+    sql, params = conn.execute.call_args.args
+    assert "o.outcome_price - p.entry_price" in sql
+    assert params == ("activity-volume-confirmed-v1",)
 
 
 def test_close_activity_paper_position_records_net_result():
