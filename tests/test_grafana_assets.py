@@ -113,6 +113,12 @@ def test_activity_paper_dashboard_is_virtual_and_explainable() -> None:
     assert "Why Candidates Were Skipped" in titles
     assert "activity_paper_positions" in query_text
     assert "activity_paper_decisions" in query_text
+    assert "'${portfolio}' = 'All'" not in query_text
+    assert query_text.count("IN (${portfolio:sqlstring})") == len(dashboard["panels"])
+    portfolio_variable = dashboard["templating"]["list"][0]
+    assert portfolio_variable["includeAll"] is True
+    assert portfolio_variable["multi"] is True
+    assert portfolio_variable["current"]["value"] == "$__all"
     assert "order_intents" not in query_text
     assert "execution_events" not in query_text
 
