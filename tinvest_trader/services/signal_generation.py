@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -69,6 +70,8 @@ class SignalCandidate:
     window: str
     observation_time: str  # ISO string for dedup key
     features_json: dict
+    figi: str | None = None
+    source_attribution_time: datetime | None = None
 
 
 def evaluate_fused_row(
@@ -119,6 +122,12 @@ def evaluate_fused_row(
             "window": row.get("window", ""),
             "fused_feature_id": row.get("id"),
         },
+        figi=row.get("figi"),
+        source_attribution_time=(
+            row["observation_time"]
+            if isinstance(row.get("observation_time"), datetime)
+            else None
+        ),
     )
 
 
@@ -163,6 +172,29 @@ def _lookup_price(
             extra={"component": "signal_generation"},
         )
     return None
+
+
+def _lookup_primary_source(
+    repository: TradingRepository,
+    candidate: SignalCandidate,
+    logger: logging.Logger,
+) -> dict | None:
+    """Find the dominant Telegram channel from the candidate's source window."""
+    if candidate.source_attribution_time is None:
+        return None
+    try:
+        return repository.find_primary_sentiment_source(
+            ticker=candidate.ticker,
+            figi=candidate.figi,
+            observation_time=candidate.source_attribution_time,
+            window=candidate.window,
+        )
+    except Exception:
+        logger.exception(
+            "signal_generation: source attribution lookup failed",
+            extra={"component": "signal_generation", "ticker": candidate.ticker},
+        )
+        return None
 
 
 def generate_signals(
@@ -240,6 +272,10 @@ def generate_signals(
 
         # Bind price at signal time from latest market quote
         price_at_signal = _lookup_price(repository, candidate.ticker, logger)
+        source = _lookup_primary_source(repository, candidate, logger)
+        features_json = dict(candidate.features_json)
+        if source is not None:
+            features_json["primary_source_channel"] = source["source_channel"]
 
         signal_id = repository.insert_signal_prediction(
             ticker=candidate.ticker,
@@ -247,7 +283,12 @@ def generate_signals(
             price_at_signal=price_at_signal,
             confidence=candidate.confidence,
             source="fusion",
-            features_json=candidate.features_json,
+            features_json=features_json,
+            source_channel=source["source_channel"] if source else None,
+            source_message_id=source["source_message_id"] if source else None,
+            source_message_db_id=(
+                source["source_message_db_id"] if source else None
+            ),
         )
 
         if signal_id is not None:
@@ -258,6 +299,7 @@ def generate_signals(
                 "confidence": candidate.confidence,
                 "window": candidate.window,
                 "signal_id": signal_id,
+                "source_channel": source["source_channel"] if source else None,
             })
             logger.info(
                 "signal_generation: inserted",

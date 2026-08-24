@@ -238,6 +238,51 @@ def test_fetch_latest_broker_event_time():
     assert "broker_event_features" in conn.execute.call_args[0][0]
 
 
+def test_find_primary_sentiment_source():
+    repo, conn = _make_repo()
+    cur = MagicMock()
+    cur.fetchone.return_value = ("markettwits", "123", 456)
+    conn.execute.return_value = cur
+    observation_time = datetime(2026, 3, 23, 10, 0, tzinfo=UTC)
+
+    result = repo.find_primary_sentiment_source(
+        ticker="SBER",
+        figi="BBG004730N88",
+        observation_time=observation_time,
+        window="15m",
+    )
+
+    assert result == {
+        "source_channel": "markettwits",
+        "source_message_id": "123",
+        "source_message_db_id": 456,
+    }
+    sql, params = conn.execute.call_args.args
+    assert "telegram_sentiment_events" in sql
+    assert "ranked_channels" in sql
+    assert "scored_at >=" in sql
+    assert params == ("BBG004730N88", observation_time, 900, observation_time)
+
+
+def test_find_primary_sentiment_source_returns_none_without_events():
+    repo, conn = _make_repo()
+    cur = MagicMock()
+    cur.fetchone.return_value = None
+    conn.execute.return_value = cur
+
+    result = repo.find_primary_sentiment_source(
+        ticker="SBER",
+        figi=None,
+        observation_time=datetime(2026, 3, 23, 10, 0, tzinfo=UTC),
+        window="1h",
+    )
+
+    assert result is None
+    sql, params = conn.execute.call_args.args
+    assert "ticker = %s" in sql
+    assert params[0] == "SBER"
+
+
 def test_fetch_operational_summary():
     repo, conn = _make_repo()
     cur = MagicMock()

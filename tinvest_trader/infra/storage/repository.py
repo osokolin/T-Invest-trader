@@ -599,6 +599,67 @@ class TradingRepository:
 
     # -- Signal predictions --
 
+    def find_primary_sentiment_source(
+        self,
+        ticker: str,
+        figi: str | None,
+        observation_time: datetime,
+        window: str,
+    ) -> dict | None:
+        """Return the dominant Telegram channel and freshest supporting message.
+
+        The channel with the most sentiment events in the fused window wins.
+        Ties are resolved by the latest event, then channel name. This preserves
+        a reproducible primary-source attribution for an aggregate signal.
+        """
+        from tinvest_trader.observation.windows import parse_window
+
+        window_seconds = parse_window(window).seconds
+        if figi:
+            scope = "figi = %s"
+            scope_param = figi
+        else:
+            scope = "ticker = %s"
+            scope_param = ticker.upper()
+
+        sql = f"""
+            WITH window_events AS (
+                SELECT channel_name, message_id, scored_at
+                FROM telegram_sentiment_events
+                WHERE {scope}
+                  AND scored_at >= %s - (%s * interval '1 second')
+                  AND scored_at <= %s
+            ), ranked_channels AS (
+                SELECT channel_name, count(*) AS event_count,
+                       max(scored_at) AS latest_scored_at
+                FROM window_events
+                GROUP BY channel_name
+                ORDER BY event_count DESC, latest_scored_at DESC, channel_name ASC
+                LIMIT 1
+            )
+            SELECT event.channel_name, event.message_id, raw.id
+            FROM window_events event
+            JOIN ranked_channels channel
+              ON channel.channel_name = event.channel_name
+            LEFT JOIN telegram_messages_raw raw
+              ON raw.channel_name = event.channel_name
+             AND raw.message_id = event.message_id
+            ORDER BY event.scored_at DESC, event.message_id DESC
+            LIMIT 1
+        """
+        with self._pool.get_connection() as conn:
+            row = conn.execute(
+                sql,
+                (scope_param, observation_time, window_seconds, observation_time),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "source_channel": row[0],
+            "source_message_id": row[1],
+            "source_message_db_id": row[2],
+        }
+
     def insert_signal_prediction(
         self,
         ticker: str,
