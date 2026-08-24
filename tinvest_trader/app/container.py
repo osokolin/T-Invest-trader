@@ -20,6 +20,9 @@ from tinvest_trader.sentiment.parser import extract_tickers
 from tinvest_trader.sentiment.scorer import StubSentimentScorer
 from tinvest_trader.sentiment.source import StubMessageSource
 from tinvest_trader.sentiment.telethon_source import build_telethon_message_source
+from tinvest_trader.services.activity_paper_strategy_service import (
+    ActivityPaperStrategyService,
+)
 from tinvest_trader.services.background_runner import BackgroundRunner
 from tinvest_trader.services.broker_event_ingestion_service import (
     BrokerEventIngestionService,
@@ -75,6 +78,9 @@ class Container:
         init=False, default=None,
     )
     market_activity_outcome_service: MarketActivityOutcomeService | None = field(
+        init=False, default=None,
+    )
+    activity_paper_strategy_service: ActivityPaperStrategyService | None = field(
         init=False, default=None,
     )
     background_runner: BackgroundRunner | None = field(init=False, default=None)
@@ -159,6 +165,10 @@ class Container:
         # Historical calibration of activity spikes (shadow only)
         if self.config.market_activity_outcomes.enabled:
             self._wire_market_activity_outcomes()
+
+        # A/B virtual portfolios for activity spikes (never broker execution)
+        if self.config.activity_paper.enabled:
+            self._wire_activity_paper_strategy()
 
         # Signal generation callable (used by background runner and CLI)
         self._signal_generation_fn = self._build_signal_generation_fn()
@@ -580,6 +590,51 @@ class Container:
             },
         )
 
+    def _wire_activity_paper_strategy(self) -> None:
+        """Wire isolated activity-paper experiments when outcomes are available."""
+        if self.repository is None:
+            self.logger.warning(
+                "activity paper strategy disabled: database unavailable",
+                extra={"component": "activity_paper_strategy"},
+            )
+            return
+        configured_horizons = {
+            f"{minutes}m"
+            for minutes in self.config.market_activity_outcomes.horizons_minutes
+        }
+        if self.config.market_activity_outcomes.eod_enabled:
+            configured_horizons.add("eod")
+        if (
+            self.market_activity_outcome_service is None
+            or self.config.activity_paper.horizon not in configured_horizons
+        ):
+            self.logger.warning(
+                "activity paper strategy disabled: outcome horizon unavailable",
+                extra={
+                    "component": "activity_paper_strategy",
+                    "horizon": self.config.activity_paper.horizon,
+                },
+            )
+            return
+        self.activity_paper_strategy_service = ActivityPaperStrategyService(
+            repository=self.repository,
+            config=self.config.activity_paper,
+            logger=self.logger,
+        )
+        self.logger.info(
+            "activity paper strategy initialized",
+            extra={
+                "component": "activity_paper_strategy",
+                "horizon": self.config.activity_paper.horizon,
+                "momentum_portfolio": (
+                    self.config.activity_paper.momentum_portfolio_name
+                ),
+                "reversion_portfolio": (
+                    self.config.activity_paper.reversion_portfolio_name
+                ),
+            },
+        )
+
     def _build_signal_resolution_fn(self):
         """Build a callable for signal resolution if prerequisites are met."""
         cfg = self.config.signal_resolution
@@ -842,6 +897,8 @@ class Container:
             market_activity_outcome_interval_seconds=(
                 self.config.market_activity_outcomes.poll_interval_seconds
             ),
+            activity_paper_strategy_service=self.activity_paper_strategy_service,
+            activity_paper_config=self.config.activity_paper,
             signal_delivery_config=self.config.signal_delivery,
             signal_delivery_fn=self._signal_delivery_fn,
             callback_handler_fn=self._callback_handler_fn,
@@ -865,6 +922,9 @@ class Container:
                 "run_market_activity": self.market_activity_service is not None,
                 "run_market_activity_outcomes": (
                     self.market_activity_outcome_service is not None
+                ),
+                "run_activity_paper_strategy": (
+                    self.activity_paper_strategy_service is not None
                 ),
             },
         )

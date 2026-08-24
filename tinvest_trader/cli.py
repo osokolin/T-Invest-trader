@@ -166,6 +166,10 @@ def build_parser() -> argparse.ArgumentParser:
         "market-activity-outcomes",
         help="Compare momentum and reversion after market activity spikes",
     )
+    subparsers.add_parser(
+        "activity-paper-stats",
+        help="Compare virtual activity momentum and reversion portfolios",
+    )
 
     # -- signal-calibration-report --
     subparsers.add_parser(
@@ -473,6 +477,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_paper_portfolio_stats(config, container)
         if args.command == "market-activity-outcomes":
             return _run_market_activity_outcomes(container)
+        if args.command == "activity-paper-stats":
+            return _run_activity_paper_stats(config, container)
         if args.command == "signal-calibration-report":
             return _run_signal_calibration_report(container, config)
         if args.command == "market-binding-debug":
@@ -1054,6 +1060,25 @@ def _run_market_activity_outcomes(container: Container) -> int:
 
     rows = repository.get_market_activity_outcome_report()
     print(format_market_activity_outcome_report(rows))
+    return 0
+
+
+def _run_activity_paper_stats(config: AppConfig, container: Container) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.activity_paper_strategy_service import (
+        format_activity_paper_summary,
+    )
+
+    names = (
+        config.activity_paper.momentum_portfolio_name,
+        config.activity_paper.reversion_portfolio_name,
+    )
+    summaries = [repository.get_activity_paper_summary(name) for name in names]
+    print(format_activity_paper_summary(summaries))
     return 0
 
 

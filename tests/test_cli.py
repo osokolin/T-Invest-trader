@@ -148,6 +148,36 @@ def test_cli_market_activity_outcomes_prints_comparison(monkeypatch, capsys):
     assert "60.0%" in output
 
 
+def test_cli_activity_paper_stats_prints_ab_comparison(monkeypatch, capsys):
+    config = _make_config()
+    config.activity_paper = SimpleNamespace(
+        momentum_portfolio_name="activity-momentum-v1",
+        reversion_portfolio_name="activity-reversion-v1",
+    )
+    container = _make_container()
+    container.repository.get_activity_paper_summary.side_effect = [
+        {
+            "name": "activity-momentum-v1",
+            "strategy": "momentum",
+            "horizon": "15m",
+            "open_positions": 1,
+            "closed_positions": 10,
+            "wins": 6,
+            "realized_pnl": 125.0,
+        },
+        None,
+    ]
+    monkeypatch.setattr("tinvest_trader.cli.load_config", lambda: config)
+    monkeypatch.setattr("tinvest_trader.cli.build_container", lambda cfg: container)
+
+    exit_code = main(["activity-paper-stats"])
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "activity-momentum-v1" in output
+    assert "60.0%" in output
+
+
 def test_cli_db_summary_handles_missing_database(monkeypatch, capsys):
     config = _make_config()
     container = _make_container()

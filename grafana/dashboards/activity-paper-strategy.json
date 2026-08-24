@@ -1,0 +1,152 @@
+{
+  "annotations": { "list": [] },
+  "description": "A/B virtual portfolio comparison for market-activity momentum and reversion. No broker positions or orders are represented.",
+  "editable": false,
+  "links": [
+    { "asDropdown": true, "includeTimeRange": true, "keepTimeRange": true, "tags": ["tinvest"], "title": "Open another T-Invest dashboard", "type": "dashboards" }
+  ],
+  "panels": [
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "table",
+        "rawSql": "SELECT portfolio.name, portfolio.strategy, portfolio.horizon, portfolio.initial_cash + COALESCE(sum(position.net_pnl) FILTER (WHERE position.status = 'closed'), 0) AS realized_equity, count(position.id) FILTER (WHERE position.status = 'open') AS open_positions, count(position.id) FILTER (WHERE position.status = 'closed') AS closed_positions, count(position.id) FILTER (WHERE position.status = 'closed' AND position.net_pnl > 0)::numeric / NULLIF(count(position.id) FILTER (WHERE position.status = 'closed'), 0) AS win_rate, avg(position.net_return_pct) FILTER (WHERE position.status = 'closed') AS avg_net_return, COALESCE(sum(position.net_pnl) FILTER (WHERE position.status = 'closed'), 0) AS realized_pnl FROM activity_paper_portfolios portfolio LEFT JOIN activity_paper_positions position ON position.portfolio_name = portfolio.name WHERE ('${portfolio}' = 'All' OR portfolio.name = '${portfolio}') GROUP BY portfolio.name, portfolio.strategy, portfolio.horizon, portfolio.initial_cash ORDER BY portfolio.strategy",
+        "refId": "A"
+      }],
+      "title": "Momentum vs Reversion · Portfolio Comparison",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": { "unit": "currencyRUB" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 7 },
+      "id": 2,
+      "options": { "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "time_series",
+        "rawSql": "SELECT exit_time AS time, sum(net_pnl) OVER (PARTITION BY portfolio_name ORDER BY exit_time, id)::double precision AS value, portfolio_name AS metric FROM activity_paper_positions WHERE status = 'closed' AND $__timeFilter(exit_time) AND ('${portfolio}' = 'All' OR portfolio_name = '${portfolio}') ORDER BY exit_time ASC",
+        "refId": "A"
+      }],
+      "title": "Cumulative Net PnL After Costs",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": { "unit": "currencyRUB" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 7 },
+      "id": 3,
+      "options": { "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "asc" } },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "time_series",
+        "rawSql": "WITH curve AS (SELECT id, portfolio_name, exit_time, sum(net_pnl) OVER (PARTITION BY portfolio_name ORDER BY exit_time, id) AS cumulative_pnl FROM activity_paper_positions WHERE status = 'closed'), drawdown AS (SELECT portfolio_name, exit_time, cumulative_pnl - max(cumulative_pnl) OVER (PARTITION BY portfolio_name ORDER BY exit_time, id) AS value FROM curve) SELECT exit_time AS time, value::double precision, portfolio_name AS metric FROM drawdown WHERE $__timeFilter(exit_time) AND ('${portfolio}' = 'All' OR portfolio_name = '${portfolio}') ORDER BY exit_time ASC",
+        "refId": "A"
+      }],
+      "title": "Realized Drawdown",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+      "id": 4,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "table",
+        "rawSql": "SELECT entry_time, portfolio_name, ticker, strategy, direction, spike_type, severity, score, entry_price, notional, horizon FROM activity_paper_positions WHERE status = 'open' AND ('${portfolio}' = 'All' OR portfolio_name = '${portfolio}') ORDER BY entry_time DESC LIMIT 100",
+        "refId": "A"
+      }],
+      "title": "Open Virtual Positions",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+      "id": 5,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "table",
+        "rawSql": "SELECT exit_time, portfolio_name, ticker, strategy, direction, spike_type, entry_price, exit_price, gross_return_pct, net_return_pct, costs, net_pnl FROM activity_paper_positions WHERE status = 'closed' AND ('${portfolio}' = 'All' OR portfolio_name = '${portfolio}') ORDER BY exit_time DESC LIMIT 150",
+        "refId": "A"
+      }],
+      "title": "Recent Closed Virtual Positions",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 23 },
+      "id": 6,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "table",
+        "rawSql": "SELECT portfolio_name, spike_type, count(*) AS closed_positions, count(*) FILTER (WHERE net_pnl > 0)::numeric / NULLIF(count(*), 0) AS win_rate, avg(net_return_pct) AS avg_net_return, sum(net_pnl) AS net_pnl FROM activity_paper_positions WHERE status = 'closed' AND ('${portfolio}' = 'All' OR portfolio_name = '${portfolio}') GROUP BY portfolio_name, spike_type ORDER BY net_pnl DESC",
+        "refId": "A"
+      }],
+      "title": "Performance by Spike Type",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 23 },
+      "id": 7,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "table",
+        "rawSql": "SELECT portfolio_name, reason, count(*) AS decisions, max(recorded_at) AS latest_at FROM activity_paper_decisions WHERE decision = 'skip' AND ('${portfolio}' = 'All' OR portfolio_name = '${portfolio}') GROUP BY portfolio_name, reason ORDER BY decisions DESC",
+        "refId": "A"
+      }],
+      "title": "Why Candidates Were Skipped",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 31 },
+      "id": 8,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "table",
+        "rawSql": "SELECT portfolio_name, ticker, count(*) AS closed_positions, count(*) FILTER (WHERE net_pnl > 0)::numeric / NULLIF(count(*), 0) AS win_rate, avg(net_return_pct) AS avg_net_return, sum(net_pnl) AS net_pnl FROM activity_paper_positions WHERE status = 'closed' AND ('${portfolio}' = 'All' OR portfolio_name = '${portfolio}') GROUP BY portfolio_name, ticker ORDER BY net_pnl DESC",
+        "refId": "A"
+      }],
+      "title": "Performance by Ticker",
+      "type": "table"
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": ["tinvest", "paper", "market-activity", "observability"],
+  "templating": {
+    "list": [{
+      "current": { "selected": true, "text": "All", "value": "All" },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "definition": "SELECT name FROM activity_paper_portfolios ORDER BY strategy",
+      "includeAll": true,
+      "label": "Portfolio",
+      "name": "portfolio",
+      "options": [],
+      "query": "SELECT name FROM activity_paper_portfolios ORDER BY strategy",
+      "refresh": 1,
+      "type": "query"
+    }]
+  },
+  "time": { "from": "now-30d", "to": "now" },
+  "timezone": "browser",
+  "title": "Activity Paper Strategy",
+  "uid": "activity-paper-strategy",
+  "version": 1
+}

@@ -88,6 +88,12 @@ volume/price spikes. A separate outcome resolver compares momentum and
 reversion at configurable horizons using stored candles only. This research
 path cannot create signals, positions, order intents, or broker orders.
 
+### 10. Activity Paper Strategy
+Two isolated virtual portfolios compare momentum and reversion after qualified
+market-activity spikes. Capital, exposure, cooldown, commission, and slippage
+are simulated locally. Activity-paper records never represent broker positions
+and cannot reach the execution engine.
+
 ---
 
 ## Environments

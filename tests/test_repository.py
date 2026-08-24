@@ -369,3 +369,68 @@ def test_insert_market_activity_spike_outcome_is_idempotent():
     sql = conn.execute.call_args.args[0]
     assert "market_activity_spike_outcomes" in sql
     assert "ON CONFLICT (spike_id, horizon) DO NOTHING" in sql
+
+
+def test_insert_activity_paper_position_is_virtual_and_idempotent():
+    repo, conn = _make_repo()
+    conn.execute.return_value.fetchone.return_value = (55,)
+    now = datetime(2026, 8, 24, 12, 0, tzinfo=UTC)
+
+    position_id = repo.insert_activity_paper_position({
+        "portfolio_name": "activity-momentum-v1",
+        "spike_id": 7,
+        "strategy": "momentum",
+        "horizon": "15m",
+        "ticker": "SBER",
+        "figi": "BBG004730N88",
+        "spike_type": "volume_price",
+        "severity": "high",
+        "score": 80.0,
+        "direction": "up",
+        "entry_price": 100.0,
+        "entry_time": now,
+        "notional": 20_000.0,
+    })
+
+    assert position_id == 55
+    sql = conn.execute.call_args.args[0]
+    assert "activity_paper_positions" in sql
+    assert "ON CONFLICT (portfolio_name, spike_id) DO NOTHING" in sql
+    assert "order_intents" not in sql
+
+
+def test_list_activity_paper_candidates_excludes_prior_decisions():
+    repo, conn = _make_repo()
+    conn.execute.return_value.fetchall.return_value = []
+
+    result = repo.list_activity_paper_entry_candidates("activity-momentum-v1")
+
+    assert result == []
+    sql, params = conn.execute.call_args.args
+    assert "activity_paper_decisions" in sql
+    assert "activity_paper_positions" in sql
+    assert "s.candle_time >= portfolio.started_at" in sql
+    assert params == ("activity-momentum-v1",)
+
+
+def test_close_activity_paper_position_records_net_result():
+    repo, conn = _make_repo()
+    conn.execute.return_value.rowcount = 1
+    now = datetime(2026, 8, 24, 12, 15, tzinfo=UTC)
+
+    closed = repo.close_activity_paper_position(
+        position_id=9,
+        exit_price=101.0,
+        exit_time=now,
+        gross_return_pct=0.01,
+        net_return_pct=0.008,
+        gross_pnl=100.0,
+        costs=20.0,
+        net_pnl=80.0,
+    )
+
+    assert closed is True
+    sql, params = conn.execute.call_args.args
+    assert "activity_paper_positions" in sql
+    assert "status = 'closed'" in sql
+    assert params[-1] == 9

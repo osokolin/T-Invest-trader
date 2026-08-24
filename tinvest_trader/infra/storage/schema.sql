@@ -651,6 +651,62 @@ CREATE INDEX IF NOT EXISTS idx_market_activity_outcome_ticker_time
 CREATE INDEX IF NOT EXISTS idx_market_activity_outcome_horizon_resolved
     ON market_activity_spike_outcomes (horizon, resolved_at DESC);
 
+-- Independent A/B shadow portfolios for activity spikes. These tables never
+-- represent broker positions or order requests.
+CREATE TABLE IF NOT EXISTS activity_paper_portfolios (
+    name                TEXT PRIMARY KEY,
+    strategy            TEXT NOT NULL,
+    horizon             TEXT NOT NULL,
+    initial_cash        NUMERIC(20, 2) NOT NULL,
+    currency            TEXT NOT NULL DEFAULT 'RUB',
+    started_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS activity_paper_positions (
+    id                  BIGSERIAL PRIMARY KEY,
+    portfolio_name      TEXT NOT NULL REFERENCES activity_paper_portfolios(name),
+    spike_id            BIGINT NOT NULL REFERENCES market_activity_spikes(id),
+    strategy            TEXT NOT NULL,
+    horizon             TEXT NOT NULL,
+    ticker              TEXT NOT NULL,
+    figi                TEXT NOT NULL,
+    spike_type          TEXT NOT NULL,
+    severity            TEXT NOT NULL,
+    score               NUMERIC(8, 2) NOT NULL,
+    direction           TEXT NOT NULL,
+    entry_price         NUMERIC(20, 9) NOT NULL,
+    entry_time          TIMESTAMPTZ NOT NULL,
+    notional            NUMERIC(20, 2) NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'open',
+    exit_price          NUMERIC(20, 9),
+    exit_time           TIMESTAMPTZ,
+    gross_return_pct    NUMERIC(12, 8),
+    net_return_pct      NUMERIC(12, 8),
+    gross_pnl           NUMERIC(20, 2),
+    costs               NUMERIC(20, 2),
+    net_pnl             NUMERIC(20, 2),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (portfolio_name, spike_id)
+);
+CREATE INDEX IF NOT EXISTS idx_activity_paper_position_status
+    ON activity_paper_positions (portfolio_name, status, entry_time DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_paper_position_ticker
+    ON activity_paper_positions (portfolio_name, ticker, entry_time DESC);
+
+CREATE TABLE IF NOT EXISTS activity_paper_decisions (
+    id                  BIGSERIAL PRIMARY KEY,
+    portfolio_name      TEXT NOT NULL REFERENCES activity_paper_portfolios(name),
+    spike_id            BIGINT NOT NULL REFERENCES market_activity_spikes(id),
+    decision            TEXT NOT NULL,
+    reason              TEXT NOT NULL,
+    recorded_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (portfolio_name, spike_id)
+);
+CREATE INDEX IF NOT EXISTS idx_activity_paper_decision_reason
+    ON activity_paper_decisions (portfolio_name, reason, recorded_at DESC);
+
 -- ============================================================
 -- Source-aware weighting (shadow mode)
 -- ============================================================

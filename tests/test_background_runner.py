@@ -145,6 +145,42 @@ def test_runner_market_activity_outcome_failure_is_safe():
     observation_service.observe_all.assert_called_once_with()
 
 
+def test_runner_activity_paper_strategy_cycle_calls_service():
+    from tinvest_trader.app.config import ActivityPaperConfig
+
+    strategy_service = MagicMock()
+    runner = BackgroundRunner(
+        config=BackgroundConfig(enabled=True),
+        logger=logging.getLogger("test"),
+        activity_paper_strategy_service=strategy_service,
+        activity_paper_config=ActivityPaperConfig(enabled=True),
+    )
+
+    runner.run_activity_paper_strategy_cycle()
+
+    strategy_service.run_cycle.assert_called_once_with()
+
+
+def test_runner_activity_paper_failure_does_not_stop_observation():
+    from tinvest_trader.app.config import ActivityPaperConfig
+
+    strategy_service = MagicMock()
+    strategy_service.run_cycle.side_effect = RuntimeError("boom")
+    observation_service = MagicMock()
+    runner = BackgroundRunner(
+        config=BackgroundConfig(enabled=True),
+        logger=logging.getLogger("test"),
+        observation_service=observation_service,
+        activity_paper_strategy_service=strategy_service,
+        activity_paper_config=ActivityPaperConfig(enabled=True),
+    )
+
+    runner.run_activity_paper_strategy_cycle()
+    runner.run_observation_cycle()
+
+    observation_service.observe_all.assert_called_once_with()
+
+
 def test_runner_sentiment_failure_is_safe():
     sentiment_service = MagicMock()
     sentiment_service.ingest_all_channels.side_effect = RuntimeError("boom")
