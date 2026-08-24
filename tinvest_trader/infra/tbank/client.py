@@ -38,19 +38,30 @@ class TBankClient:
         self._connected = False
 
     def connect(self) -> None:
-        """Establish connection to the broker (stub)."""
+        """Record readiness for token-backed API methods or offline stubs."""
+        api_enabled = self._has_token()
         self._logger.info(
-            "broker client connected (stub)",
-            extra={"component": "tbank_client"},
+            (
+                "broker client ready for token-backed API methods"
+                if api_enabled
+                else "broker client ready in offline stub mode"
+            ),
+            extra={
+                "component": "tbank_client",
+                "api_enabled": api_enabled,
+            },
         )
         self._connected = True
 
     def health_check(self) -> bool:
-        """Check broker connectivity (stub)."""
+        """Check local client readiness without making an API request."""
         healthy = self._connected
         self._logger.info(
             "broker health check",
-            extra={"component": "tbank_client"},
+            extra={
+                "component": "tbank_client",
+                "api_enabled": self._has_token(),
+            },
         )
         return healthy
 
@@ -278,7 +289,7 @@ class TBankClient:
             },
         ]
 
-    # -- Structured event methods (stubs) --
+    # -- Structured event methods (real API when token-backed) --
 
     def get_dividends(
         self,

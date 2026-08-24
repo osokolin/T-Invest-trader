@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -37,6 +38,33 @@ def test_build_telethon_message_source_uses_minimal_runtime_config():
     assert isinstance(source, TelethonMessageSource)
     assert source._poll_limit == 25
     assert source._request_timeout_sec == 4.0
+
+
+def test_build_client_uses_python_socks_compatible_proxy(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class FakeTelegramClient:
+        def __init__(self, *args, **kwargs):
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+
+    monkeypatch.setitem(
+        sys.modules,
+        "telethon",
+        SimpleNamespace(TelegramClient=FakeTelegramClient),
+    )
+    source = TelethonMessageSource(
+        api_id=12345,
+        api_hash="hash-value",
+        session_path="/tmp/test.session",
+        proxy=("socks5", "proxy.example", 1080, "user", "pass"),
+    )
+
+    source._build_client()
+
+    assert captured["kwargs"] == {
+        "proxy": ("socks5", "proxy.example", 1080, True, "user", "pass"),
+    }
 
 
 def test_normalize_channel_identifier_accepts_common_forms():

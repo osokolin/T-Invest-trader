@@ -44,6 +44,34 @@ def test_get_instrument_falls_back_to_stub_without_token():
     }
 
 
+def test_connect_reports_token_backed_api_readiness(caplog):
+    client = _make_client(token="token")
+
+    with caplog.at_level(logging.INFO):
+        client.connect()
+
+    record = next(
+        item
+        for item in caplog.records
+        if item.message == "broker client ready for token-backed API methods"
+    )
+    assert record.api_enabled is True
+
+
+def test_connect_reports_offline_stub_mode_without_token(caplog):
+    client = _make_client(token="")
+
+    with caplog.at_level(logging.INFO):
+        client.connect()
+
+    record = next(
+        item
+        for item in caplog.records
+        if item.message == "broker client ready in offline stub mode"
+    )
+    assert record.api_enabled is False
+
+
 def test_get_dividends_uses_real_api_and_maps_response(monkeypatch):
     seen_requests: list[dict] = []
 
