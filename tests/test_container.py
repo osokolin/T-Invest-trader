@@ -1,4 +1,5 @@
 import logging
+from unittest.mock import MagicMock
 
 from tinvest_trader.app.container import Container
 from tinvest_trader.execution.engine import ExecutionEngine
@@ -10,6 +11,9 @@ from tinvest_trader.sentiment.source import StubMessageSource
 from tinvest_trader.sentiment.telethon_source import (
     TelethonConfigError,
     TelethonMessageSource,
+)
+from tinvest_trader.services.activity_paper_strategy_service import (
+    ActivityPaperStrategyService,
 )
 from tinvest_trader.services.background_runner import BackgroundRunner
 from tinvest_trader.services.broker_event_ingestion_service import (
@@ -146,6 +150,41 @@ def test_container_observation_wired_when_enabled(monkeypatch):
 
 def test_container_background_runner_none_when_disabled(container):
     assert container.background_runner is None
+
+
+def test_container_wires_activity_paper_with_matching_outcome_horizon(monkeypatch):
+    monkeypatch.setenv("TINVEST_POSTGRES_DSN", "postgresql://test")
+    monkeypatch.setenv("TINVEST_MARKET_ACTIVITY_OUTCOMES_ENABLED", "true")
+    monkeypatch.setenv("TINVEST_ACTIVITY_PAPER_ENABLED", "true")
+    monkeypatch.setenv("TINVEST_ACTIVITY_PAPER_HORIZON", "15m")
+    monkeypatch.setattr("tinvest_trader.app.container.PostgresPool", MagicMock())
+    monkeypatch.setattr("tinvest_trader.app.container.TradingRepository", MagicMock())
+    from tinvest_trader.app.config import load_config
+    from tinvest_trader.app.container import build_container
+
+    built = build_container(load_config())
+
+    assert isinstance(
+        built.activity_paper_strategy_service,
+        ActivityPaperStrategyService,
+    )
+
+
+def test_container_skips_activity_paper_when_outcome_horizon_missing(monkeypatch):
+    monkeypatch.setenv("TINVEST_POSTGRES_DSN", "postgresql://test")
+    monkeypatch.setenv("TINVEST_MARKET_ACTIVITY_OUTCOMES_ENABLED", "true")
+    monkeypatch.setenv("TINVEST_MARKET_ACTIVITY_OUTCOMES_HORIZONS_MINUTES", "5")
+    monkeypatch.setenv("TINVEST_MARKET_ACTIVITY_OUTCOMES_EOD_ENABLED", "false")
+    monkeypatch.setenv("TINVEST_ACTIVITY_PAPER_ENABLED", "true")
+    monkeypatch.setenv("TINVEST_ACTIVITY_PAPER_HORIZON", "15m")
+    monkeypatch.setattr("tinvest_trader.app.container.PostgresPool", MagicMock())
+    monkeypatch.setattr("tinvest_trader.app.container.TradingRepository", MagicMock())
+    from tinvest_trader.app.config import load_config
+    from tinvest_trader.app.container import build_container
+
+    built = build_container(load_config())
+
+    assert built.activity_paper_strategy_service is None
 
 
 def test_container_background_runner_wired_when_enabled(monkeypatch):

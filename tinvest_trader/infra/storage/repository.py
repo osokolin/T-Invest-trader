@@ -2678,6 +2678,258 @@ class TradingRepository:
             rows = conn.execute(sql).fetchall()
         return [dict(zip(columns, row, strict=True)) for row in rows]
 
+    # -- Activity paper strategy (virtual only) --
+
+    def ensure_activity_paper_portfolio(
+        self,
+        *,
+        name: str,
+        strategy: str,
+        horizon: str,
+        initial_cash: float,
+        now: datetime,
+    ) -> dict:
+        """Create one immutable activity-paper experiment and return it."""
+        insert_sql = """
+            INSERT INTO activity_paper_portfolios
+                (name, strategy, horizon, initial_cash, started_at)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (name) DO NOTHING
+        """
+        select_sql = """
+            SELECT name, strategy, horizon, initial_cash, currency, started_at
+            FROM activity_paper_portfolios
+            WHERE name = %s
+        """
+        with self._pool.get_connection() as conn:
+            conn.execute(insert_sql, (name, strategy, horizon, initial_cash, now))
+            row = conn.execute(select_sql, (name,)).fetchone()
+        if row is None:
+            raise RuntimeError(f"activity paper portfolio was not created: {name}")
+        return {
+            "name": row[0],
+            "strategy": row[1],
+            "horizon": row[2],
+            "initial_cash": float(row[3]),
+            "currency": row[4],
+            "started_at": row[5],
+        }
+
+    def list_open_activity_paper_positions(self, portfolio_name: str) -> list[dict]:
+        """Return open virtual activity positions for capacity checks."""
+        sql = """
+            SELECT id, spike_id, ticker, direction, notional, entry_time
+            FROM activity_paper_positions
+            WHERE portfolio_name = %s AND status = 'open'
+            ORDER BY entry_time
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql, (portfolio_name,)).fetchall()
+        columns = ("id", "spike_id", "ticker", "direction", "notional", "entry_time")
+        return [
+            {
+                **dict(zip(columns, row, strict=True)),
+                "notional": float(row[4]),
+            }
+            for row in rows
+        ]
+
+    def list_resolved_activity_paper_positions(
+        self,
+        portfolio_name: str,
+    ) -> list[dict]:
+        """Return open positions whose configured spike outcome is available."""
+        sql = """
+            SELECT p.id, p.spike_id, p.ticker, p.direction, p.notional,
+                   o.outcome_price, o.raw_return_pct, o.outcome_time
+            FROM activity_paper_positions p
+            JOIN market_activity_spike_outcomes o
+              ON o.spike_id = p.spike_id AND o.horizon = p.horizon
+            WHERE p.portfolio_name = %s AND p.status = 'open'
+            ORDER BY o.outcome_time
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql, (portfolio_name,)).fetchall()
+        return [
+            {
+                "id": row[0],
+                "spike_id": row[1],
+                "ticker": row[2],
+                "direction": row[3],
+                "notional": float(row[4]),
+                "exit_price": float(row[5]),
+                "raw_return_pct": float(row[6]),
+                "exit_time": row[7],
+            }
+            for row in rows
+        ]
+
+    def close_activity_paper_position(
+        self,
+        *,
+        position_id: int,
+        exit_price: float,
+        exit_time: datetime,
+        gross_return_pct: float,
+        net_return_pct: float,
+        gross_pnl: float,
+        costs: float,
+        net_pnl: float,
+    ) -> bool:
+        """Close one virtual activity position idempotently."""
+        sql = """
+            UPDATE activity_paper_positions
+            SET status = 'closed', exit_price = %s, exit_time = %s,
+                gross_return_pct = %s, net_return_pct = %s,
+                gross_pnl = %s, costs = %s, net_pnl = %s, updated_at = %s
+            WHERE id = %s AND status = 'open'
+        """
+        values = (
+            exit_price, exit_time, gross_return_pct, net_return_pct,
+            gross_pnl, costs, net_pnl, exit_time, position_id,
+        )
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(sql, values)
+        return cur.rowcount > 0
+
+    def list_activity_paper_entry_candidates(
+        self,
+        portfolio_name: str,
+    ) -> list[dict]:
+        """Return unseen spikes created after the portfolio experiment began."""
+        sql = """
+            SELECT s.id, s.ticker, s.figi, s.candle_time, s.spike_type,
+                   s.severity, s.score, o.close_price,
+                   (s.metrics_json->>'price_change_pct')::double precision,
+                   (
+                       SELECT max(previous.entry_time)
+                       FROM activity_paper_positions previous
+                       WHERE previous.portfolio_name = portfolio.name
+                         AND previous.ticker = s.ticker
+                   ) AS latest_entry_time
+            FROM market_activity_spikes s
+            JOIN market_activity_observations o
+              ON o.figi = s.figi
+             AND o.candle_time = s.candle_time
+             AND o.candle_interval = s.candle_interval
+            JOIN activity_paper_portfolios portfolio ON portfolio.name = %s
+            LEFT JOIN activity_paper_positions position
+              ON position.portfolio_name = portfolio.name
+             AND position.spike_id = s.id
+            LEFT JOIN activity_paper_decisions decision
+              ON decision.portfolio_name = portfolio.name
+             AND decision.spike_id = s.id
+            WHERE s.candle_time >= portfolio.started_at
+              AND position.id IS NULL
+              AND decision.id IS NULL
+            ORDER BY s.candle_time, s.id
+        """
+        columns = (
+            "spike_id", "ticker", "figi", "entry_time", "spike_type",
+            "severity", "score", "entry_price", "price_change_pct",
+            "latest_entry_time",
+        )
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql, (portfolio_name,)).fetchall()
+        candidates = []
+        for row in rows:
+            candidate = dict(zip(columns, row, strict=True))
+            candidate["score"] = float(candidate["score"])
+            candidate["entry_price"] = float(candidate["entry_price"])
+            candidate["price_change_pct"] = float(
+                candidate["price_change_pct"] or 0.0,
+            )
+            candidates.append(candidate)
+        return candidates
+
+    def insert_activity_paper_position(self, position: dict) -> int | None:
+        """Insert one virtual position without touching broker execution."""
+        sql = """
+            INSERT INTO activity_paper_positions
+                (portfolio_name, spike_id, strategy, horizon, ticker, figi,
+                 spike_type, severity, score, direction, entry_price,
+                 entry_time, notional)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (portfolio_name, spike_id) DO NOTHING
+            RETURNING id
+        """
+        values = (
+            position["portfolio_name"], position["spike_id"],
+            position["strategy"], position["horizon"], position["ticker"],
+            position["figi"], position["spike_type"], position["severity"],
+            position["score"], position["direction"], position["entry_price"],
+            position["entry_time"], position["notional"],
+        )
+        with self._pool.get_connection() as conn:
+            row = conn.execute(sql, values).fetchone()
+        return row[0] if row else None
+
+    def insert_activity_paper_decision(
+        self,
+        *,
+        portfolio_name: str,
+        spike_id: int,
+        decision: str,
+        reason: str,
+        recorded_at: datetime,
+    ) -> bool:
+        """Record an explainable enter/skip decision idempotently."""
+        sql = """
+            INSERT INTO activity_paper_decisions
+                (portfolio_name, spike_id, decision, reason, recorded_at)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (portfolio_name, spike_id) DO NOTHING
+            RETURNING id
+        """
+        with self._pool.get_connection() as conn:
+            row = conn.execute(
+                sql,
+                (portfolio_name, spike_id, decision, reason, recorded_at),
+            ).fetchone()
+        return row is not None
+
+    def get_activity_paper_summary(self, portfolio_name: str) -> dict | None:
+        """Return realized PnL and exposure for one activity experiment."""
+        sql = """
+            SELECT portfolio.name, portfolio.strategy, portfolio.horizon,
+                   portfolio.initial_cash, portfolio.currency, portfolio.started_at,
+                   count(position.id) FILTER (WHERE position.status = 'open'),
+                   count(position.id) FILTER (WHERE position.status = 'closed'),
+                   coalesce(sum(position.notional)
+                       FILTER (WHERE position.status = 'open'), 0),
+                   coalesce(sum(position.net_pnl)
+                       FILTER (WHERE position.status = 'closed'), 0),
+                   count(position.id) FILTER (
+                       WHERE position.status = 'closed' AND position.net_pnl > 0
+                   ),
+                   avg(position.net_return_pct)
+                       FILTER (WHERE position.status = 'closed')
+            FROM activity_paper_portfolios portfolio
+            LEFT JOIN activity_paper_positions position
+              ON position.portfolio_name = portfolio.name
+            WHERE portfolio.name = %s
+            GROUP BY portfolio.name, portfolio.strategy, portfolio.horizon,
+                     portfolio.initial_cash, portfolio.currency, portfolio.started_at
+        """
+        with self._pool.get_connection() as conn:
+            row = conn.execute(sql, (portfolio_name,)).fetchone()
+        if row is None:
+            return None
+        return {
+            "name": row[0],
+            "strategy": row[1],
+            "horizon": row[2],
+            "initial_cash": float(row[3]),
+            "currency": row[4],
+            "started_at": row[5],
+            "open_positions": row[6],
+            "closed_positions": row[7],
+            "open_notional": float(row[8]),
+            "realized_pnl": float(row[9]),
+            "wins": row[10],
+            "avg_net_return_pct": float(row[11]) if row[11] is not None else None,
+        }
+
     def get_latest_quote_by_ticker(self, ticker: str) -> dict | None:
         """Return the most recent quote for a ticker."""
         sql = """

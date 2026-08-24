@@ -54,6 +54,13 @@ Market Data → Strategy → Risk → Execution → Portfolio → Reconciliation
 5. Momentum/reversion results → `market_activity_spike_outcomes`
 6. Read-only inspection → CLI and Grafana
 
+Optional shadow experiment after step 5:
+
+7. Qualified fresh spike → `ActivityPaperStrategyService`
+8. Momentum/reversion decisions → `activity_paper_decisions`
+9. Virtual positions and net PnL → `activity_paper_positions`
+10. A/B comparison → CLI and Grafana
+
 The shadow activity flow is isolated from signal generation, paper portfolio,
 execution, and order placement.
 

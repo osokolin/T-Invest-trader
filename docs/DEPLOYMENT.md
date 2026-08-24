@@ -165,6 +165,42 @@ results in the `Market Activity Monitor` dashboard or run:
 python -m tinvest_trader.cli market-activity-outcomes
 ```
 
+## Activity Paper Strategy
+
+The activity paper strategy runs equal-capital momentum and reversion
+experiments from new market-activity spikes. It stores virtual positions and
+explainable enter/skip decisions only. It has no broker client, order, or
+execution dependency.
+
+The configured horizon must also be enabled in the market-activity outcome
+resolver. Enable the experiment with conservative defaults:
+
+```
+TINVEST_ACTIVITY_PAPER_ENABLED=true
+TINVEST_ACTIVITY_PAPER_POLL_INTERVAL_SECONDS=60
+TINVEST_ACTIVITY_PAPER_MOMENTUM_NAME=activity-momentum-v1
+TINVEST_ACTIVITY_PAPER_REVERSION_NAME=activity-reversion-v1
+TINVEST_ACTIVITY_PAPER_HORIZON=15m
+TINVEST_ACTIVITY_PAPER_INITIAL_CASH=1000000
+TINVEST_ACTIVITY_PAPER_POSITION_FRACTION=0.02
+TINVEST_ACTIVITY_PAPER_MAX_OPEN_POSITIONS=10
+TINVEST_ACTIVITY_PAPER_MAX_OPEN_PER_TICKER=1
+TINVEST_ACTIVITY_PAPER_COMMISSION_RATE=0.0005
+TINVEST_ACTIVITY_PAPER_SLIPPAGE_RATE=0.0005
+TINVEST_ACTIVITY_PAPER_MIN_SCORE=45
+TINVEST_ACTIVITY_PAPER_ALLOWED_SEVERITIES=medium,high
+TINVEST_ACTIVITY_PAPER_ALLOWED_SPIKE_TYPES=volume_price,price_momentum
+TINVEST_ACTIVITY_PAPER_COOLDOWN_MINUTES=30
+TINVEST_ACTIVITY_PAPER_MAX_CANDIDATE_AGE_MINUTES=10
+TINVEST_BACKGROUND_RUN_ACTIVITY_PAPER_STRATEGY=true
+```
+
+Inspect both arms with the `Activity Paper Strategy` Grafana dashboard or:
+
+```
+python -m tinvest_trader.cli activity-paper-stats
+```
+
 To confirm the datasource is connected:
 1. Log in to Grafana
 2. Open `Connections` -> `Data sources`

@@ -112,6 +112,17 @@ def main() -> None:
             extra={"component": "market_activity_outcomes"},
         )
 
+    if container.activity_paper_strategy_service is not None:
+        logger.info(
+            "activity paper strategy ready (virtual only)",
+            extra={"component": "activity_paper_strategy"},
+        )
+    else:
+        logger.info(
+            "activity paper strategy disabled",
+            extra={"component": "activity_paper_strategy"},
+        )
+
     # Background runner status
     if container.background_runner is not None:
         logger.info("background runner enabled", extra={"component": "background_runner"})

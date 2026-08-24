@@ -82,6 +82,7 @@ class BackgroundConfig:
     run_paper_portfolio: bool = True
     run_market_activity: bool = True
     run_market_activity_outcomes: bool = True
+    run_activity_paper_strategy: bool = True
 
 
 @dataclass(frozen=True)
@@ -224,6 +225,28 @@ class MarketActivityOutcomeConfig:
 
 
 @dataclass(frozen=True)
+class ActivityPaperConfig:
+    """Settings for isolated momentum/reversion virtual portfolios."""
+
+    enabled: bool = False
+    poll_interval_seconds: int = 60
+    momentum_portfolio_name: str = "activity-momentum-v1"
+    reversion_portfolio_name: str = "activity-reversion-v1"
+    horizon: str = "15m"
+    initial_cash: float = 1_000_000.0
+    position_fraction: float = 0.02
+    max_open_positions: int = 10
+    max_open_positions_per_ticker: int = 1
+    commission_rate: float = 0.0005
+    slippage_rate: float = 0.0005
+    min_score: float = 45.0
+    allowed_severities: tuple[str, ...] = ("medium", "high")
+    allowed_spike_types: tuple[str, ...] = ("volume_price", "price_momentum")
+    cooldown_minutes: int = 30
+    max_candidate_age_minutes: int = 10
+
+
+@dataclass(frozen=True)
 class SignalDeliveryConfig:
     enabled: bool = False
     bot_token: str = ""
@@ -326,6 +349,7 @@ class AppConfig:
     market_activity_outcomes: MarketActivityOutcomeConfig = field(
         default_factory=MarketActivityOutcomeConfig,
     )
+    activity_paper: ActivityPaperConfig = field(default_factory=ActivityPaperConfig)
     signal_delivery: SignalDeliveryConfig = field(
         default_factory=SignalDeliveryConfig,
     )
@@ -463,6 +487,9 @@ def load_config() -> AppConfig:
             ).lower() == "true",
             run_market_activity_outcomes=os.environ.get(
                 "TINVEST_BACKGROUND_RUN_MARKET_ACTIVITY_OUTCOMES", "true",
+            ).lower() == "true",
+            run_activity_paper_strategy=os.environ.get(
+                "TINVEST_BACKGROUND_RUN_ACTIVITY_PAPER_STRATEGY", "true",
             ).lower() == "true",
         ),
         signal_generation=SignalGenerationConfig(
@@ -740,6 +767,55 @@ def load_config() -> AppConfig:
             )),
             resolution_limit=int(os.environ.get(
                 "TINVEST_MARKET_ACTIVITY_OUTCOMES_RESOLUTION_LIMIT", "500",
+            )),
+        ),
+        activity_paper=ActivityPaperConfig(
+            enabled=os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_ENABLED", "false",
+            ).lower() == "true",
+            poll_interval_seconds=int(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_POLL_INTERVAL_SECONDS", "60",
+            )),
+            momentum_portfolio_name=os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_MOMENTUM_NAME", "activity-momentum-v1",
+            ),
+            reversion_portfolio_name=os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_REVERSION_NAME", "activity-reversion-v1",
+            ),
+            horizon=os.environ.get("TINVEST_ACTIVITY_PAPER_HORIZON", "15m"),
+            initial_cash=float(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_INITIAL_CASH", "1000000",
+            )),
+            position_fraction=float(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_POSITION_FRACTION", "0.02",
+            )),
+            max_open_positions=int(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_MAX_OPEN_POSITIONS", "10",
+            )),
+            max_open_positions_per_ticker=int(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_MAX_OPEN_PER_TICKER", "1",
+            )),
+            commission_rate=float(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_COMMISSION_RATE", "0.0005",
+            )),
+            slippage_rate=float(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_SLIPPAGE_RATE", "0.0005",
+            )),
+            min_score=float(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_MIN_SCORE", "45",
+            )),
+            allowed_severities=_parse_csv(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_ALLOWED_SEVERITIES", "medium,high",
+            )),
+            allowed_spike_types=_parse_csv(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_ALLOWED_SPIKE_TYPES",
+                "volume_price,price_momentum",
+            )),
+            cooldown_minutes=int(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_COOLDOWN_MINUTES", "30",
+            )),
+            max_candidate_age_minutes=int(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_MAX_CANDIDATE_AGE_MINUTES", "10",
             )),
         ),
         signal_delivery=SignalDeliveryConfig(
