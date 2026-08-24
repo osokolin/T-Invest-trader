@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from tinvest_trader.app.config import (
         BackgroundConfig,
         DailyDigestConfig,
+        PaperPortfolioConfig,
         QuoteSyncConfig,
         SignalDeliveryConfig,
         SignalGenerationConfig,
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
     )
     from tinvest_trader.services.moex_ingestion_service import MoexIngestionService
     from tinvest_trader.services.observation_service import ObservationService
+    from tinvest_trader.services.paper_portfolio_service import PaperPortfolioService
     from tinvest_trader.services.telegram_sentiment_service import TelegramSentimentService
 
 
@@ -73,6 +75,8 @@ class BackgroundRunner:
         signal_generation_config: SignalGenerationConfig | None = None,
         signal_resolution_fn: Callable[[], int] | None = None,
         signal_resolution_config: SignalResolutionConfig | None = None,
+        paper_portfolio_service: PaperPortfolioService | None = None,
+        paper_portfolio_config: PaperPortfolioConfig | None = None,
         daily_digest_fn: Callable[[], object] | None = None,
         daily_digest_config: DailyDigestConfig | None = None,
         time_fn: Callable[[], float] | None = None,
@@ -104,6 +108,8 @@ class BackgroundRunner:
         self._signal_generation_config = signal_generation_config
         self._signal_resolution_fn = signal_resolution_fn
         self._signal_resolution_config = signal_resolution_config
+        self._paper_portfolio_service = paper_portfolio_service
+        self._paper_portfolio_config = paper_portfolio_config
         self._daily_digest_fn = daily_digest_fn
         self._daily_digest_config = daily_digest_config
         self._daily_digest_sent_today: str = ""
@@ -242,6 +248,7 @@ class BackgroundRunner:
             or self._fusion_is_runnable()
             or self._signal_generation_is_runnable()
             or self._signal_resolution_is_runnable()
+            or self._paper_portfolio_is_runnable()
             or self._cbr_is_runnable()
             or self._moex_is_runnable()
             or self._global_context_is_runnable()
@@ -423,6 +430,34 @@ class BackgroundRunner:
         except Exception:
             self._logger.exception(
                 "background signal resolution cycle failed",
+                extra={"component": "background_runner"},
+            )
+
+    def _paper_portfolio_is_runnable(self) -> bool:
+        return (
+            self._config.run_paper_portfolio
+            and self._paper_portfolio_config is not None
+            and self._paper_portfolio_config.enabled
+            and self._paper_portfolio_service is not None
+        )
+
+    def run_paper_portfolio_cycle(self) -> None:
+        """Run one virtual portfolio cycle safely."""
+        if not self._paper_portfolio_is_runnable():
+            return
+
+        try:
+            result = self._paper_portfolio_service.run_cycle()
+            self._logger.info(
+                "background paper portfolio cycle complete",
+                extra={
+                    "component": "background_runner",
+                    "result": str(result),
+                },
+            )
+        except Exception:
+            self._logger.exception(
+                "background paper portfolio cycle failed",
                 extra={"component": "background_runner"},
             )
 
@@ -637,6 +672,7 @@ class BackgroundRunner:
         next_global_market_data_run = self._time_fn()
         next_quote_sync_run = self._time_fn()
         next_signal_resolution_run = self._time_fn()
+        next_paper_portfolio_run = self._time_fn()
         next_signal_delivery_run = self._time_fn()
         next_callback_handler_run = self._time_fn()
         next_alerting_run = self._time_fn()
@@ -789,6 +825,22 @@ class BackgroundRunner:
                     sr_wait
                     if next_wait is None
                     else min(next_wait, sr_wait)
+                )
+
+            if self._paper_portfolio_is_runnable():
+                if now >= next_paper_portfolio_run:
+                    self.run_paper_portfolio_cycle()
+                    interval = self._paper_portfolio_config.poll_interval_seconds
+                    next_paper_portfolio_run = (
+                        self._time_fn() + max(1, interval)
+                    )
+                paper_wait = max(
+                    0.0, next_paper_portfolio_run - self._time_fn(),
+                )
+                next_wait = (
+                    paper_wait
+                    if next_wait is None
+                    else min(next_wait, paper_wait)
                 )
 
             if self._signal_delivery_is_runnable():

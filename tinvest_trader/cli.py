@@ -158,6 +158,10 @@ def build_parser() -> argparse.ArgumentParser:
         "signal-stats",
         help="Show signal prediction statistics",
     )
+    subparsers.add_parser(
+        "paper-portfolio-stats",
+        help="Show realized statistics for the virtual portfolio",
+    )
 
     # -- signal-calibration-report --
     subparsers.add_parser(
@@ -461,6 +465,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         if args.command == "signal-stats":
             return _run_signal_stats(container)
+        if args.command == "paper-portfolio-stats":
+            return _run_paper_portfolio_stats(config, container)
         if args.command == "signal-calibration-report":
             return _run_signal_calibration_report(container, config)
         if args.command == "market-binding-debug":
@@ -586,6 +592,8 @@ def _run_status(config: AppConfig, container: Container) -> int:
     print(f"observation_enabled: {config.observation.enabled}")
     print(f"background_enabled: {config.background.enabled}")
     print(f"sentiment_backend: {config.sentiment.source_backend}")
+    paper_config = getattr(config, "paper_portfolio", None)
+    print(f"paper_portfolio_enabled: {bool(paper_config and paper_config.enabled)}")
     print(f"sentiment_service_ready: {container.telegram_sentiment_service is not None}")
     print(f"observation_service_ready: {container.observation_service is not None}")
     print(f"background_runner_ready: {container.background_runner is not None}")
@@ -1010,6 +1018,21 @@ def _run_signal_stats(container: Container) -> int:
     by_ticker = repository.get_signal_stats_by_ticker()
     by_type = repository.get_signal_stats_by_type()
     print(format_signal_stats(stats, by_ticker, by_type))
+    return 0
+
+
+def _run_paper_portfolio_stats(config: AppConfig, container: Container) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.paper_portfolio_service import (
+        format_paper_portfolio_summary,
+    )
+
+    summary = repository.get_paper_portfolio_summary(config.paper_portfolio.name)
+    print(format_paper_portfolio_summary(summary))
     return 0
 
 

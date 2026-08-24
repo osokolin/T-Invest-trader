@@ -84,6 +84,27 @@ def test_insert_order_intent_idempotent():
     assert "ON CONFLICT" in sql
 
 
+def test_insert_paper_position_is_idempotent():
+    repo, conn = _make_repo()
+    conn.execute.return_value.fetchone.return_value = (42,)
+    now = datetime.now(tz=UTC)
+
+    result = repo.insert_paper_position(
+        portfolio_name="shadow-v1",
+        prediction_id=1,
+        ticker="SBER",
+        direction="up",
+        entry_price=250.0,
+        entry_time=now,
+        notional=100_000.0,
+    )
+
+    assert result == 42
+    sql = conn.execute.call_args[0][0]
+    assert "paper_portfolio_positions" in sql
+    assert "ON CONFLICT" in sql
+
+
 def test_insert_execution_event_success():
     repo, conn = _make_repo()
     intent = _make_intent()

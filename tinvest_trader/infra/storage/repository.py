@@ -818,6 +818,225 @@ class TradingRepository:
             for r in rows
         ]
 
+    # -- Paper portfolio --
+
+    def ensure_paper_portfolio(
+        self,
+        name: str,
+        initial_cash: float,
+        now: datetime | None = None,
+    ) -> dict:
+        """Create a persistent shadow portfolio once and return its state."""
+        if now is None:
+            now = datetime.now(UTC)
+        insert_sql = """
+            INSERT INTO paper_portfolios (name, initial_cash, started_at)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (name) DO NOTHING
+        """
+        select_sql = """
+            SELECT name, initial_cash, currency, started_at
+            FROM paper_portfolios
+            WHERE name = %s
+        """
+        with self._pool.get_connection() as conn:
+            conn.execute(insert_sql, (name, initial_cash, now))
+            row = conn.execute(select_sql, (name,)).fetchone()
+        if row is None:
+            raise RuntimeError(f"paper portfolio was not created: {name}")
+        return {
+            "name": row[0],
+            "initial_cash": float(row[1]),
+            "currency": row[2],
+            "started_at": row[3],
+        }
+
+    def list_open_paper_positions(self, portfolio_name: str) -> list[dict]:
+        """Return currently open virtual positions for a named portfolio."""
+        sql = """
+            SELECT id, prediction_id, ticker, direction, entry_price,
+                   entry_time, notional
+            FROM paper_portfolio_positions
+            WHERE portfolio_name = %s AND status = 'open'
+            ORDER BY entry_time
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql, (portfolio_name,)).fetchall()
+        return [
+            {
+                "id": row[0],
+                "prediction_id": row[1],
+                "ticker": row[2],
+                "direction": row[3],
+                "entry_price": float(row[4]),
+                "entry_time": row[5],
+                "notional": float(row[6]),
+            }
+            for row in rows
+        ]
+
+    def list_resolved_open_paper_positions(self, portfolio_name: str) -> list[dict]:
+        """Return open positions whose linked signal now has an outcome."""
+        sql = """
+            SELECT p.id, p.prediction_id, p.ticker, p.direction, p.notional,
+                   s.price_at_outcome, s.return_pct, s.resolved_at
+            FROM paper_portfolio_positions p
+            JOIN signal_predictions s ON s.id = p.prediction_id
+            WHERE p.portfolio_name = %s
+              AND p.status = 'open'
+              AND s.resolved_at IS NOT NULL
+            ORDER BY s.resolved_at
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql, (portfolio_name,)).fetchall()
+        return [
+            {
+                "id": row[0],
+                "prediction_id": row[1],
+                "ticker": row[2],
+                "direction": row[3],
+                "notional": float(row[4]),
+                "exit_price": float(row[5]),
+                "return_pct": float(row[6]),
+                "resolved_at": row[7],
+            }
+            for row in rows
+        ]
+
+    def close_paper_position(
+        self,
+        position_id: int,
+        exit_price: float,
+        exit_time: datetime,
+        gross_return_pct: float,
+        net_return_pct: float,
+        gross_pnl: float,
+        costs: float,
+        net_pnl: float,
+    ) -> bool:
+        """Close one virtual position once its linked prediction resolves."""
+        sql = """
+            UPDATE paper_portfolio_positions
+            SET status = 'closed', exit_price = %s, exit_time = %s,
+                gross_return_pct = %s, net_return_pct = %s,
+                gross_pnl = %s, costs = %s, net_pnl = %s, updated_at = %s
+            WHERE id = %s AND status = 'open'
+        """
+        with self._pool.get_connection() as conn:
+            cur = conn.execute(
+                sql,
+                (
+                    exit_price, exit_time, gross_return_pct, net_return_pct,
+                    gross_pnl, costs, net_pnl, exit_time, position_id,
+                ),
+            )
+        return cur.rowcount > 0
+
+    def list_paper_entry_candidates(
+        self,
+        portfolio_name: str,
+        entry_stages: tuple[str, ...],
+    ) -> list[dict]:
+        """List new unresolved predictions eligible for a virtual entry."""
+        if not entry_stages:
+            return []
+        sql = """
+            SELECT s.id, s.ticker, s.signal_type, s.price_at_signal,
+                   s.created_at
+            FROM signal_predictions s
+            JOIN paper_portfolios portfolio ON portfolio.name = %s
+            LEFT JOIN paper_portfolio_positions p
+              ON p.portfolio_name = portfolio.name
+             AND p.prediction_id = s.id
+            WHERE p.id IS NULL
+              AND s.created_at >= portfolio.started_at
+              AND s.resolved_at IS NULL
+              AND s.price_at_signal IS NOT NULL
+              AND s.pipeline_stage = ANY(%s)
+            ORDER BY s.created_at
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql, (portfolio_name, list(entry_stages))).fetchall()
+        return [
+            {
+                "id": row[0],
+                "ticker": row[1],
+                "direction": row[2],
+                "entry_price": float(row[3]),
+                "entry_time": row[4],
+            }
+            for row in rows
+        ]
+
+    def insert_paper_position(
+        self,
+        portfolio_name: str,
+        prediction_id: int,
+        ticker: str,
+        direction: str,
+        entry_price: float,
+        entry_time: datetime,
+        notional: float,
+    ) -> int | None:
+        """Insert one idempotent virtual position. No broker operation occurs."""
+        sql = """
+            INSERT INTO paper_portfolio_positions
+                (portfolio_name, prediction_id, ticker, direction, entry_price,
+                 entry_time, notional)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (portfolio_name, prediction_id) DO NOTHING
+            RETURNING id
+        """
+        with self._pool.get_connection() as conn:
+            row = conn.execute(
+                sql,
+                (
+                    portfolio_name, prediction_id, ticker, direction,
+                    entry_price, entry_time, notional,
+                ),
+            ).fetchone()
+        return row[0] if row else None
+
+    def get_paper_portfolio_summary(self, portfolio_name: str) -> dict | None:
+        """Return realized PnL and open exposure for a shadow portfolio."""
+        sql = """
+            SELECT portfolio.name, portfolio.initial_cash, portfolio.currency,
+                   portfolio.started_at,
+                   count(position.id) FILTER (WHERE position.status = 'open'),
+                   count(position.id) FILTER (WHERE position.status = 'closed'),
+                   coalesce(sum(position.notional)
+                       FILTER (WHERE position.status = 'open'), 0),
+                   coalesce(sum(position.net_pnl)
+                       FILTER (WHERE position.status = 'closed'), 0),
+                   count(position.id) FILTER (
+                       WHERE position.status = 'closed' AND position.net_pnl > 0
+                   ),
+                   avg(position.net_return_pct)
+                       FILTER (WHERE position.status = 'closed')
+            FROM paper_portfolios portfolio
+            LEFT JOIN paper_portfolio_positions position
+              ON position.portfolio_name = portfolio.name
+            WHERE portfolio.name = %s
+            GROUP BY portfolio.name, portfolio.initial_cash, portfolio.currency,
+                     portfolio.started_at
+        """
+        with self._pool.get_connection() as conn:
+            row = conn.execute(sql, (portfolio_name,)).fetchone()
+        if row is None:
+            return None
+        return {
+            "name": row[0],
+            "initial_cash": float(row[1]),
+            "currency": row[2],
+            "started_at": row[3],
+            "open_positions": row[4],
+            "closed_positions": row[5],
+            "open_notional": float(row[6]),
+            "realized_pnl": float(row[7]),
+            "wins": row[8],
+            "avg_net_return_pct": float(row[9]) if row[9] is not None else None,
+        }
+
     # -- Source performance attribution --
 
     def get_signal_stats_by_source(self) -> list[dict]:

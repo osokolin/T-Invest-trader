@@ -133,6 +133,32 @@ git reset --hard origin/main
 docker compose up -d --build
 ```
 
+## Shadow Paper Portfolio
+
+The paper portfolio measures new delivered signals as virtual positions. It
+does not submit broker orders and does not use the execution engine.
+
+Enable it in `.env` after the signal, quote, and outcome pipelines are healthy:
+
+```dotenv
+TINVEST_PAPER_PORTFOLIO_ENABLED=true
+TINVEST_PAPER_PORTFOLIO_NAME=shadow-v1
+TINVEST_PAPER_PORTFOLIO_INITIAL_CASH=1000000
+TINVEST_PAPER_PORTFOLIO_POSITION_FRACTION=0.10
+TINVEST_PAPER_PORTFOLIO_MAX_OPEN_POSITIONS=5
+TINVEST_PAPER_PORTFOLIO_COMMISSION_RATE=0.0005
+TINVEST_PAPER_PORTFOLIO_SLIPPAGE_RATE=0.0005
+TINVEST_BACKGROUND_RUN_PAPER_PORTFOLIO=true
+```
+
+Use a new `TINVEST_PAPER_PORTFOLIO_NAME` to start an independent experiment.
+The first cycle stores the portfolio start time, so historical signals are not
+included. Inspect realized PnL and virtual exposure with:
+
+```bash
+docker compose exec -T app python -m tinvest_trader.cli paper-portfolio-stats
+```
+
 ## Useful Commands
 
 | Command | Description |
