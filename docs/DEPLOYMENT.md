@@ -101,10 +101,23 @@ docker compose logs grafana
 On first startup, Grafana should automatically provision:
 - a PostgreSQL datasource named `Postgres`
 - a dashboard folder named `T-Invest Trader`
-- dashboards:
-  - `Telegram Sentiment`
-  - `Broker Events`
-  - `Signal Observations`
+
+Start with these operational dashboards:
+
+- `Operator Overview` -- signal throughput, outcomes, and the latest paper portfolio
+- `Paper Trading` -- virtual positions, realized PnL, and source/ticker attribution
+- `Data Freshness & Pipeline Health` -- ingestion freshness and source errors
+- `Signal Lifecycle` -- generation, filtering, delivery, and outcomes
+
+Use these drill-down dashboards when investigating a source or pipeline stage:
+
+- `Telegram Sentiment`, `Sentiment Observations`, `Fusion Inputs & Features`
+- `Broker Events`, `CBR Events`, `MOEX Market History`
+- `Combined Market Context`, `Pipeline Debugging · Raw Data Flow`
+- `Signal Research · Sources, AI & Global Context`, `Macro Context Impact`
+
+Every dashboard includes a `T-Invest dashboards` dropdown that preserves the
+selected time range while navigating between views.
 
 To confirm the datasource is connected:
 1. Log in to Grafana

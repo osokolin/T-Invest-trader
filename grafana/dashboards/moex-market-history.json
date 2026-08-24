@@ -15,11 +15,12 @@
       }
     ]
   },
+  "description": "Historical MOEX prices, volume, trade count, and security reference data for tracked securities.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
   "id": null,
-  "links": [],
+  "links": [{ "asDropdown": true, "includeVars": true, "keepTime": true, "tags": ["tinvest"], "targetBlank": false, "title": "T-Invest dashboards", "tooltip": "Open another T-Invest dashboard", "type": "dashboards" }],
   "liveNow": false,
   "panels": [
     {

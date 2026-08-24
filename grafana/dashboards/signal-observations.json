@@ -15,11 +15,12 @@
       }
     ]
   },
+  "description": "Windowed sentiment aggregates produced from Telegram events before fusion and signal generation.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
   "id": null,
-  "links": [],
+  "links": [{ "asDropdown": true, "includeVars": true, "keepTime": true, "tags": ["tinvest"], "targetBlank": false, "title": "T-Invest dashboards", "tooltip": "Open another T-Invest dashboard", "type": "dashboards" }],
   "liveNow": false,
   "panels": [
     {
@@ -220,7 +221,7 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "Signal Observations",
+  "title": "Sentiment Observations",
   "uid": "signal-observations",
   "version": 1,
   "weekStart": ""

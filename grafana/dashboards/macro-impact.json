@@ -12,11 +12,12 @@
       }
     ]
   },
+  "description": "Research view for how tagged macro context correlates with resolved signal outcomes. Correlation is not strategy causation.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
   "id": null,
-  "links": [],
+  "links": [{ "asDropdown": true, "includeVars": true, "keepTime": true, "tags": ["tinvest"], "targetBlank": false, "title": "T-Invest dashboards", "tooltip": "Open another T-Invest dashboard", "type": "dashboards" }],
   "liveNow": false,
   "panels": [
     {
@@ -324,12 +325,12 @@
   ],
   "refresh": "",
   "schemaVersion": 39,
-  "tags": ["macro", "analytics"],
+  "tags": ["tinvest", "macro", "analytics"],
   "templating": { "list": [] },
   "time": { "from": "now-30d", "to": "now" },
   "timepicker": {},
   "timezone": "",
-  "title": "Macro Impact",
+  "title": "Macro Context Impact",
   "uid": "macro-impact",
   "version": 1
 }

@@ -15,11 +15,12 @@
       }
     ]
   },
+  "description": "Structured T-Bank events for tracked instruments: dividends, reports, and insider deals. Event time is preferred over ingestion time.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
   "id": null,
-  "links": [],
+  "links": [{ "asDropdown": true, "includeVars": true, "keepTime": true, "tags": ["tinvest"], "targetBlank": false, "title": "T-Invest dashboards", "tooltip": "Open another T-Invest dashboard", "type": "dashboards" }],
   "liveNow": false,
   "panels": [
     {
