@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+from tinvest_trader.app.config import AppConfig
 from tinvest_trader.cli import main
 
 
@@ -201,6 +202,25 @@ def test_cli_db_summary_handles_missing_database(monkeypatch, capsys):
 
     assert exit_code == 0
     assert "database is not configured" in capsys.readouterr().out
+
+
+def test_cli_operational_report_prints_status_and_can_fail(monkeypatch, capsys):
+    config = AppConfig()
+    container = _make_container()
+    container.repository.get_operational_readiness_data.return_value = {
+        "source_latest_at": {},
+        "activity_decisions": {},
+        "activity_skip_reasons": [],
+    }
+    monkeypatch.setattr("tinvest_trader.cli.load_config", lambda: config)
+    monkeypatch.setattr("tinvest_trader.cli.build_container", lambda cfg: container)
+
+    exit_code = main(["operational-report", "--fail-if-not-ready"])
+
+    assert exit_code == 1
+    output = capsys.readouterr().out
+    assert "Operational Readiness: NOT_READY" in output
+    assert "Real orders: BLOCKED" in output
 
 
 def test_cli_closes_storage_pool(monkeypatch):

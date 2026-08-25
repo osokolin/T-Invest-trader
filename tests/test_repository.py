@@ -105,6 +105,28 @@ def test_insert_paper_position_is_idempotent():
     assert "ON CONFLICT" in sql
 
 
+def test_get_operational_readiness_data_maps_sources_and_decisions():
+    repo, conn = _make_repo()
+    now = datetime.now(tz=UTC)
+    source_cursor = MagicMock()
+    source_cursor.fetchone.return_value = (now,) * 8
+    decision_cursor = MagicMock()
+    decision_cursor.fetchall.return_value = [("enter", 4), ("skip", 6)]
+    reason_cursor = MagicMock()
+    reason_cursor.fetchall.return_value = [("score_below_minimum", 3)]
+    conn.execute.side_effect = [source_cursor, decision_cursor, reason_cursor]
+
+    result = repo.get_operational_readiness_data(lookback_hours=24)
+
+    assert result["source_latest_at"]["telegram"] == now
+    assert result["source_latest_at"]["global_market_data"] == now
+    assert result["activity_decisions"] == {"enter": 4, "skip": 6}
+    assert result["activity_skip_reasons"] == [
+        {"reason": "score_below_minimum", "count": 3},
+    ]
+    assert conn.execute.call_args_list[1].args[1] == (24,)
+
+
 def test_insert_execution_event_success():
     repo, conn = _make_repo()
     intent = _make_intent()

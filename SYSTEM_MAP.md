@@ -64,6 +64,13 @@ Optional shadow experiment after step 5:
 The shadow activity flow is isolated from signal generation, paper portfolio,
 execution, and order placement.
 
+## Operational Readiness Flow
+
+1. Existing source timestamps and paper summaries -> `OperationalReadinessService`
+2. Configured evidence thresholds -> informational readiness status
+3. Status -> daily digest and read-only CLI report
+4. No readiness status can enter risk, execution, or broker order paths
+
 ---
 
 ## Safety Critical Areas

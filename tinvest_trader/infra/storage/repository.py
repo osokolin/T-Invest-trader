@@ -4050,6 +4050,73 @@ class TradingRepository:
 
     # -- Daily digest queries (read-only) --
 
+    def get_operational_readiness_data(
+        self,
+        lookback_hours: int = 24,
+    ) -> dict:
+        """Return source freshness and activity-paper decision counts."""
+        result = {
+            "source_latest_at": {},
+            "activity_decisions": {},
+            "activity_skip_reasons": [],
+        }
+        try:
+            with self._pool.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT"
+                    " (SELECT max(recorded_at) FROM telegram_messages_raw),"
+                    " (SELECT max(fetched_at) FROM market_quotes),"
+                    " (SELECT max(recorded_at)"
+                    "    FROM market_activity_observations),"
+                    " (SELECT max(last_success_at)"
+                    "    FROM broker_event_fetch_state),"
+                    " (SELECT max(recorded_at) FROM cbr_feed_raw),"
+                    " (SELECT max(recorded_at) FROM moex_market_history),"
+                    " (SELECT max(fetched_at)"
+                    "    FROM global_market_context_events),"
+                    " (SELECT max(fetched_at)"
+                    "    FROM global_market_snapshots)",
+                ).fetchone()
+                source_names = (
+                    "telegram", "quotes", "market_activity", "broker_events",
+                    "cbr", "moex", "global_context", "global_market_data",
+                )
+                if row:
+                    result["source_latest_at"] = dict(
+                        zip(source_names, row, strict=True),
+                    )
+
+                rows = conn.execute(
+                    "SELECT decision, count(*)"
+                    " FROM activity_paper_decisions"
+                    " WHERE recorded_at >= now() - (%s * interval '1 hour')"
+                    " GROUP BY decision",
+                    (lookback_hours,),
+                ).fetchall()
+                result["activity_decisions"] = {
+                    row[0]: row[1] for row in rows
+                }
+
+                rows = conn.execute(
+                    "SELECT reason, count(*)"
+                    " FROM activity_paper_decisions"
+                    " WHERE decision = 'skip'"
+                    " AND recorded_at >= now() - (%s * interval '1 hour')"
+                    " GROUP BY reason"
+                    " ORDER BY count(*) DESC, reason"
+                    " LIMIT 3",
+                    (lookback_hours,),
+                ).fetchall()
+                result["activity_skip_reasons"] = [
+                    {"reason": row[0], "count": row[1]} for row in rows
+                ]
+        except Exception:
+            self._logger.exception(
+                "failed to fetch operational readiness data",
+                extra={"component": "repository"},
+            )
+        return result
+
     def get_daily_digest_data(self, lookback_hours: int = 24) -> dict:
         """Fetch all data needed for daily digest in one method."""
         result: dict = {}

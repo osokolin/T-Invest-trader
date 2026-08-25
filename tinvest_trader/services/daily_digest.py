@@ -12,8 +12,13 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from tinvest_trader.app.config import SignalDeliveryConfig
+    from tinvest_trader.app.config import (
+        AppConfig,
+        OperationalReadinessConfig,
+        SignalDeliveryConfig,
+    )
     from tinvest_trader.infra.storage.repository import TradingRepository
+    from tinvest_trader.services.operational_readiness import OperationalReport
 
 
 @dataclass
@@ -39,14 +44,30 @@ class DigestData:
     shadow_global_alignment: dict | None = None
     best_signal: dict | None = None
     worst_signal: dict | None = None
+    operational_report: OperationalReport | None = None
 
 
 def build_daily_digest(
     repository: TradingRepository,
     lookback_hours: int = 24,
+    *,
+    app_config: AppConfig | None = None,
+    readiness_config: OperationalReadinessConfig | None = None,
 ) -> DigestData:
     """Build digest data from repository queries."""
     raw = repository.get_daily_digest_data(lookback_hours=lookback_hours)
+    operational_report = None
+    if app_config is not None and readiness_config is not None:
+        from tinvest_trader.services.operational_readiness import (
+            build_operational_report,
+        )
+
+        operational_report = build_operational_report(
+            repository,
+            app_config,
+            readiness_config,
+            lookback_hours=lookback_hours,
+        )
     return DigestData(
         signals_total=raw.get("signals_total", 0),
         signals_delivered=raw.get("signals_delivered", 0),
@@ -66,6 +87,7 @@ def build_daily_digest(
         shadow_global_alignment=raw.get("shadow_global_alignment"),
         best_signal=raw.get("best_signal"),
         worst_signal=raw.get("worst_signal"),
+        operational_report=operational_report,
     )
 
 
@@ -81,12 +103,11 @@ def format_daily_digest(data: DigestData, *, is_weekly: bool = False) -> str:
     # Core metrics
     if data.signals_total == 0:
         lines.append("No signals generated.")
-        return "\n".join(lines)
-
-    delivery = f"Signals: {data.signals_total}"
-    if data.signals_delivered > 0:
-        delivery += f" -> {data.signals_delivered} delivered"
-    lines.append(delivery)
+    else:
+        delivery = f"Signals: {data.signals_total}"
+        if data.signals_delivered > 0:
+            delivery += f" -> {data.signals_delivered} delivered"
+        lines.append(delivery)
 
     if data.resolved > 0 and data.win_rate is not None:
         parts = [f"Win rate: {data.win_rate:.0%}"]
@@ -192,6 +213,14 @@ def format_daily_digest(data: DigestData, *, is_weekly: bool = False) -> str:
         lines.append("")
         lines.extend(extremes)
 
+    if data.operational_report is not None:
+        from tinvest_trader.services.operational_readiness import (
+            format_operational_report,
+        )
+
+        lines.append("")
+        lines.append(format_operational_report(data.operational_report, compact=True))
+
     text = "\n".join(lines)
     # Truncate to Telegram-safe length
     if len(text) > 1000:
@@ -201,9 +230,11 @@ def format_daily_digest(data: DigestData, *, is_weekly: bool = False) -> str:
 
 def send_daily_digest(
     repository: TradingRepository,
-    delivery_config: SignalDeliveryConfig,
+    delivery_config: SignalDeliveryConfig | None,
     logger: logging.Logger,
     *,
+    app_config: AppConfig | None = None,
+    readiness_config: OperationalReadinessConfig | None = None,
     dry_run: bool = False,
     lookback_hours: int = 24,
     skip_weekends: bool = True,
@@ -232,7 +263,12 @@ def send_daily_digest(
     is_weekly = weekday == 4
     effective_lookback = 168 if is_weekly else lookback_hours
 
-    data = build_daily_digest(repository, lookback_hours=effective_lookback)
+    data = build_daily_digest(
+        repository,
+        lookback_hours=effective_lookback,
+        app_config=app_config,
+        readiness_config=readiness_config,
+    )
     text = format_daily_digest(data, is_weekly=is_weekly)
 
     result = {
@@ -241,6 +277,9 @@ def send_daily_digest(
         "dry_run": dry_run,
         "signals_total": data.signals_total,
         "signals_delivered": data.signals_delivered,
+        "readiness_status": (
+            data.operational_report.status if data.operational_report else None
+        ),
     }
 
     logger.info(
@@ -258,7 +297,11 @@ def send_daily_digest(
 
     from tinvest_trader.services.signal_delivery import send_telegram_message
 
-    if not delivery_config.bot_token or not delivery_config.chat_id:
+    if (
+        delivery_config is None
+        or not delivery_config.bot_token
+        or not delivery_config.chat_id
+    ):
         logger.warning(
             "daily digest: Telegram credentials not configured",
             extra={"component": "daily_digest"},

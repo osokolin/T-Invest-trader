@@ -855,6 +855,8 @@ class Container:
                 repository=self.repository,
                 delivery_config=delivery_cfg,
                 logger=self.logger,
+                app_config=self.config,
+                readiness_config=self.config.operational_readiness,
                 skip_weekends=cfg.skip_weekends,
             )
 
