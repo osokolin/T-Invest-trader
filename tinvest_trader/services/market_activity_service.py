@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from statistics import median
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
 if TYPE_CHECKING:
     from tinvest_trader.app.config import MarketActivityConfig
@@ -19,6 +20,7 @@ if TYPE_CHECKING:
 
 
 _PLACEHOLDER_FIGI_PREFIX = "TICKER:"
+_MOSCOW = ZoneInfo("Europe/Moscow")
 
 
 @dataclass(frozen=True)
@@ -189,6 +191,8 @@ class MarketActivityService:
         }
 
     def _make_spike(self, observation: dict) -> dict | None:
+        if not self._is_spike_session(observation["candle_time"]):
+            return None
         volume_ratio = observation["volume_ratio"]
         price_change_pct = observation["price_change_pct"]
         if volume_ratio is None or price_change_pct is None:
@@ -231,6 +235,25 @@ class MarketActivityService:
                 "range_pct": observation["range_pct"],
             },
         }
+
+    def _is_spike_session(self, candle_time: datetime | None) -> bool:
+        if not self._config.session_filter_enabled:
+            return True
+        if candle_time is None:
+            return False
+        local_time = candle_time.astimezone(_MOSCOW)
+        if local_time.weekday() >= 5:
+            return False
+        minute_of_day = local_time.hour * 60 + local_time.minute
+        session_start = (
+            self._config.session_start_hour_moscow * 60
+            + self._config.session_start_minute_moscow
+        )
+        session_end = (
+            self._config.session_end_hour_moscow * 60
+            + self._config.session_end_minute_moscow
+        )
+        return session_start <= minute_of_day <= session_end
 
     @staticmethod
     def _parse_time(value: object) -> datetime | None:

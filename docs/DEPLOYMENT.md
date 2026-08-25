@@ -137,11 +137,18 @@ TINVEST_MARKET_ACTIVITY_LOOKBACK_MINUTES=60
 TINVEST_MARKET_ACTIVITY_BASELINE_CANDLES=20
 TINVEST_MARKET_ACTIVITY_VOLUME_SPIKE_MULTIPLIER=3.0
 TINVEST_MARKET_ACTIVITY_PRICE_CHANGE_SPIKE_PCT=0.01
+TINVEST_MARKET_ACTIVITY_SESSION_FILTER_ENABLED=true
+TINVEST_MARKET_ACTIVITY_SESSION_START_HOUR_MOSCOW=9
+TINVEST_MARKET_ACTIVITY_SESSION_START_MINUTE_MOSCOW=50
+TINVEST_MARKET_ACTIVITY_SESSION_END_HOUR_MOSCOW=18
+TINVEST_MARKET_ACTIVITY_SESSION_END_MINUTE_MOSCOW=50
 TINVEST_BACKGROUND_RUN_MARKET_ACTIVITY=true
 ```
 
 The initial cycle backfills the requested candle lookback. Repeated cycles are
-idempotent and only add unseen candle observations or spikes.
+idempotent and only add unseen candle observations or spikes. Candle
+observations remain complete for audit, while spike creation is restricted to
+weekdays in the configured Moscow session by default.
 
 To compare momentum and reversion after each spike without affecting signals
 or trading, enable the local outcome resolver:
@@ -158,8 +165,10 @@ TINVEST_MARKET_ACTIVITY_OUTCOMES_LOOKBACK_DAYS=30
 TINVEST_BACKGROUND_RUN_MARKET_ACTIVITY_OUTCOMES=true
 ```
 
-The resolver reads only stored market-activity candles. Inspect its aggregate
-results in the `Market Activity Monitor` dashboard or run:
+The resolver reads only stored market-activity candles. Every configured
+horizon has an independent backlog so a future `60m` or EOD target cannot
+delay elapsed `5m` or `15m` outcomes. Inspect aggregate results in the
+`Market Activity Monitor` dashboard or run:
 
 ```
 python -m tinvest_trader.cli market-activity-outcomes

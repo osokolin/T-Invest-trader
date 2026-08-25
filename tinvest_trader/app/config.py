@@ -207,6 +207,11 @@ class MarketActivityConfig:
     min_volume: int = 1
     volume_spike_multiplier: float = 3.0
     price_change_spike_pct: float = 0.01
+    session_filter_enabled: bool = True
+    session_start_hour_moscow: int = 9
+    session_start_minute_moscow: int = 50
+    session_end_hour_moscow: int = 18
+    session_end_minute_moscow: int = 50
 
 
 @dataclass(frozen=True)
@@ -736,6 +741,21 @@ def load_config() -> AppConfig:
             )),
             price_change_spike_pct=float(os.environ.get(
                 "TINVEST_MARKET_ACTIVITY_PRICE_CHANGE_SPIKE_PCT", "0.01",
+            )),
+            session_filter_enabled=os.environ.get(
+                "TINVEST_MARKET_ACTIVITY_SESSION_FILTER_ENABLED", "true",
+            ).lower() == "true",
+            session_start_hour_moscow=int(os.environ.get(
+                "TINVEST_MARKET_ACTIVITY_SESSION_START_HOUR_MOSCOW", "9",
+            )),
+            session_start_minute_moscow=int(os.environ.get(
+                "TINVEST_MARKET_ACTIVITY_SESSION_START_MINUTE_MOSCOW", "50",
+            )),
+            session_end_hour_moscow=int(os.environ.get(
+                "TINVEST_MARKET_ACTIVITY_SESSION_END_HOUR_MOSCOW", "18",
+            )),
+            session_end_minute_moscow=int(os.environ.get(
+                "TINVEST_MARKET_ACTIVITY_SESSION_END_MINUTE_MOSCOW", "50",
             )),
         ),
         market_activity_outcomes=MarketActivityOutcomeConfig(
