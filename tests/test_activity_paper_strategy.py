@@ -83,6 +83,9 @@ def _candidate(**overrides) -> dict:
         "score": 80.0,
         "entry_price": 100.0,
         "price_change_pct": 0.01,
+        "confirmation_time": None,
+        "confirmation_price": None,
+        "confirmation_move_pct": None,
         "latest_entry_time": None,
     }
     candidate.update(overrides)
@@ -122,6 +125,80 @@ def test_opens_equal_notional_with_opposite_ab_directions() -> None:
     assert reversion["direction"] == "down"
     assert momentum["notional"] == reversion["notional"] == 10_000.0
     assert {item["decision"] for item in repo.decisions} == {"enter"}
+
+
+def test_volume_confirmed_arm_enters_at_following_candle_price() -> None:
+    repo = FakeRepository()
+    repo.candidates = [_candidate(
+        spike_type="volume",
+        confirmation_time=NOW - timedelta(seconds=15),
+        confirmation_price=100.2,
+        confirmation_move_pct=0.002,
+    )]
+
+    result = _service(repo, volume_confirmed_enabled=True).run_cycle()
+
+    assert result.opened == 1
+    assert result.skipped == 2
+    position = repo.inserted_positions[0]
+    assert position["portfolio_name"] == "activity-volume-confirmed-v1"
+    assert position["strategy"] == "volume_confirmed"
+    assert position["direction"] == "up"
+    assert position["entry_price"] == 100.2
+    assert position["entry_time"] == NOW - timedelta(seconds=15)
+
+
+def test_volume_confirmation_pending_is_retried_without_terminal_decision() -> None:
+    repo = FakeRepository()
+    repo.candidates = [_candidate(spike_type="volume")]
+
+    result = _service(repo, volume_confirmed_enabled=True).run_cycle()
+
+    assert result.deferred == 1
+    volume_decisions = [
+        item for item in repo.decisions
+        if item["portfolio_name"] == "activity-volume-confirmed-v1"
+    ]
+    assert volume_decisions == []
+
+
+@pytest.mark.parametrize(
+    ("overrides", "reason"),
+    [
+        (
+            {
+                "confirmation_time": NOW - timedelta(seconds=15),
+                "confirmation_price": 100.01,
+                "confirmation_move_pct": 0.0001,
+            },
+            "confirmation_move_below_minimum",
+        ),
+        (
+            {
+                "entry_time": NOW - timedelta(minutes=5),
+                "confirmation_time": NOW - timedelta(minutes=1),
+                "confirmation_price": 100.2,
+                "confirmation_move_pct": 0.002,
+            },
+            "confirmation_too_late",
+        ),
+    ],
+)
+def test_volume_confirmation_rejections_are_explainable(
+    overrides: dict,
+    reason: str,
+) -> None:
+    repo = FakeRepository()
+    repo.candidates = [_candidate(spike_type="volume", **overrides)]
+
+    result = _service(repo, volume_confirmed_enabled=True).run_cycle()
+
+    assert result.opened == 0
+    volume_decisions = [
+        item for item in repo.decisions
+        if item["portfolio_name"] == "activity-volume-confirmed-v1"
+    ]
+    assert [item["reason"] for item in volume_decisions] == [reason]
 
 
 def test_closes_positions_with_round_trip_costs() -> None:
@@ -237,6 +314,15 @@ def test_activity_paper_config_parses_environment(monkeypatch) -> None:
     monkeypatch.setenv("TINVEST_ACTIVITY_PAPER_POSITION_FRACTION", "0.05")
     monkeypatch.setenv("TINVEST_ACTIVITY_PAPER_MAX_OPEN_POSITIONS", "8")
     monkeypatch.setenv("TINVEST_ACTIVITY_PAPER_ALLOWED_SEVERITIES", "high")
+    monkeypatch.setenv("TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_ENABLED", "true")
+    monkeypatch.setenv(
+        "TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMATION_MIN_MOVE_PCT",
+        "0.001",
+    )
+    monkeypatch.setenv(
+        "TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMATION_MAX_DELAY_MINUTES",
+        "2",
+    )
     monkeypatch.setenv("TINVEST_BACKGROUND_RUN_ACTIVITY_PAPER_STRATEGY", "false")
 
     config = load_config()
@@ -246,6 +332,9 @@ def test_activity_paper_config_parses_environment(monkeypatch) -> None:
     assert config.activity_paper.position_fraction == 0.05
     assert config.activity_paper.max_open_positions == 8
     assert config.activity_paper.allowed_severities == ("high",)
+    assert config.activity_paper.volume_confirmed_enabled is True
+    assert config.activity_paper.volume_confirmation_min_move_pct == 0.001
+    assert config.activity_paper.volume_confirmation_max_delay_minutes == 2
     assert config.background.run_activity_paper_strategy is False
 
 

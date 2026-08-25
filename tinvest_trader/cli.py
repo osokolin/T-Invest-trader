@@ -1073,10 +1073,12 @@ def _run_activity_paper_stats(config: AppConfig, container: Container) -> int:
         format_activity_paper_summary,
     )
 
-    names = (
+    names = [
         config.activity_paper.momentum_portfolio_name,
         config.activity_paper.reversion_portfolio_name,
-    )
+    ]
+    if config.activity_paper.volume_confirmed_enabled:
+        names.append(config.activity_paper.volume_confirmed_portfolio_name)
     summaries = [repository.get_activity_paper_summary(name) for name in names]
     print(format_activity_paper_summary(summaries))
     return 0

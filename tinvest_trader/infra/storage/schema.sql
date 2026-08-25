@@ -651,7 +651,7 @@ CREATE INDEX IF NOT EXISTS idx_market_activity_outcome_ticker_time
 CREATE INDEX IF NOT EXISTS idx_market_activity_outcome_horizon_resolved
     ON market_activity_spike_outcomes (horizon, resolved_at DESC);
 
--- Independent A/B shadow portfolios for activity spikes. These tables never
+-- Independent A/B/C shadow portfolios for activity spikes. These tables never
 -- represent broker positions or order requests.
 CREATE TABLE IF NOT EXISTS activity_paper_portfolios (
     name                TEXT PRIMARY KEY,

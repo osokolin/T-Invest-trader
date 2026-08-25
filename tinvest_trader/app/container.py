@@ -166,7 +166,7 @@ class Container:
         if self.config.market_activity_outcomes.enabled:
             self._wire_market_activity_outcomes()
 
-        # A/B virtual portfolios for activity spikes (never broker execution)
+        # A/B/C virtual portfolios for activity spikes (never broker execution)
         if self.config.activity_paper.enabled:
             self._wire_activity_paper_strategy()
 
@@ -631,6 +631,12 @@ class Container:
                 ),
                 "reversion_portfolio": (
                     self.config.activity_paper.reversion_portfolio_name
+                ),
+                "volume_confirmed_enabled": (
+                    self.config.activity_paper.volume_confirmed_enabled
+                ),
+                "volume_confirmed_portfolio": (
+                    self.config.activity_paper.volume_confirmed_portfolio_name
                 ),
             },
         )

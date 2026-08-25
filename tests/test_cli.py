@@ -153,6 +153,8 @@ def test_cli_activity_paper_stats_prints_ab_comparison(monkeypatch, capsys):
     config.activity_paper = SimpleNamespace(
         momentum_portfolio_name="activity-momentum-v1",
         reversion_portfolio_name="activity-reversion-v1",
+        volume_confirmed_enabled=True,
+        volume_confirmed_portfolio_name="activity-volume-confirmed-v1",
     )
     container = _make_container()
     container.repository.get_activity_paper_summary.side_effect = [
@@ -166,6 +168,15 @@ def test_cli_activity_paper_stats_prints_ab_comparison(monkeypatch, capsys):
             "realized_pnl": 125.0,
         },
         None,
+        {
+            "name": "activity-volume-confirmed-v1",
+            "strategy": "volume_confirmed",
+            "horizon": "15m",
+            "open_positions": 0,
+            "closed_positions": 0,
+            "wins": 0,
+            "realized_pnl": 0.0,
+        },
     ]
     monkeypatch.setattr("tinvest_trader.cli.load_config", lambda: config)
     monkeypatch.setattr("tinvest_trader.cli.build_container", lambda cfg: container)
@@ -175,6 +186,7 @@ def test_cli_activity_paper_stats_prints_ab_comparison(monkeypatch, capsys):
     assert exit_code == 0
     output = capsys.readouterr().out
     assert "activity-momentum-v1" in output
+    assert "activity-volume-confirmed-v1" in output
     assert "60.0%" in output
 
 

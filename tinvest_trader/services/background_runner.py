@@ -539,7 +539,7 @@ class BackgroundRunner:
             )
 
     def run_activity_paper_strategy_cycle(self) -> None:
-        """Run one isolated virtual A/B portfolio cycle safely."""
+        """Run one isolated virtual activity-paper cycle safely."""
         if not self._activity_paper_strategy_is_runnable():
             return
         try:

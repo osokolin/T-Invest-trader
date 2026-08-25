@@ -226,12 +226,16 @@ class MarketActivityOutcomeConfig:
 
 @dataclass(frozen=True)
 class ActivityPaperConfig:
-    """Settings for isolated momentum/reversion virtual portfolios."""
+    """Settings for isolated market-activity virtual portfolios."""
 
     enabled: bool = False
     poll_interval_seconds: int = 60
     momentum_portfolio_name: str = "activity-momentum-v1"
     reversion_portfolio_name: str = "activity-reversion-v1"
+    volume_confirmed_enabled: bool = False
+    volume_confirmed_portfolio_name: str = "activity-volume-confirmed-v1"
+    volume_confirmation_min_move_pct: float = 0.002
+    volume_confirmation_max_delay_minutes: int = 3
     horizon: str = "15m"
     initial_cash: float = 1_000_000.0
     position_fraction: float = 0.02
@@ -782,6 +786,21 @@ def load_config() -> AppConfig:
             reversion_portfolio_name=os.environ.get(
                 "TINVEST_ACTIVITY_PAPER_REVERSION_NAME", "activity-reversion-v1",
             ),
+            volume_confirmed_enabled=os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_ENABLED", "false",
+            ).lower() == "true",
+            volume_confirmed_portfolio_name=os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_NAME",
+                "activity-volume-confirmed-v1",
+            ),
+            volume_confirmation_min_move_pct=float(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMATION_MIN_MOVE_PCT",
+                "0.002",
+            )),
+            volume_confirmation_max_delay_minutes=int(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMATION_MAX_DELAY_MINUTES",
+                "3",
+            )),
             horizon=os.environ.get("TINVEST_ACTIVITY_PAPER_HORIZON", "15m"),
             initial_cash=float(os.environ.get(
                 "TINVEST_ACTIVITY_PAPER_INITIAL_CASH", "1000000",

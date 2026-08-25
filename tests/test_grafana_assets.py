@@ -108,13 +108,15 @@ def test_activity_paper_dashboard_is_virtual_and_explainable() -> None:
         for target in panel.get("targets", [])
     )
 
-    assert "Momentum vs Reversion · Portfolio Comparison" in titles
+    assert "Virtual Portfolio Comparison" in titles
     assert "Realized Drawdown" in titles
     assert "Why Candidates Were Skipped" in titles
+    assert "Candidate Funnel · Selected Range" in titles
     assert "activity_paper_positions" in query_text
     assert "activity_paper_decisions" in query_text
     assert "'${portfolio}' = 'All'" not in query_text
     assert query_text.count("IN (${portfolio:sqlstring})") == len(dashboard["panels"])
+    assert "AS pending" in query_text
     portfolio_variable = dashboard["templating"]["list"][0]
     assert portfolio_variable["includeAll"] is True
     assert portfolio_variable["multi"] is True
