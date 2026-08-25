@@ -64,6 +64,9 @@ Optional shadow experiment after step 5:
 The shadow activity flow is isolated from signal generation, paper portfolio,
 execution, and order placement.
 
+Outcome horizons are scheduled independently so a future long or session-close
+target cannot starve already elapsed short horizons.
+
 ---
 
 ## Safety Critical Areas

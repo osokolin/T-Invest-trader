@@ -142,6 +142,41 @@ def test_eod_uses_last_stored_candle_before_moscow_close() -> None:
     assert call["target_time"] == datetime(2026, 8, 23, 20, 50, tzinfo=UTC)
 
 
+def test_future_eod_backlog_does_not_starve_intraday_horizons() -> None:
+    repository = MagicMock()
+    old_spike = _spike(when=NOW - timedelta(hours=2))
+    old_spike["id"] = 1
+    new_spike = _spike(when=NOW - timedelta(minutes=20))
+    new_spike["id"] = 2
+    repository.list_market_activity_spikes_for_outcomes.side_effect = [
+        [new_spike],
+        [new_spike],
+        [old_spike],
+    ]
+    repository.market_activity_outcome_exists.side_effect = (
+        lambda spike_id, _horizon: spike_id == 1
+    )
+    repository.get_market_activity_price_after.return_value = {
+        "price": 101.0,
+        "candle_time": NOW - timedelta(minutes=5),
+    }
+    repository.insert_market_activity_spike_outcome.return_value = True
+
+    result = _service(repository, eod_enabled=True).resolve_all()
+
+    horizon_groups = [
+        call.kwargs["horizons"]
+        for call in repository.list_market_activity_spikes_for_outcomes.call_args_list
+    ]
+    assert horizon_groups == [("5m",), ("15m",), ("eod",)]
+    assert result.outcomes_inserted == 2
+    assert {
+        call.args[0]["spike_id"]
+        for call in repository.insert_market_activity_spike_outcome.call_args_list
+    } == {2}
+    repository.get_market_activity_price_before.assert_not_called()
+
+
 def test_existing_outcome_is_idempotently_skipped() -> None:
     repository = MagicMock()
     repository.list_market_activity_spikes_for_outcomes.return_value = [_spike()]

@@ -19,7 +19,11 @@ def _candle(at: datetime, *, volume: int, close: float = 100.0) -> dict:
     }
 
 
-def _service(*, candles: list[dict]) -> tuple[MarketActivityService, MagicMock, MagicMock]:
+def _service(
+    *,
+    candles: list[dict],
+    **config_values,
+) -> tuple[MarketActivityService, MagicMock, MagicMock]:
     client = MagicMock()
     client.get_candles.return_value = candles
     repository = MagicMock()
@@ -32,7 +36,11 @@ def _service(*, candles: list[dict]) -> tuple[MarketActivityService, MagicMock, 
     service = MarketActivityService(
         client=client,
         repository=repository,
-        config=MarketActivityConfig(baseline_candles=3, min_volume=10),
+        config=MarketActivityConfig(
+            baseline_candles=3,
+            min_volume=10,
+            **config_values,
+        ),
         logger=logging.getLogger("test_market_activity"),
         now_fn=lambda: now,
     )
@@ -114,3 +122,53 @@ def test_skips_explicitly_incomplete_current_candle() -> None:
 
     assert result.observations_inserted == 0
     repository.insert_market_activity_observation.assert_not_called()
+
+
+def test_outside_main_session_persists_observations_without_spike() -> None:
+    now = datetime(2026, 8, 24, 6, 2, tzinfo=UTC)  # 09:02 Moscow
+    candles = [
+        _candle(now - timedelta(minutes=4 - index), volume=100)
+        for index in range(4)
+    ]
+    candles.append(_candle(now, volume=400, close=102.0))
+    service, _client, repository = _service(candles=candles)
+
+    result = service.observe_all()
+
+    assert result.observations_inserted == 5
+    assert result.spikes_inserted == 0
+    repository.insert_market_activity_spike.assert_not_called()
+
+
+def test_weekend_persists_observations_without_spike() -> None:
+    now = datetime(2026, 8, 22, 10, 0, tzinfo=UTC)  # Saturday
+    candles = [
+        _candle(now - timedelta(minutes=4 - index), volume=100)
+        for index in range(4)
+    ]
+    candles.append(_candle(now, volume=400, close=102.0))
+    service, _client, repository = _service(candles=candles)
+
+    result = service.observe_all()
+
+    assert result.observations_inserted == 5
+    assert result.spikes_inserted == 0
+    repository.insert_market_activity_spike.assert_not_called()
+
+
+def test_session_filter_can_be_disabled_for_research() -> None:
+    now = datetime(2026, 8, 24, 6, 2, tzinfo=UTC)
+    candles = [
+        _candle(now - timedelta(minutes=4 - index), volume=100)
+        for index in range(4)
+    ]
+    candles.append(_candle(now, volume=400, close=102.0))
+    service, _client, repository = _service(
+        candles=candles,
+        session_filter_enabled=False,
+    )
+
+    result = service.observe_all()
+
+    assert result.spikes_inserted == 1
+    repository.insert_market_activity_spike.assert_called_once()

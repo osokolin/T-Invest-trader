@@ -87,6 +87,8 @@ T-Bank minute candles are persisted as activity observations and explainable
 volume/price spikes. A separate outcome resolver compares momentum and
 reversion at configurable horizons using stored candles only. This research
 path cannot create signals, positions, order intents, or broker orders.
+Observations remain auditable outside market hours, while spike generation is
+restricted to a configured Moscow trading session by default.
 
 ### 10. Activity Paper Strategy
 Isolated virtual portfolios compare momentum and reversion after qualified

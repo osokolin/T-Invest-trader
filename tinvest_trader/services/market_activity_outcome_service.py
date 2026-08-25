@@ -46,17 +46,29 @@ class MarketActivityOutcomeService:
     def resolve_all(self) -> MarketActivityOutcomeResult:
         """Resolve every elapsed configured horizon without external API calls."""
         now = self._normalized_now()
-        horizons = tuple(
-            [f"{minutes}m" for minutes in self._config.horizons_minutes]
-            + (["eod"] if self._config.eod_enabled else [])
-        )
-        if not horizons:
+        horizon_groups = [
+            (f"{minutes}m",) for minutes in self._config.horizons_minutes
+        ]
+        if self._config.eod_enabled:
+            horizon_groups.append(("eod",))
+        if not horizon_groups:
             return MarketActivityOutcomeResult()
         try:
-            spikes = self._repository.list_market_activity_spikes_for_outcomes(
-                since=now - timedelta(days=max(1, self._config.lookback_days)),
-                limit=max(1, self._config.resolution_limit),
-                horizons=horizons,
+            spikes_by_id: dict[int, dict] = {}
+            for horizons in horizon_groups:
+                rows = self._repository.list_market_activity_spikes_for_outcomes(
+                    since=now - timedelta(days=max(1, self._config.lookback_days)),
+                    limit=max(1, self._config.resolution_limit),
+                    horizons=horizons,
+                )
+                for spike in rows:
+                    spikes_by_id[int(spike["id"])] = spike
+            spikes = sorted(
+                spikes_by_id.values(),
+                key=lambda spike: (
+                    self._as_aware(spike["candle_time"]),
+                    int(spike["id"]),
+                ),
             )
         except Exception:
             self._logger.exception(
