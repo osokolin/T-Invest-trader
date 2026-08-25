@@ -181,7 +181,8 @@ All features are controlled via environment variables. Every feature defaults to
 | AI analysis | `TINVEST_ANTHROPIC_API_KEY`, `TINVEST_AI_MODEL` | Claude API |
 | Calibration | `TINVEST_SIGNAL_CALIBRATION_ENABLED`, `TINVEST_MIN_CONFIDENCE` | Decision thresholds |
 | Alerting | `TINVEST_ALERTING_ENABLED` | Operator alerts |
-| Daily digest | `TINVEST_DAILY_DIGEST_ENABLED`, `TINVEST_DAILY_DIGEST_HOUR` | Daily summary |
+| Daily digest | `TINVEST_DAILY_DIGEST_ENABLED`, `TINVEST_DAILY_DIGEST_HOUR` | Daily summary with operational readiness |
+| Readiness review | `TINVEST_OPERATIONAL_READINESS_*` | Informational data and paper-performance gate |
 | Background | `TINVEST_BACKGROUND_ENABLED` | Background runner |
 
 ## Running the System
@@ -213,6 +214,7 @@ The CLI provides operator commands for inspection, debugging, and one-shot opera
 # System status
 docker compose exec app python -m tinvest_trader.cli status
 docker compose exec app python -m tinvest_trader.cli db-summary
+docker compose exec app python -m tinvest_trader.cli operational-report
 
 # Signal analysis
 docker compose exec app python -m tinvest_trader.cli signal-stats
@@ -229,6 +231,10 @@ docker compose exec app python -m tinvest_trader.cli deliver-signals
 docker compose exec app python -m tinvest_trader.cli send-daily-digest --send
 docker compose exec app python -m tinvest_trader.cli check-alerts --dry-run
 ```
+
+`operational-report` evaluates data freshness and the primary paper portfolio.
+`READY_FOR_REVIEW` means the configured evidence thresholds are met; it never
+enables broker execution or permits real orders.
 
 ## Observability
 

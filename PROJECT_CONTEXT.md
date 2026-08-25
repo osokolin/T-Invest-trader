@@ -95,6 +95,12 @@ after the following closed candle confirms direction. Capital, exposure,
 cooldown, commission, and slippage are simulated locally. Activity-paper
 records never represent broker positions and cannot reach the execution engine.
 
+### 11. Operational Readiness
+
+A read-only daily report combines enabled-source freshness, primary paper
+portfolio performance, and activity-paper decision counts. Its
+`READY_FOR_REVIEW` status is informational only and cannot enable broker orders.
+
 ---
 
 ## Environments

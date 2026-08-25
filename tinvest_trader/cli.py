@@ -170,6 +170,15 @@ def build_parser() -> argparse.ArgumentParser:
         "activity-paper-stats",
         help="Compare virtual activity momentum and reversion portfolios",
     )
+    readiness_parser = subparsers.add_parser(
+        "operational-report",
+        help="Show data freshness, paper statistics, and readiness status",
+    )
+    readiness_parser.add_argument(
+        "--fail-if-not-ready",
+        action="store_true",
+        help="Exit with code 1 unless status is READY_FOR_REVIEW",
+    )
 
     # -- signal-calibration-report --
     subparsers.add_parser(
@@ -479,6 +488,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_market_activity_outcomes(container)
         if args.command == "activity-paper-stats":
             return _run_activity_paper_stats(config, container)
+        if args.command == "operational-report":
+            return _run_operational_report(
+                config,
+                container,
+                fail_if_not_ready=args.fail_if_not_ready,
+            )
         if args.command == "signal-calibration-report":
             return _run_signal_calibration_report(container, config)
         if args.command == "market-binding-debug":
@@ -698,6 +713,33 @@ def _run_db_summary(container: Container) -> int:
     summary = repository.fetch_operational_summary()
     for key, value in summary.items():
         print(f"{key}: {value}")
+    return 0
+
+
+def _run_operational_report(
+    config: AppConfig,
+    container: Container,
+    *,
+    fail_if_not_ready: bool = False,
+) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.operational_readiness import (
+        build_operational_report,
+        format_operational_report,
+    )
+
+    report = build_operational_report(
+        repository,
+        config,
+        config.operational_readiness,
+    )
+    print(format_operational_report(report))
+    if fail_if_not_ready and report.status != "READY_FOR_REVIEW":
+        return 1
     return 0
 
 
@@ -1627,7 +1669,10 @@ def _run_send_daily_digest(
         repository=repository,
         delivery_config=delivery_cfg,
         logger=container.logger,
+        app_config=config,
+        readiness_config=config.operational_readiness,
         dry_run=dry_run or not send,
+        skip_weekends=False,
     )
     print(result["text"])
     if send:

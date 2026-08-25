@@ -319,6 +319,17 @@ class DailyDigestConfig:
 
 
 @dataclass(frozen=True)
+class OperationalReadinessConfig:
+    """Thresholds for the informational real-trading readiness review."""
+
+    enabled: bool = True
+    max_data_age_minutes: int = 180
+    min_closed_positions: int = 30
+    min_win_rate: float = 0.50
+    min_avg_net_return_pct: float = 0.0
+
+
+@dataclass(frozen=True)
 class LoggingConfig:
     level: str = "INFO"
     json_output: bool = True
@@ -371,6 +382,9 @@ class AppConfig:
     )
     alerting: AlertingConfig = field(default_factory=AlertingConfig)
     daily_digest: DailyDigestConfig = field(default_factory=DailyDigestConfig)
+    operational_readiness: OperationalReadinessConfig = field(
+        default_factory=OperationalReadinessConfig,
+    )
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     environment: str = "sandbox"
 
@@ -1036,6 +1050,26 @@ def load_config() -> AppConfig:
             minute=int(
                 os.environ.get("TINVEST_DAILY_DIGEST_MINUTE", "0"),
             ),
+            skip_weekends=os.environ.get(
+                "TINVEST_DAILY_DIGEST_SKIP_WEEKENDS", "true",
+            ).lower() == "true",
+        ),
+        operational_readiness=OperationalReadinessConfig(
+            enabled=os.environ.get(
+                "TINVEST_OPERATIONAL_READINESS_ENABLED", "true",
+            ).lower() == "true",
+            max_data_age_minutes=int(os.environ.get(
+                "TINVEST_OPERATIONAL_READINESS_MAX_DATA_AGE_MINUTES", "180",
+            )),
+            min_closed_positions=int(os.environ.get(
+                "TINVEST_OPERATIONAL_READINESS_MIN_CLOSED_POSITIONS", "30",
+            )),
+            min_win_rate=float(os.environ.get(
+                "TINVEST_OPERATIONAL_READINESS_MIN_WIN_RATE", "0.50",
+            )),
+            min_avg_net_return_pct=float(os.environ.get(
+                "TINVEST_OPERATIONAL_READINESS_MIN_AVG_NET_RETURN_PCT", "0.0",
+            )),
         ),
         moex=MoexConfig(
             enabled=os.environ.get(

@@ -15,6 +15,7 @@ from tinvest_trader.services.daily_digest import (
     is_digest_already_sent_today,
     send_daily_digest,
 )
+from tinvest_trader.services.operational_readiness import OperationalReport
 
 
 @pytest.fixture()
@@ -104,6 +105,21 @@ class TestFormatDailyDigest:
         text = format_daily_digest(DigestData())
         assert "No signals generated" in text
         assert "Daily Summary" in text
+
+    def test_no_signals_still_includes_operational_readiness(self):
+        data = DigestData(
+            operational_report=OperationalReport(
+                generated_at=datetime.now(UTC),
+                status="COLLECTING",
+                collecting_reasons=["paper sample 0/30 closed positions"],
+            ),
+        )
+
+        text = format_daily_digest(data)
+
+        assert "No signals generated" in text
+        assert "Operational Readiness: COLLECTING" in text
+        assert "Real orders: BLOCKED" in text
 
     def test_basic_signals(self):
         data = DigestData(signals_total=10, signals_delivered=5)

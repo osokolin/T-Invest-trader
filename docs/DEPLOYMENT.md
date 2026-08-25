@@ -262,6 +262,30 @@ included. Inspect realized PnL and virtual exposure with:
 docker compose exec -T app python -m tinvest_trader.cli paper-portfolio-stats
 ```
 
+## Operational Readiness Report
+
+The daily digest can include a read-only readiness review based on enabled
+source freshness and the primary paper portfolio. Configure its evidence
+thresholds in `.env`:
+
+```dotenv
+TINVEST_DAILY_DIGEST_ENABLED=true
+TINVEST_OPERATIONAL_READINESS_ENABLED=true
+TINVEST_OPERATIONAL_READINESS_MAX_DATA_AGE_MINUTES=180
+TINVEST_OPERATIONAL_READINESS_MIN_CLOSED_POSITIONS=30
+TINVEST_OPERATIONAL_READINESS_MIN_WIN_RATE=0.50
+TINVEST_OPERATIONAL_READINESS_MIN_AVG_NET_RETURN_PCT=0.0
+```
+
+Inspect the same report without sending Telegram messages:
+
+```bash
+docker compose exec -T app python -m tinvest_trader.cli operational-report
+```
+
+`READY_FOR_REVIEW` is an operator signal only. It does not change feature
+flags, call execution services, or permit real broker orders.
+
 ## Useful Commands
 
 | Command | Description |

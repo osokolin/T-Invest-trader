@@ -82,3 +82,26 @@ def test_account_id_from_env(monkeypatch):
 
     cfg = load_config()
     assert cfg.broker.account_id == "acc-123"
+
+
+def test_operational_readiness_config_from_env(monkeypatch):
+    monkeypatch.setenv("TINVEST_OPERATIONAL_READINESS_ENABLED", "false")
+    monkeypatch.setenv(
+        "TINVEST_OPERATIONAL_READINESS_MAX_DATA_AGE_MINUTES", "90",
+    )
+    monkeypatch.setenv(
+        "TINVEST_OPERATIONAL_READINESS_MIN_CLOSED_POSITIONS", "50",
+    )
+    monkeypatch.setenv("TINVEST_OPERATIONAL_READINESS_MIN_WIN_RATE", "0.55")
+    monkeypatch.setenv(
+        "TINVEST_OPERATIONAL_READINESS_MIN_AVG_NET_RETURN_PCT", "0.001",
+    )
+    from tinvest_trader.app.config import load_config
+
+    cfg = load_config().operational_readiness
+
+    assert cfg.enabled is False
+    assert cfg.max_data_age_minutes == 90
+    assert cfg.min_closed_positions == 50
+    assert cfg.min_win_rate == 0.55
+    assert cfg.min_avg_net_return_pct == 0.001
