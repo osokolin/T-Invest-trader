@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tinvest_trader.app.config import BackgroundConfig, QuoteSyncConfig
+from tinvest_trader.app.config import BackgroundConfig, QuoteSyncConfig, load_config
 from tinvest_trader.services.background_runner import BackgroundRunner
 from tinvest_trader.services.quote_sync import (
     QuoteSyncResult,
@@ -256,6 +256,32 @@ class TestSyncQuotes:
         assert result.skipped == 1  # unmatched
         mock_repository.insert_market_quotes_bulk.assert_not_called()
 
+    def test_stale_source_price_is_not_persisted(
+        self, mock_client, mock_repository, logger,
+    ):
+        now = datetime(2026, 8, 27, 9, 0, tzinfo=UTC)
+        mock_repository.list_tracked_instruments.return_value = [
+            _make_instrument("OZON", "ACTIVE", "uid-active"),
+        ]
+        mock_client.get_last_prices.return_value = [{
+            "instrument_uid": "uid-active",
+            "price": 21.56,
+            "source_time": (now - timedelta(days=30)).isoformat(),
+        }]
+
+        result = sync_quotes(
+            client=mock_client,
+            repository=mock_repository,
+            logger=logger,
+            max_source_age_seconds=7 * 86400,
+            now_fn=lambda: now,
+        )
+
+        assert result.received == 1
+        assert result.skipped == 1
+        assert result.inserted == 0
+        mock_repository.insert_market_quotes_bulk.assert_not_called()
+
     def test_repeated_sync_is_safe(self, mock_client, mock_repository, logger):
         """Running sync twice doesn't break -- append-only table."""
         mock_repository.list_tracked_instruments.return_value = [
@@ -326,6 +352,17 @@ class TestParseTimestamp:
 
     def test_invalid_format(self):
         assert _parse_timestamp("not-a-date") is None
+
+    def test_naive_timestamp_is_normalized_to_utc(self):
+        parsed = _parse_timestamp("2026-03-20T10:30:00")
+        assert parsed is not None
+        assert parsed.tzinfo == UTC
+
+
+def test_quote_sync_config_parses_max_source_age(monkeypatch) -> None:
+    monkeypatch.setenv("TINVEST_QUOTE_SYNC_MAX_SOURCE_AGE_SECONDS", "3600")
+
+    assert load_config().quote_sync.max_source_age_seconds == 3600
 
 
 # -- Repository method tests (using mocks) --

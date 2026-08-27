@@ -22,6 +22,9 @@ def test_market_activity_outcome_config_parses_environment(monkeypatch) -> None:
     )
     monkeypatch.setenv("TINVEST_MARKET_ACTIVITY_OUTCOMES_EOD_ENABLED", "false")
     monkeypatch.setenv("TINVEST_MARKET_ACTIVITY_OUTCOMES_LOOKBACK_DAYS", "14")
+    monkeypatch.setenv(
+        "TINVEST_MARKET_ACTIVITY_OUTCOMES_MAX_PRICE_DELAY_MINUTES", "45",
+    )
 
     cfg = load_config().market_activity_outcomes
 
@@ -30,3 +33,4 @@ def test_market_activity_outcome_config_parses_environment(monkeypatch) -> None:
     assert cfg.neutral_threshold_pct == 0.002
     assert cfg.eod_enabled is False
     assert cfg.lookback_days == 14
+    assert cfg.max_price_delay_minutes == 45

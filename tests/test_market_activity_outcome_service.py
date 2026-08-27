@@ -118,6 +118,27 @@ def test_missing_stored_candle_remains_unresolved() -> None:
     repository.insert_market_activity_spike_outcome.assert_not_called()
 
 
+def test_configured_price_delay_is_used_for_sparse_candles() -> None:
+    repository = MagicMock()
+    repository.list_market_activity_spikes_for_outcomes.return_value = [_spike()]
+    repository.market_activity_outcome_exists.return_value = False
+    repository.get_market_activity_price_after.return_value = {
+        "price": 101.0,
+        "candle_time": NOW - timedelta(minutes=1),
+    }
+    repository.insert_market_activity_spike_outcome.return_value = True
+
+    result = _service(
+        repository,
+        horizons_minutes=(15,),
+        max_price_delay_minutes=30,
+    ).resolve_all()
+
+    assert result.outcomes_inserted == 1
+    call = repository.get_market_activity_price_after.call_args.kwargs
+    assert call["latest_time"] == call["target_time"] + timedelta(minutes=30)
+
+
 def test_eod_uses_last_stored_candle_before_moscow_close() -> None:
     repository = MagicMock()
     spike_time = datetime(2026, 8, 23, 12, 0, tzinfo=UTC)

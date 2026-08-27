@@ -163,7 +163,9 @@ class MarketActivityOutcomeService:
                 figi=spike["figi"],
                 candle_interval=spike["candle_interval"],
                 target_time=target_time,
-                latest_time=target_time + timedelta(minutes=5),
+                latest_time=target_time + timedelta(
+                    minutes=max(0, self._config.max_price_delay_minutes),
+                ),
             )
         if price_row is None:
             return "unresolved"

@@ -193,6 +193,7 @@ class PaperPortfolioConfig:
 class QuoteSyncConfig:
     enabled: bool = False
     poll_interval_seconds: int = 60
+    max_source_age_seconds: int = 604800
 
 
 @dataclass(frozen=True)
@@ -227,6 +228,7 @@ class MarketActivityOutcomeConfig:
     eod_minute_moscow: int = 50
     lookback_days: int = 30
     resolution_limit: int = 500
+    max_price_delay_minutes: int = 30
 
 
 @dataclass(frozen=True)
@@ -253,6 +255,7 @@ class ActivityPaperConfig:
     allowed_spike_types: tuple[str, ...] = ("volume_price", "price_momentum")
     cooldown_minutes: int = 30
     max_candidate_age_minutes: int = 10
+    unresolved_position_expiry_minutes: int = 180
 
 
 @dataclass(frozen=True)
@@ -715,6 +718,9 @@ def load_config() -> AppConfig:
                     "TINVEST_QUOTE_SYNC_POLL_INTERVAL_SECONDS", "60",
                 ),
             ),
+            max_source_age_seconds=int(os.environ.get(
+                "TINVEST_QUOTE_SYNC_MAX_SOURCE_AGE_SECONDS", "604800",
+            )),
         ),
         market_activity=MarketActivityConfig(
             enabled=os.environ.get(
@@ -792,6 +798,9 @@ def load_config() -> AppConfig:
             resolution_limit=int(os.environ.get(
                 "TINVEST_MARKET_ACTIVITY_OUTCOMES_RESOLUTION_LIMIT", "500",
             )),
+            max_price_delay_minutes=int(os.environ.get(
+                "TINVEST_MARKET_ACTIVITY_OUTCOMES_MAX_PRICE_DELAY_MINUTES", "30",
+            )),
         ),
         activity_paper=ActivityPaperConfig(
             enabled=os.environ.get(
@@ -855,6 +864,9 @@ def load_config() -> AppConfig:
             )),
             max_candidate_age_minutes=int(os.environ.get(
                 "TINVEST_ACTIVITY_PAPER_MAX_CANDIDATE_AGE_MINUTES", "10",
+            )),
+            unresolved_position_expiry_minutes=int(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_UNRESOLVED_EXPIRY_MINUTES", "180",
             )),
         ),
         signal_delivery=SignalDeliveryConfig(

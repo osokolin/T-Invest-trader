@@ -483,3 +483,59 @@ def test_close_activity_paper_position_records_net_result():
     assert "activity_paper_positions" in sql
     assert "status = 'closed'" in sql
     assert params[-1] == 9
+
+
+def test_expire_stale_activity_positions_preserves_pnl() -> None:
+    repo, conn = _make_repo()
+    conn.execute.return_value.fetchall.return_value = [(9,), (10,)]
+    before = datetime(2026, 8, 24, 9, 0, tzinfo=UTC)
+    expired_at = datetime(2026, 8, 24, 12, 0, tzinfo=UTC)
+
+    expired = repo.expire_stale_activity_paper_positions(
+        portfolio_name="activity-momentum-v1",
+        before=before,
+        expired_at=expired_at,
+    )
+
+    assert expired == 2
+    sql, params = conn.execute.call_args.args
+    assert "status = 'expired'" in sql
+    assert "NOT EXISTS" in sql
+    assert "net_pnl" not in sql
+    assert params == (
+        expired_at,
+        expired_at,
+        "activity-momentum-v1",
+        before,
+    )
+
+
+def test_activity_paper_summary_reports_expired_separately() -> None:
+    repo, conn = _make_repo()
+    started_at = datetime(2026, 8, 24, 9, 0, tzinfo=UTC)
+    conn.execute.return_value.fetchone.return_value = (
+        "activity-momentum-v1",
+        "momentum",
+        "15m",
+        1_000_000,
+        "RUB",
+        started_at,
+        1,
+        10,
+        2,
+        20_000,
+        125.0,
+        6,
+        0.001,
+    )
+
+    summary = repo.get_activity_paper_summary("activity-momentum-v1")
+
+    assert summary is not None
+    sql = conn.execute.call_args.args[0]
+    assert "activity_paper_positions" in sql
+    assert "position.status = 'expired'" in sql
+    assert summary["open_positions"] == 1
+    assert summary["closed_positions"] == 10
+    assert summary["expired_positions"] == 2
+    assert summary["realized_pnl"] == 125.0

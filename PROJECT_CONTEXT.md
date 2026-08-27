@@ -96,6 +96,8 @@ market-activity spikes. An optional third arm tests pure-volume spikes only
 after the following closed candle confirms direction. Capital, exposure,
 cooldown, commission, and slippage are simulated locally. Activity-paper
 records never represent broker positions and cannot reach the execution engine.
+Unresolvable virtual positions expire without fabricated prices or PnL so that
+missing candle windows cannot permanently consume paper capacity.
 
 ---
 

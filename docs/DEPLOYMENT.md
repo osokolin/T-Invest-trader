@@ -162,12 +162,14 @@ TINVEST_MARKET_ACTIVITY_OUTCOMES_EOD_ENABLED=true
 TINVEST_MARKET_ACTIVITY_OUTCOMES_EOD_HOUR_MOSCOW=23
 TINVEST_MARKET_ACTIVITY_OUTCOMES_EOD_MINUTE_MOSCOW=50
 TINVEST_MARKET_ACTIVITY_OUTCOMES_LOOKBACK_DAYS=30
+TINVEST_MARKET_ACTIVITY_OUTCOMES_MAX_PRICE_DELAY_MINUTES=30
 TINVEST_BACKGROUND_RUN_MARKET_ACTIVITY_OUTCOMES=true
 ```
 
 The resolver reads only stored market-activity candles. Every configured
 horizon has an independent backlog so a future `60m` or EOD target cannot
-delay elapsed `5m` or `15m` outcomes. Inspect aggregate results in the
+delay elapsed `5m` or `15m` outcomes. The bounded price delay tolerates sparse
+minute candles without selecting an arbitrary much-later price. Inspect aggregate results in the
 `Market Activity Monitor` dashboard or run:
 
 ```
@@ -209,8 +211,25 @@ TINVEST_ACTIVITY_PAPER_ALLOWED_SEVERITIES=medium,high
 TINVEST_ACTIVITY_PAPER_ALLOWED_SPIKE_TYPES=volume_price,price_momentum
 TINVEST_ACTIVITY_PAPER_COOLDOWN_MINUTES=30
 TINVEST_ACTIVITY_PAPER_MAX_CANDIDATE_AGE_MINUTES=10
+TINVEST_ACTIVITY_PAPER_UNRESOLVED_EXPIRY_MINUTES=180
 TINVEST_BACKGROUND_RUN_ACTIVITY_PAPER_STRATEGY=true
 ```
+
+Open virtual positions that still have no valid outcome after the expiry
+window move to `expired`. They release paper capacity without recording a
+synthetic exit price, return, or PnL.
+
+For signal outcome quotes, reject stale broker timestamps and refresh the
+share catalog before the first runtime after upgrading:
+
+```
+TINVEST_QUOTE_SYNC_MAX_SOURCE_AGE_SECONDS=604800
+docker compose exec -T app python -m tinvest_trader.cli sync-share-catalog
+docker compose exec -T app python -m tinvest_trader.cli sync-quotes
+```
+
+Catalog sync selects one active, API-tradable `TQBR` instrument per ticker so
+historical duplicate listings cannot replace current MOEX identifiers.
 
 Inspect all enabled arms with the `Activity Paper Strategy` Grafana dashboard or:
 
