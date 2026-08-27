@@ -993,6 +993,35 @@ class TradingRepository:
             )
         return cur.rowcount > 0
 
+    def expire_stale_paper_positions(
+        self,
+        *,
+        portfolio_name: str,
+        before: datetime,
+        expired_at: datetime,
+    ) -> int:
+        """Release unresolved virtual positions without fabricating PnL."""
+        sql = """
+            UPDATE paper_portfolio_positions position
+            SET status = 'expired', exit_time = %s, updated_at = %s
+            WHERE position.portfolio_name = %s
+              AND position.status = 'open'
+              AND position.entry_time < %s
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM signal_predictions prediction
+                  WHERE prediction.id = position.prediction_id
+                    AND prediction.resolved_at IS NOT NULL
+              )
+            RETURNING position.id
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(
+                sql,
+                (expired_at, expired_at, portfolio_name, before),
+            ).fetchall()
+        return len(rows)
+
     def list_paper_entry_candidates(
         self,
         portfolio_name: str,
@@ -1073,7 +1102,8 @@ class TradingRepository:
                        WHERE position.status = 'closed' AND position.net_pnl > 0
                    ),
                    avg(position.net_return_pct)
-                       FILTER (WHERE position.status = 'closed')
+                       FILTER (WHERE position.status = 'closed'),
+                   count(position.id) FILTER (WHERE position.status = 'expired')
             FROM paper_portfolios portfolio
             LEFT JOIN paper_portfolio_positions position
               ON position.portfolio_name = portfolio.name
@@ -1096,6 +1126,7 @@ class TradingRepository:
             "realized_pnl": float(row[7]),
             "wins": row[8],
             "avg_net_return_pct": float(row[9]) if row[9] is not None else None,
+            "expired_positions": row[10],
         }
 
     # -- Source performance attribution --
@@ -3049,19 +3080,25 @@ class TradingRepository:
         }
 
     def get_first_quote_after(
-        self, ticker: str, after: datetime,
+        self,
+        ticker: str,
+        after: datetime,
+        *,
+        not_after: datetime,
     ) -> dict | None:
-        """Return the earliest quote for ticker with source_time >= after."""
+        """Return the earliest quote inside the bounded source-time window."""
         sql = """
             SELECT price, source_time
             FROM market_quotes
-            WHERE ticker = %s AND source_time >= %s
+            WHERE ticker = %s
+              AND source_time >= %s
+              AND source_time <= %s
             ORDER BY source_time ASC
             LIMIT 1
         """
         try:
             with self._pool.get_connection() as conn:
-                row = conn.execute(sql, (ticker, after)).fetchone()
+                row = conn.execute(sql, (ticker, after, not_after)).fetchone()
         except Exception:
             self._logger.exception(
                 "failed to get first quote after timestamp",

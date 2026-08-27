@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -23,6 +23,8 @@ class FakeRepository:
         self.inserted: list[dict] = []
         self.resolved: list[dict] = []
         self.candidates: list[dict] = []
+        self.expiry_calls: list[dict] = []
+        self.expired_count = 0
         self.summary = {
             "name": "shadow-v1",
             "initial_cash": 100_000.0,
@@ -45,6 +47,10 @@ class FakeRepository:
     def close_paper_position(self, **kwargs):
         self.closed.append(kwargs)
         return True
+
+    def expire_stale_paper_positions(self, **kwargs):
+        self.expiry_calls.append(kwargs)
+        return self.expired_count
 
     def get_paper_portfolio_summary(self, _name):
         return self.summary
@@ -100,6 +106,7 @@ def test_cycle_closes_resolved_short_and_opens_new_position():
 
     assert result.opened == 1
     assert result.closed == 1
+    assert result.expired == 0
     close = repo.closed[0]
     assert close["gross_return_pct"] == pytest.approx(0.01)
     assert close["costs"] == pytest.approx(200.0)
@@ -136,6 +143,24 @@ def test_cycle_respects_position_capacity():
     assert repo.inserted == []
 
 
+def test_cycle_expires_stale_unresolved_positions_without_pnl():
+    repo = FakeRepository()
+    repo.expired_count = 2
+    now = datetime(2026, 8, 23, 12, 0, tzinfo=UTC)
+
+    result = _service(
+        repo,
+        unresolved_position_expiry_minutes=180,
+    ).run_cycle(now=now)
+
+    assert result.expired == 2
+    assert repo.expiry_calls == [{
+        "portfolio_name": "shadow-v1",
+        "before": now - timedelta(minutes=180),
+        "expired_at": now,
+    }]
+
+
 def test_format_summary_is_realized_only():
     summary = FakeRepository().summary
     summary.update(
@@ -156,6 +181,8 @@ def test_paper_portfolio_config_parses_environment(monkeypatch):
     monkeypatch.setenv("TINVEST_PAPER_PORTFOLIO_ENABLED", "true")
     monkeypatch.setenv("TINVEST_PAPER_PORTFOLIO_INITIAL_CASH", "250000")
     monkeypatch.setenv("TINVEST_PAPER_PORTFOLIO_ENTRY_STAGES", "delivered,generated")
+    monkeypatch.setenv("TINVEST_PAPER_PORTFOLIO_UNRESOLVED_EXPIRY_MINUTES", "240")
+    monkeypatch.setenv("TINVEST_SIGNAL_RESOLUTION_MAX_QUOTE_DELAY_SECONDS", "600")
     monkeypatch.setenv("TINVEST_BACKGROUND_RUN_PAPER_PORTFOLIO", "false")
 
     config = load_config()
@@ -163,6 +190,8 @@ def test_paper_portfolio_config_parses_environment(monkeypatch):
     assert config.paper_portfolio.enabled is True
     assert config.paper_portfolio.initial_cash == 250_000.0
     assert config.paper_portfolio.entry_stages == ("delivered", "generated")
+    assert config.paper_portfolio.unresolved_position_expiry_minutes == 240
+    assert config.signal_resolution.max_quote_delay_seconds == 600
     assert config.background.run_paper_portfolio is False
 
 

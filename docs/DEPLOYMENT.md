@@ -279,8 +279,21 @@ TINVEST_PAPER_PORTFOLIO_POSITION_FRACTION=0.10
 TINVEST_PAPER_PORTFOLIO_MAX_OPEN_POSITIONS=5
 TINVEST_PAPER_PORTFOLIO_COMMISSION_RATE=0.0005
 TINVEST_PAPER_PORTFOLIO_SLIPPAGE_RATE=0.0005
+TINVEST_PAPER_PORTFOLIO_UNRESOLVED_EXPIRY_MINUTES=180
 TINVEST_BACKGROUND_RUN_PAPER_PORTFOLIO=true
 ```
+
+Signal outcomes use the first quote near the configured evaluation target.
+Keep the quote window bounded so a quote arriving days later cannot resolve an
+old signal:
+
+```dotenv
+TINVEST_SIGNAL_RESOLUTION_EVAL_WINDOW_SECONDS=300
+TINVEST_SIGNAL_RESOLUTION_MAX_QUOTE_DELAY_SECONDS=900
+```
+
+Paper positions whose signals remain unresolved past the expiry are marked
+`expired`; they do not contribute synthetic PnL.
 
 Use a new `TINVEST_PAPER_PORTFOLIO_NAME` to start an independent experiment.
 The first cycle stores the portfolio start time, so historical signals are not

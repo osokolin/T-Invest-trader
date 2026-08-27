@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -21,6 +22,7 @@ class PaperPortfolioCycleResult:
 
     opened: int = 0
     closed: int = 0
+    expired: int = 0
     skipped_capacity: int = 0
 
 
@@ -37,17 +39,21 @@ class PaperPortfolioService:
         self._config = config
         self._logger = logger
 
-    def run_cycle(self) -> PaperPortfolioCycleResult:
+    def run_cycle(self, now: datetime | None = None) -> PaperPortfolioCycleResult:
         """Close resolved positions, then open eligible new virtual positions."""
+        if now is None:
+            now = datetime.now(UTC)
         self._repository.ensure_paper_portfolio(
             name=self._config.name,
             initial_cash=self._config.initial_cash,
         )
         closed = self._close_resolved_positions()
+        expired = self._expire_unresolved_positions(now)
         opened, skipped_capacity = self._open_new_positions()
         result = PaperPortfolioCycleResult(
             opened=opened,
             closed=closed,
+            expired=expired,
             skipped_capacity=skipped_capacity,
         )
         self._logger.info(
@@ -57,6 +63,7 @@ class PaperPortfolioService:
                 "portfolio": self._config.name,
                 "opened": result.opened,
                 "closed": result.closed,
+                "expired": result.expired,
                 "skipped_capacity": result.skipped_capacity,
             },
         )
@@ -89,6 +96,19 @@ class PaperPortfolioService:
             ):
                 closed += 1
         return closed
+
+    def _expire_unresolved_positions(self, now: datetime) -> int:
+        expiry_minutes = max(
+            0,
+            self._config.unresolved_position_expiry_minutes,
+        )
+        if expiry_minutes == 0:
+            return 0
+        return self._repository.expire_stale_paper_positions(
+            portfolio_name=self._config.name,
+            before=now - timedelta(minutes=expiry_minutes),
+            expired_at=now,
+        )
 
     def _open_new_positions(self) -> tuple[int, int]:
         summary = self._repository.get_paper_portfolio_summary(self._config.name)
@@ -163,6 +183,7 @@ def format_paper_portfolio_summary(summary: dict | None) -> str:
         f"open_positions: {summary['open_positions']}",
         f"open_notional: {summary['open_notional']:.2f} {summary['currency']}",
         f"closed_positions: {closed}",
+        f"expired_positions: {summary.get('expired_positions', 0)}",
         f"win_rate: {win_rate:.1%}" if win_rate is not None else "win_rate: n/a",
         (
             f"avg_net_return: {average_return:.3%}"
