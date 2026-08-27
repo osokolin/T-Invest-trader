@@ -171,6 +171,7 @@ class SignalCalibrationConfig:
 class SignalResolutionConfig:
     enabled: bool = True
     eval_window_seconds: int = 300
+    max_quote_delay_seconds: int = 900
     poll_interval_seconds: int = 120
 
 
@@ -186,6 +187,7 @@ class PaperPortfolioConfig:
     commission_rate: float = 0.0005
     slippage_rate: float = 0.0005
     poll_interval_seconds: int = 60
+    unresolved_position_expiry_minutes: int = 180
     entry_stages: tuple[str, ...] = ("delivered",)
 
 
@@ -969,6 +971,9 @@ def load_config() -> AppConfig:
             eval_window_seconds=int(os.environ.get(
                 "TINVEST_SIGNAL_RESOLUTION_EVAL_WINDOW_SECONDS", "300",
             )),
+            max_quote_delay_seconds=int(os.environ.get(
+                "TINVEST_SIGNAL_RESOLUTION_MAX_QUOTE_DELAY_SECONDS", "900",
+            )),
             poll_interval_seconds=int(os.environ.get(
                 "TINVEST_SIGNAL_RESOLUTION_POLL_INTERVAL_SECONDS", "120",
             )),
@@ -995,6 +1000,9 @@ def load_config() -> AppConfig:
             )),
             poll_interval_seconds=int(os.environ.get(
                 "TINVEST_PAPER_PORTFOLIO_POLL_INTERVAL_SECONDS", "60",
+            )),
+            unresolved_position_expiry_minutes=int(os.environ.get(
+                "TINVEST_PAPER_PORTFOLIO_UNRESOLVED_EXPIRY_MINUTES", "180",
             )),
             entry_stages=_parse_csv(os.environ.get(
                 "TINVEST_PAPER_PORTFOLIO_ENTRY_STAGES", "delivered",

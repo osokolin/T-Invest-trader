@@ -1,7 +1,7 @@
 """Signal outcome evaluation -- resolves pending predictions.
 
 For each unresolved prediction older than evaluation_window:
-1. Look up first local quote after signal was created
+1. Look up the first local quote in a bounded window after the evaluation target
 2. Compute return
 3. Classify win/loss/neutral
 4. Update prediction row
@@ -38,12 +38,14 @@ def resolve_pending_signals(
     repository: TradingRepository,
     logger: logging.Logger,
     eval_window_seconds: int = 300,
+    max_quote_delay_seconds: int = 900,
     now: datetime | None = None,
 ) -> int:
     """Resolve all pending signal predictions older than eval_window.
 
     Uses local quotes from market_quotes table (no external API calls).
-    For each pending prediction, finds the first quote after signal creation.
+    For each pending prediction, finds the first quote after the evaluation
+    target and before its allowed quote delay expires.
     Returns count of resolved predictions.
     """
     if now is None:
@@ -81,7 +83,17 @@ def resolve_pending_signals(
                 )
                 continue
 
-        quote = repository.get_first_quote_after(ticker, pred["created_at"])
+        target_time = pred["created_at"] + timedelta(
+            seconds=max(0, eval_window_seconds),
+        )
+        quote_deadline = target_time + timedelta(
+            seconds=max(0, max_quote_delay_seconds),
+        )
+        quote = repository.get_first_quote_after(
+            ticker,
+            target_time,
+            not_after=quote_deadline,
+        )
 
         if quote is None:
             logger.debug(

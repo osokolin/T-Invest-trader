@@ -105,6 +105,45 @@ def test_insert_paper_position_is_idempotent():
     assert "ON CONFLICT" in sql
 
 
+def test_first_quote_after_uses_bounded_source_time_window():
+    repo, conn = _make_repo()
+    conn.execute.return_value.fetchone.return_value = (101.5, datetime.now(tz=UTC))
+    after = datetime(2026, 8, 24, 12, 5, tzinfo=UTC)
+    not_after = after + timedelta(minutes=15)
+
+    quote = repo.get_first_quote_after(
+        "SBER",
+        after,
+        not_after=not_after,
+    )
+
+    assert quote is not None
+    sql, params = conn.execute.call_args.args
+    assert "source_time >= %s" in sql
+    assert "source_time <= %s" in sql
+    assert params == ("SBER", after, not_after)
+
+
+def test_expire_stale_paper_positions_preserves_pnl():
+    repo, conn = _make_repo()
+    conn.execute.return_value.fetchall.return_value = [(2,), (3,)]
+    before = datetime(2026, 8, 24, 9, 0, tzinfo=UTC)
+    expired_at = datetime(2026, 8, 24, 12, 0, tzinfo=UTC)
+
+    expired = repo.expire_stale_paper_positions(
+        portfolio_name="shadow-v1",
+        before=before,
+        expired_at=expired_at,
+    )
+
+    assert expired == 2
+    sql, params = conn.execute.call_args.args
+    assert "status = 'expired'" in sql
+    assert "NOT EXISTS" in sql
+    assert "net_pnl" not in sql
+    assert params == (expired_at, expired_at, "shadow-v1", before)
+
+
 def test_insert_execution_event_success():
     repo, conn = _make_repo()
     intent = _make_intent()

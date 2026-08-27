@@ -89,7 +89,13 @@ class TestResolvePendingSignals:
         repo = MagicMock()
         repo.list_pending_predictions.return_value = pending or []
 
-        def _get_first_quote(ticker: str, after: datetime) -> dict | None:
+        def _get_first_quote(
+            ticker: str,
+            after: datetime,
+            *,
+            not_after: datetime,
+        ) -> dict | None:
+            del after, not_after
             if quote_map and ticker in quote_map:
                 return quote_map[ticker]
             return None
@@ -222,10 +228,12 @@ class TestResolvePendingSignals:
         assert count == 0
         repo.resolve_prediction.assert_not_called()
         repo.get_first_quote_after.assert_called_once_with(
-            "SBER", SIGNAL_TIME,
+            "SBER",
+            SIGNAL_TIME + timedelta(minutes=5),
+            not_after=SIGNAL_TIME + timedelta(minutes=20),
         )
 
-    def test_uses_earliest_quote_after_signal(self) -> None:
+    def test_uses_earliest_quote_after_evaluation_target(self) -> None:
         """Multiple quotes -> repository returns earliest via ORDER BY ASC."""
         pred = _make_prediction(signal_type="up", price_at_signal=100.0)
         earliest_time = SIGNAL_TIME + timedelta(seconds=30)
@@ -240,7 +248,9 @@ class TestResolvePendingSignals:
 
         assert count == 1
         repo.get_first_quote_after.assert_called_once_with(
-            "SBER", SIGNAL_TIME,
+            "SBER",
+            SIGNAL_TIME + timedelta(minutes=5),
+            not_after=SIGNAL_TIME + timedelta(minutes=20),
         )
         call_kwargs = repo.resolve_prediction.call_args[1]
         assert call_kwargs["price_at_outcome"] == 101.0
@@ -313,6 +323,26 @@ class TestResolvePendingSignals:
         repo.list_pending_predictions.assert_called_once_with(
             before=expected_cutoff,
         )
+
+    def test_quote_window_uses_configured_delay(self) -> None:
+        pred = _make_prediction(price_at_signal=100.0)
+        repo = self._mock_repo([pred], quote_map={})
+
+        resolve_pending_signals(
+            repo,
+            logging.getLogger("test"),
+            eval_window_seconds=600,
+            max_quote_delay_seconds=120,
+            now=NOW,
+        )
+
+        target = SIGNAL_TIME + timedelta(minutes=10)
+        repo.get_first_quote_after.assert_called_once_with(
+            "SBER",
+            target,
+            not_after=target + timedelta(minutes=2),
+        )
+        repo.resolve_prediction.assert_not_called()
 
     def test_partial_resolution_some_without_quotes(self) -> None:
         """One ticker has quote, another doesn't -> partial resolution."""

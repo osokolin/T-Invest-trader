@@ -658,6 +658,7 @@ class Container:
                 repository=self.repository,
                 logger=self.logger,
                 eval_window_seconds=cfg.eval_window_seconds,
+                max_quote_delay_seconds=cfg.max_quote_delay_seconds,
             )
 
         self.logger.info(
