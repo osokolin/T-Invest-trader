@@ -23,6 +23,7 @@ class ActivityPaperCycleResult:
 
     opened: int = 0
     closed: int = 0
+    expired: int = 0
     skipped: int = 0
     deferred: int = 0
     failed_portfolios: int = 0
@@ -46,11 +47,12 @@ class ActivityPaperStrategyService:
     def run_cycle(self) -> ActivityPaperCycleResult:
         """Close resolved positions, then evaluate fresh spikes for every arm."""
         now = self._normalized_now()
-        opened = closed = skipped = deferred = failed = 0
+        opened = closed = expired = skipped = deferred = failed = 0
         for name, strategy in self._experiments():
             try:
                 portfolio = self._ensure_portfolio(name, strategy, now)
                 closed += self._close_resolved(name)
+                expired += self._expire_unresolved(name, now)
                 arm_opened, arm_skipped, arm_deferred = self._open_candidates(
                     portfolio=portfolio,
                     strategy=strategy,
@@ -73,6 +75,7 @@ class ActivityPaperStrategyService:
         result = ActivityPaperCycleResult(
             opened=opened,
             closed=closed,
+            expired=expired,
             skipped=skipped,
             deferred=deferred,
             failed_portfolios=failed,
@@ -141,6 +144,19 @@ class ActivityPaperStrategyService:
             ):
                 closed += 1
         return closed
+
+    def _expire_unresolved(self, portfolio_name: str, now: datetime) -> int:
+        expiry_minutes = max(
+            0,
+            self._config.unresolved_position_expiry_minutes,
+        )
+        if expiry_minutes == 0:
+            return 0
+        return self._repository.expire_stale_activity_paper_positions(
+            portfolio_name=portfolio_name,
+            before=now - timedelta(minutes=expiry_minutes),
+            expired_at=now,
+        )
 
     def _open_candidates(
         self,
@@ -370,9 +386,10 @@ def format_activity_paper_summary(rows: list[dict | None]) -> str:
     if not available:
         return "activity paper strategy has not started yet"
     lines = [
-        "portfolio                       strategy          horizon  open  closed  win rate  pnl",
+        "portfolio                       strategy          horizon  "
+        "open  closed  expired  win rate  pnl",
         "------------------------------  ----------------  -------  "
-        "----  ------  --------  --------",
+        "----  ------  -------  --------  --------",
     ]
     for row in available:
         closed = int(row["closed_positions"])
@@ -380,7 +397,8 @@ def format_activity_paper_summary(rows: list[dict | None]) -> str:
         win_text = f"{win_rate:>7.1%}" if win_rate is not None else "    n/a"
         lines.append(
             f"{row['name']:<30}  {row['strategy']:<16}  {row['horizon']:<7}  "
-            f"{int(row['open_positions']):>4}  {closed:>6}  {win_text}  "
+            f"{int(row['open_positions']):>4}  {closed:>6}  "
+            f"{int(row.get('expired_positions', 0)):>7}  {win_text}  "
             f"{row['realized_pnl']:>8.2f}"
         )
     return "\n".join(lines)

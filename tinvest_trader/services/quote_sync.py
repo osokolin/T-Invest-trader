@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from tinvest_trader.infra.storage.repository import TradingRepository
 from tinvest_trader.infra.tbank.client import TBankClient
@@ -30,6 +31,8 @@ def sync_quotes(
     repository: TradingRepository,
     logger: logging.Logger,
     limit: int = 0,
+    max_source_age_seconds: int = 0,
+    now_fn: Callable[[], datetime] | None = None,
 ) -> QuoteSyncResult:
     """Fetch last prices for tracked instruments and persist to DB.
 
@@ -111,7 +114,11 @@ def sync_quotes(
     result.received = len(raw_prices)
 
     # 5. Map prices to instruments and build quote records
-    now = datetime.now(UTC)
+    now = (now_fn or (lambda: datetime.now(UTC)))()
+    now = now.replace(tzinfo=UTC) if now.tzinfo is None else now.astimezone(UTC)
+    oldest_source_time = now - timedelta(
+        seconds=max(0, max_source_age_seconds),
+    )
     quotes_to_insert: list[dict] = []
 
     for price_item in raw_prices:
@@ -135,6 +142,20 @@ def sync_quotes(
 
         # Parse source_time if present
         source_time = _parse_timestamp(source_time_str)
+        if (
+            max_source_age_seconds > 0
+            and (source_time is None or source_time < oldest_source_time)
+        ):
+            result.skipped += 1
+            logger.warning(
+                "quote sync: stale source price skipped",
+                extra={
+                    "component": "quote_sync",
+                    "ticker": inst["ticker"],
+                    "source_time": str(source_time),
+                },
+            )
+            continue
 
         quotes_to_insert.append({
             "ticker": inst["ticker"],
@@ -180,6 +201,11 @@ def _parse_timestamp(value: str) -> datetime | None:
     try:
         # T-Bank uses ISO format like "2026-03-20T10:30:00.123Z"
         cleaned = value.replace("Z", "+00:00")
-        return datetime.fromisoformat(cleaned)
+        parsed = datetime.fromisoformat(cleaned)
+        return (
+            parsed.replace(tzinfo=UTC)
+            if parsed.tzinfo is None
+            else parsed.astimezone(UTC)
+        )
     except (ValueError, TypeError):
         return None

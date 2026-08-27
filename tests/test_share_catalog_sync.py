@@ -249,6 +249,41 @@ def test_sync_respects_limit():
     assert repo.upsert_catalog_entry.call_count == 2
 
 
+def test_sync_prefers_active_tqbr_duplicate() -> None:
+    shares = [
+        {
+            "figi": "STALE",
+            "ticker": "OZON",
+            "uid": "uid-stale",
+            "class_code": "SPBXM",
+            "trading_status": "SECURITY_TRADING_STATUS_NOT_AVAILABLE_FOR_TRADING",
+            "api_trade_available": False,
+        },
+        {
+            "figi": "ACTIVE",
+            "ticker": "OZON",
+            "uid": "uid-active",
+            "class_code": "TQBR",
+            "trading_status": "SECURITY_TRADING_STATUS_NORMAL_TRADING",
+            "api_trade_available": True,
+            "buy_available": True,
+            "sell_available": True,
+            "real_exchange": "REAL_EXCHANGE_MOEX",
+        },
+    ]
+    repo, client = _make_repo_and_client(shares)
+    repo.upsert_catalog_entry.return_value = "updated"
+
+    result = sync_share_catalog(repo, client, logging.getLogger("test"))
+
+    assert result.synced == 1
+    assert result.skipped == 1
+    repo.upsert_catalog_entry.assert_called_once()
+    call = repo.upsert_catalog_entry.call_args.kwargs
+    assert call["figi"] == "ACTIVE"
+    assert call["instrument_uid"] == "uid-active"
+
+
 # ================================================================
 # Repository method SQL verification
 # ================================================================
@@ -342,6 +377,12 @@ def test_list_all_shares_normalizes():
                 "isin": "RU123",
                 "lot": 10,
                 "currency": "rub",
+                "classCode": "TQBR",
+                "tradingStatus": "SECURITY_TRADING_STATUS_NORMAL_TRADING",
+                "apiTradeAvailableFlag": True,
+                "buyAvailableFlag": True,
+                "sellAvailableFlag": True,
+                "realExchange": "REAL_EXCHANGE_MOEX",
             },
             {
                 "figi": "",
@@ -363,3 +404,6 @@ def test_list_all_shares_normalizes():
     assert len(result) == 1
     assert result[0]["ticker"] == "SBER"
     assert result[0]["figi"] == "BBG004730N88"
+    assert result[0]["class_code"] == "TQBR"
+    assert result[0]["api_trade_available"] is True
+    assert result[0]["real_exchange"] == "REAL_EXCHANGE_MOEX"

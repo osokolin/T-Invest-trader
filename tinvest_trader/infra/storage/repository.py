@@ -2795,6 +2795,35 @@ class TradingRepository:
             cur = conn.execute(sql, values)
         return cur.rowcount > 0
 
+    def expire_stale_activity_paper_positions(
+        self,
+        *,
+        portfolio_name: str,
+        before: datetime,
+        expired_at: datetime,
+    ) -> int:
+        """Release unresolved virtual positions without fabricating PnL."""
+        sql = """
+            UPDATE activity_paper_positions position
+            SET status = 'expired', exit_time = %s, updated_at = %s
+            WHERE position.portfolio_name = %s
+              AND position.status = 'open'
+              AND position.entry_time < %s
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM market_activity_spike_outcomes outcome
+                  WHERE outcome.spike_id = position.spike_id
+                    AND outcome.horizon = position.horizon
+              )
+            RETURNING position.id
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(
+                sql,
+                (expired_at, expired_at, portfolio_name, before),
+            ).fetchall()
+        return len(rows)
+
     def list_activity_paper_entry_candidates(
         self,
         portfolio_name: str,
@@ -2922,6 +2951,7 @@ class TradingRepository:
                    portfolio.initial_cash, portfolio.currency, portfolio.started_at,
                    count(position.id) FILTER (WHERE position.status = 'open'),
                    count(position.id) FILTER (WHERE position.status = 'closed'),
+                   count(position.id) FILTER (WHERE position.status = 'expired'),
                    coalesce(sum(position.notional)
                        FILTER (WHERE position.status = 'open'), 0),
                    coalesce(sum(position.net_pnl)
@@ -2951,10 +2981,11 @@ class TradingRepository:
             "started_at": row[5],
             "open_positions": row[6],
             "closed_positions": row[7],
-            "open_notional": float(row[8]),
-            "realized_pnl": float(row[9]),
-            "wins": row[10],
-            "avg_net_return_pct": float(row[11]) if row[11] is not None else None,
+            "expired_positions": row[8],
+            "open_notional": float(row[9]),
+            "realized_pnl": float(row[10]),
+            "wins": row[11],
+            "avg_net_return_pct": float(row[12]) if row[12] is not None else None,
         }
 
     def get_latest_quote_by_ticker(self, ticker: str) -> dict | None:

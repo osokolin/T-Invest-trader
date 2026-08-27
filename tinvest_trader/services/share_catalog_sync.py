@@ -45,12 +45,15 @@ def sync_share_catalog(
         )
         return result
 
+    selected_shares = _select_preferred_shares(shares)
+    result.skipped += len(shares) - len(selected_shares)
+
     if limit > 0:
-        shares = shares[:limit]
+        selected_shares = selected_shares[:limit]
 
-    result.synced = len(shares)
+    result.synced = len(selected_shares)
 
-    for share in shares:
+    for share in selected_shares:
         ticker = share.get("ticker", "")
         if not ticker:
             result.skipped += 1
@@ -95,3 +98,28 @@ def sync_share_catalog(
         },
     )
     return result
+
+
+def _select_preferred_shares(shares: list[dict]) -> list[dict]:
+    """Choose one deterministic, tradable instrument for each ticker."""
+    selected: dict[str, dict] = {}
+    for share in shares:
+        ticker = str(share.get("ticker") or "").strip().upper()
+        if not ticker:
+            continue
+        current = selected.get(ticker)
+        if current is None or _share_priority(share) > _share_priority(current):
+            selected[ticker] = share
+    return list(selected.values())
+
+
+def _share_priority(share: dict) -> tuple[bool, bool, bool, bool, bool, bool]:
+    return (
+        bool(share.get("api_trade_available")),
+        str(share.get("class_code") or "").upper() == "TQBR",
+        str(share.get("trading_status") or "").upper()
+        == "SECURITY_TRADING_STATUS_NORMAL_TRADING",
+        str(share.get("real_exchange") or "").upper() == "REAL_EXCHANGE_MOEX",
+        bool(share.get("buy_available")),
+        bool(share.get("sell_available")),
+    )

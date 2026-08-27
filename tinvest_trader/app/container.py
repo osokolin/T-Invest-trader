@@ -519,7 +519,8 @@ class Container:
 
     def _build_quote_sync_fn(self):
         """Build a callable for quote sync if prerequisites are met."""
-        if not self.config.quote_sync.enabled:
+        cfg = self.config.quote_sync
+        if not cfg.enabled:
             return None
         if self.repository is None:
             return None
@@ -531,6 +532,7 @@ class Container:
                 client=self.tbank_client,
                 repository=self.repository,
                 logger=self.logger,
+                max_source_age_seconds=cfg.max_source_age_seconds,
             )
 
         self.logger.info(

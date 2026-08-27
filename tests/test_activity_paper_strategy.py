@@ -22,6 +22,7 @@ class FakeRepository:
         self.resolved_positions: dict[str, list[dict]] = {}
         self.inserted_positions: list[dict] = []
         self.closed_positions: list[dict] = []
+        self.expired_positions: list[dict] = []
         self.decisions: list[dict] = []
         self.fail_portfolio: str | None = None
 
@@ -43,6 +44,10 @@ class FakeRepository:
     def close_activity_paper_position(self, **kwargs):
         self.closed_positions.append(kwargs)
         return True
+
+    def expire_stale_activity_paper_positions(self, **kwargs):
+        self.expired_positions.append(kwargs)
+        return 1 if self.open_positions.get(kwargs["portfolio_name"]) else 0
 
     def get_activity_paper_summary(self, name):
         portfolio = self.portfolios[name]
@@ -225,6 +230,26 @@ def test_closes_positions_with_round_trip_costs() -> None:
     assert close["net_return_pct"] == pytest.approx(0.008)
 
 
+def test_expires_unresolved_positions_without_fabricating_pnl() -> None:
+    repo = FakeRepository()
+    repo.open_positions["activity-momentum-v1"] = [{
+        "ticker": "SBER",
+        "notional": 10_000.0,
+    }]
+
+    result = _service(
+        repo,
+        unresolved_position_expiry_minutes=180,
+    ).run_cycle()
+
+    assert result.expired == 1
+    call = repo.expired_positions[0]
+    assert call["portfolio_name"] == "activity-momentum-v1"
+    assert call["before"] == NOW - timedelta(minutes=180)
+    assert call["expired_at"] == NOW
+    assert repo.closed_positions == []
+
+
 @pytest.mark.parametrize(
     ("candidate", "reason"),
     [
@@ -324,6 +349,7 @@ def test_activity_paper_config_parses_environment(monkeypatch) -> None:
         "2",
     )
     monkeypatch.setenv("TINVEST_BACKGROUND_RUN_ACTIVITY_PAPER_STRATEGY", "false")
+    monkeypatch.setenv("TINVEST_ACTIVITY_PAPER_UNRESOLVED_EXPIRY_MINUTES", "240")
 
     config = load_config()
 
@@ -335,6 +361,7 @@ def test_activity_paper_config_parses_environment(monkeypatch) -> None:
     assert config.activity_paper.volume_confirmed_enabled is True
     assert config.activity_paper.volume_confirmation_min_move_pct == 0.001
     assert config.activity_paper.volume_confirmation_max_delay_minutes == 2
+    assert config.activity_paper.unresolved_position_expiry_minutes == 240
     assert config.background.run_activity_paper_strategy is False
 
 

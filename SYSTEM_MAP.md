@@ -66,6 +66,8 @@ execution, and order placement.
 
 Outcome horizons are scheduled independently so a future long or session-close
 target cannot starve already elapsed short horizons.
+Sparse candles use a bounded configurable delay; positions that still cannot be
+resolved expire as virtual-only records without synthetic returns.
 
 ---
 

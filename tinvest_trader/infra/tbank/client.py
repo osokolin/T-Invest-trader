@@ -181,6 +181,14 @@ class TBankClient:
                 "isin": inst.get("isin", ""),
                 "lot": inst.get("lot"),
                 "currency": inst.get("currency", ""),
+                "class_code": inst.get("classCode", ""),
+                "trading_status": inst.get("tradingStatus", ""),
+                "api_trade_available": bool(
+                    inst.get("apiTradeAvailableFlag", False),
+                ),
+                "buy_available": bool(inst.get("buyAvailableFlag", False)),
+                "sell_available": bool(inst.get("sellAvailableFlag", False)),
+                "real_exchange": inst.get("realExchange", ""),
             })
 
         self._logger.info(
