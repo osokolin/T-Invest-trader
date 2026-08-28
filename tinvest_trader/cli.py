@@ -1079,6 +1079,8 @@ def _run_activity_paper_stats(config: AppConfig, container: Container) -> int:
     ]
     if config.activity_paper.volume_confirmed_enabled:
         names.append(config.activity_paper.volume_confirmed_portfolio_name)
+    if config.activity_paper.volume_confirmed_v2_enabled:
+        names.append(config.activity_paper.volume_confirmed_v2_portfolio_name)
     summaries = [repository.get_activity_paper_summary(name) for name in names]
     print(format_activity_paper_summary(summaries))
     return 0

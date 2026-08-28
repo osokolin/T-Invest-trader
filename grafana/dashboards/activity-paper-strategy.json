@@ -1,6 +1,6 @@
 {
   "annotations": { "list": [] },
-  "description": "A/B/C virtual portfolio comparison for market-activity momentum, reversion, and confirmed-volume experiments. No broker positions or orders are represented.",
+  "description": "A/B/C/D virtual portfolio comparison for market-activity momentum, reversion, and confirmed-volume v1/v2 experiments. No broker positions or orders are represented.",
   "editable": false,
   "links": [
     { "asDropdown": true, "includeTimeRange": true, "keepTimeRange": true, "tags": ["tinvest"], "title": "Open another T-Invest dashboard", "type": "dashboards" }

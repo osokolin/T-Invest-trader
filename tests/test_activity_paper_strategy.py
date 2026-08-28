@@ -24,6 +24,8 @@ class FakeRepository:
         self.closed_positions: list[dict] = []
         self.expired_positions: list[dict] = []
         self.decisions: list[dict] = []
+        self.entries_since: dict[str, int] = {}
+        self.entry_count_calls: list[tuple[str, datetime]] = []
         self.fail_portfolio: str | None = None
 
     def ensure_activity_paper_portfolio(self, **kwargs):
@@ -68,6 +70,10 @@ class FakeRepository:
     def list_activity_paper_entry_candidates(self, _name):
         return self.candidates
 
+    def count_activity_paper_entries_since(self, name, since):
+        self.entry_count_calls.append((name, since))
+        return self.entries_since.get(name, 0)
+
     def insert_activity_paper_position(self, position):
         self.inserted_positions.append(position)
         return len(self.inserted_positions)
@@ -88,6 +94,7 @@ def _candidate(**overrides) -> dict:
         "score": 80.0,
         "entry_price": 100.0,
         "price_change_pct": 0.01,
+        "volume_ratio": 6.0,
         "confirmation_time": None,
         "confirmation_price": None,
         "confirmation_move_pct": None,
@@ -151,6 +158,129 @@ def test_volume_confirmed_arm_enters_at_following_candle_price() -> None:
     assert position["direction"] == "up"
     assert position["entry_price"] == 100.2
     assert position["entry_time"] == NOW - timedelta(seconds=15)
+
+
+def test_volume_confirmed_v2_enters_with_strict_quality_gates() -> None:
+    repo = FakeRepository()
+    repo.candidates = [_candidate(
+        spike_type="volume",
+        confirmation_time=NOW - timedelta(seconds=15),
+        confirmation_price=100.5,
+        confirmation_move_pct=0.005,
+        volume_ratio=6.0,
+        score=85.0,
+    )]
+
+    result = _service(repo, volume_confirmed_v2_enabled=True).run_cycle()
+
+    assert result.opened == 1
+    position = repo.inserted_positions[0]
+    assert position["portfolio_name"] == "activity-volume-confirmed-v2"
+    assert position["strategy"] == "volume_confirmed_v2"
+    assert position["entry_price"] == 100.5
+    assert repo.entry_count_calls == [(
+        "activity-volume-confirmed-v2",
+        datetime(2026, 8, 23, 21, 0, tzinfo=UTC),
+    )]
+
+
+@pytest.mark.parametrize(
+    ("overrides", "reason"),
+    [
+        ({"severity": "medium"}, "v2_severity_below_high"),
+        ({"score": 79.0}, "v2_score_below_minimum"),
+        ({"volume_ratio": None}, "v2_volume_ratio_unavailable"),
+        ({"volume_ratio": 4.9}, "v2_volume_ratio_below_minimum"),
+    ],
+)
+def test_volume_confirmed_v2_quality_rejections_are_explainable(
+    overrides: dict,
+    reason: str,
+) -> None:
+    repo = FakeRepository()
+    repo.candidates = [_candidate(
+        spike_type="volume",
+        confirmation_time=NOW - timedelta(seconds=15),
+        confirmation_price=100.5,
+        confirmation_move_pct=0.005,
+        **overrides,
+    )]
+
+    result = _service(repo, volume_confirmed_v2_enabled=True).run_cycle()
+
+    assert result.opened == 0
+    v2_decisions = [
+        item for item in repo.decisions
+        if item["portfolio_name"] == "activity-volume-confirmed-v2"
+    ]
+    assert [item["reason"] for item in v2_decisions] == [reason]
+
+
+def test_volume_confirmed_v2_requires_larger_confirmation_move() -> None:
+    repo = FakeRepository()
+    repo.candidates = [_candidate(
+        spike_type="volume",
+        confirmation_time=NOW - timedelta(seconds=15),
+        confirmation_price=100.3,
+        confirmation_move_pct=0.003,
+    )]
+
+    result = _service(repo, volume_confirmed_v2_enabled=True).run_cycle()
+
+    assert result.opened == 0
+    v2_decisions = [
+        item for item in repo.decisions
+        if item["portfolio_name"] == "activity-volume-confirmed-v2"
+    ]
+    assert [item["reason"] for item in v2_decisions] == [
+        "confirmation_move_below_minimum",
+    ]
+
+
+def test_volume_confirmed_v2_enforces_daily_limit() -> None:
+    repo = FakeRepository()
+    repo.entries_since["activity-volume-confirmed-v2"] = 20
+    repo.candidates = [_candidate(
+        spike_type="volume",
+        confirmation_time=NOW - timedelta(seconds=15),
+        confirmation_price=100.5,
+        confirmation_move_pct=0.005,
+    )]
+
+    result = _service(repo, volume_confirmed_v2_enabled=True).run_cycle()
+
+    assert result.opened == 0
+    v2_decisions = [
+        item for item in repo.decisions
+        if item["portfolio_name"] == "activity-volume-confirmed-v2"
+    ]
+    assert [item["reason"] for item in v2_decisions] == [
+        "v2_daily_entry_limit",
+    ]
+
+
+def test_volume_confirmed_v2_uses_its_longer_cooldown() -> None:
+    repo = FakeRepository()
+    repo.candidates = [_candidate(
+        spike_type="volume",
+        confirmation_time=NOW - timedelta(seconds=15),
+        confirmation_price=100.5,
+        confirmation_move_pct=0.005,
+        latest_entry_time=NOW - timedelta(minutes=60),
+    )]
+
+    result = _service(
+        repo,
+        volume_confirmed_v2_enabled=True,
+        max_open_positions_per_ticker=2,
+    ).run_cycle()
+
+    assert result.opened == 0
+    v2_decisions = [
+        item for item in repo.decisions
+        if item["portfolio_name"] == "activity-volume-confirmed-v2"
+    ]
+    assert [item["reason"] for item in v2_decisions] == ["ticker_cooldown"]
 
 
 def test_volume_confirmation_pending_is_retried_without_terminal_decision() -> None:
@@ -348,6 +478,18 @@ def test_activity_paper_config_parses_environment(monkeypatch) -> None:
         "TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMATION_MAX_DELAY_MINUTES",
         "2",
     )
+    monkeypatch.setenv(
+        "TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_V2_ENABLED",
+        "true",
+    )
+    monkeypatch.setenv(
+        "TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_V2_MIN_VOLUME_RATIO",
+        "6",
+    )
+    monkeypatch.setenv(
+        "TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_V2_MAX_ENTRIES_PER_DAY",
+        "12",
+    )
     monkeypatch.setenv("TINVEST_BACKGROUND_RUN_ACTIVITY_PAPER_STRATEGY", "false")
     monkeypatch.setenv("TINVEST_ACTIVITY_PAPER_UNRESOLVED_EXPIRY_MINUTES", "240")
 
@@ -361,6 +503,9 @@ def test_activity_paper_config_parses_environment(monkeypatch) -> None:
     assert config.activity_paper.volume_confirmed_enabled is True
     assert config.activity_paper.volume_confirmation_min_move_pct == 0.001
     assert config.activity_paper.volume_confirmation_max_delay_minutes == 2
+    assert config.activity_paper.volume_confirmed_v2_enabled is True
+    assert config.activity_paper.volume_confirmed_v2_min_volume_ratio == 6.0
+    assert config.activity_paper.volume_confirmed_v2_max_entries_per_day == 12
     assert config.activity_paper.unresolved_position_expiry_minutes == 240
     assert config.background.run_activity_paper_strategy is False
 

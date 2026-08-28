@@ -11,10 +11,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
 if TYPE_CHECKING:
     from tinvest_trader.app.config import ActivityPaperConfig
     from tinvest_trader.infra.storage.repository import TradingRepository
+
+_MOSCOW = ZoneInfo("Europe/Moscow")
 
 
 @dataclass(frozen=True)
@@ -95,6 +98,11 @@ class ActivityPaperStrategyService:
             experiments.append((
                 self._config.volume_confirmed_portfolio_name,
                 "volume_confirmed",
+            ))
+        if self._config.volume_confirmed_v2_enabled:
+            experiments.append((
+                self._config.volume_confirmed_v2_portfolio_name,
+                "volume_confirmed_v2",
             ))
         return tuple(experiments)
 
@@ -184,6 +192,12 @@ class ActivityPaperStrategyService:
             summary["initial_cash"] * self._config.position_fraction,
         )
         latest_by_ticker: dict[str, datetime] = {}
+        entries_today = 0
+        if strategy == "volume_confirmed_v2":
+            entries_today = self._repository.count_activity_paper_entries_since(
+                portfolio["name"],
+                self._moscow_day_start(now),
+            )
         opened = skipped = deferred = 0
 
         for raw_candidate in self._repository.list_activity_paper_entry_candidates(
@@ -225,11 +239,13 @@ class ActivityPaperStrategyService:
 
             reason = self._risk_skip_reason(
                 candidate=candidate,
+                strategy=strategy,
                 now=now,
                 open_count=open_count,
                 open_for_ticker=open_by_ticker[ticker],
                 available_cash=available_cash,
                 latest_entry_time=latest_by_ticker.get(ticker),
+                entries_today=entries_today,
             )
             if reason is not None:
                 self._record_decision(portfolio["name"], candidate, "skip", reason, now)
@@ -261,6 +277,7 @@ class ActivityPaperStrategyService:
             open_by_ticker[ticker] += 1
             latest_by_ticker[ticker] = self._as_aware(candidate["entry_time"])
             available_cash -= notional
+            entries_today += 1
         return opened, skipped, deferred
 
     def _quality_skip_reason(self, candidate: dict, strategy: str) -> str | None:
@@ -268,6 +285,19 @@ class ActivityPaperStrategyService:
             return "score_below_minimum"
         if candidate["severity"] not in self._config.allowed_severities:
             return "severity_not_allowed"
+        if strategy == "volume_confirmed_v2":
+            if candidate["spike_type"] != "volume":
+                return "spike_type_not_volume"
+            if candidate["severity"] != "high":
+                return "v2_severity_below_high"
+            if candidate["score"] < self._config.volume_confirmed_v2_min_score:
+                return "v2_score_below_minimum"
+            volume_ratio = candidate.get("volume_ratio")
+            if volume_ratio is None:
+                return "v2_volume_ratio_unavailable"
+            if volume_ratio < self._config.volume_confirmed_v2_min_volume_ratio:
+                return "v2_volume_ratio_below_minimum"
+            return None
         if strategy == "volume_confirmed":
             if candidate["spike_type"] != "volume":
                 return "spike_type_not_volume"
@@ -285,7 +315,7 @@ class ActivityPaperStrategyService:
         strategy: str,
         now: datetime,
     ) -> tuple[dict | None, str | None]:
-        if strategy != "volume_confirmed":
+        if strategy not in {"volume_confirmed", "volume_confirmed_v2"}:
             return candidate, None
 
         confirmation_time = candidate.get("confirmation_time")
@@ -300,10 +330,13 @@ class ActivityPaperStrategyService:
 
         spike_time = self._as_aware(candidate["entry_time"])
         confirmation_time = self._as_aware(confirmation_time)
-        max_delay = timedelta(minutes=max(
-            0,
-            self._config.volume_confirmation_max_delay_minutes,
-        ))
+        if strategy == "volume_confirmed_v2":
+            max_delay_minutes = self._config.volume_confirmed_v2_max_delay_minutes
+            min_move_pct = self._config.volume_confirmed_v2_min_move_pct
+        else:
+            max_delay_minutes = self._config.volume_confirmation_max_delay_minutes
+            min_move_pct = self._config.volume_confirmation_min_move_pct
+        max_delay = timedelta(minutes=max(0, max_delay_minutes))
         if confirmation_time <= spike_time or confirmation_time - spike_time > max_delay:
             return None, "confirmation_too_late"
 
@@ -311,7 +344,7 @@ class ActivityPaperStrategyService:
         confirmation_move = candidate.get("confirmation_move_pct")
         if confirmation_price is None or confirmation_move is None:
             return None, "confirmation_unavailable"
-        min_move = max(0.0, self._config.volume_confirmation_min_move_pct)
+        min_move = max(0.0, min_move_pct)
         if abs(confirmation_move) < min_move:
             return None, "confirmation_move_below_minimum"
 
@@ -326,15 +359,22 @@ class ActivityPaperStrategyService:
         self,
         *,
         candidate: dict,
+        strategy: str,
         now: datetime,
         open_count: int,
         open_for_ticker: int,
         available_cash: float,
         latest_entry_time: datetime | None,
+        entries_today: int,
     ) -> str | None:
         max_age = timedelta(minutes=max(0, self._config.max_candidate_age_minutes))
         if now - self._as_aware(candidate["entry_time"]) > max_age:
             return "candidate_stale"
+        if strategy == "volume_confirmed_v2" and entries_today >= max(
+            0,
+            self._config.volume_confirmed_v2_max_entries_per_day,
+        ):
+            return "v2_daily_entry_limit"
         if open_count >= max(0, self._config.max_open_positions):
             return "portfolio_capacity"
         if open_for_ticker >= max(0, self._config.max_open_positions_per_ticker):
@@ -342,7 +382,12 @@ class ActivityPaperStrategyService:
         if available_cash <= 0 or self._config.position_fraction <= 0:
             return "insufficient_virtual_cash"
         if latest_entry_time is not None:
-            cooldown = timedelta(minutes=max(0, self._config.cooldown_minutes))
+            cooldown_minutes = (
+                self._config.volume_confirmed_v2_cooldown_minutes
+                if strategy == "volume_confirmed_v2"
+                else self._config.cooldown_minutes
+            )
+            cooldown = timedelta(minutes=max(0, cooldown_minutes))
             if self._as_aware(candidate["entry_time"]) - latest_entry_time < cooldown:
                 return "ticker_cooldown"
         return None
@@ -366,7 +411,7 @@ class ActivityPaperStrategyService:
     @staticmethod
     def _direction(price_change_pct: float, strategy: str) -> str:
         momentum = "up" if price_change_pct > 0 else "down"
-        if strategy in {"momentum", "volume_confirmed"}:
+        if strategy in {"momentum", "volume_confirmed", "volume_confirmed_v2"}:
             return momentum
         if strategy == "reversion":
             return "down" if momentum == "up" else "up"
@@ -374,6 +419,15 @@ class ActivityPaperStrategyService:
 
     def _normalized_now(self) -> datetime:
         return self._as_aware(self._now_fn()).astimezone(UTC)
+
+    @staticmethod
+    def _moscow_day_start(now: datetime) -> datetime:
+        return now.astimezone(_MOSCOW).replace(
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        ).astimezone(UTC)
 
     @staticmethod
     def _as_aware(value: datetime) -> datetime:
