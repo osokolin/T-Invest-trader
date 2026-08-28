@@ -460,7 +460,7 @@ def test_activity_paper_candidate_maps_following_confirmation_candle():
     confirmation_time = spike_time + timedelta(minutes=1)
     conn.execute.return_value.fetchall.return_value = [(
         7, "SBER", "BBG004730N88", spike_time, "volume", "high", 80,
-        100, 0.0, confirmation_time, 100.2, 0.002, None,
+        100, 0.0, 6.0, confirmation_time, 100.2, 0.002, None,
     )]
 
     result = repo.list_activity_paper_entry_candidates(
@@ -477,11 +477,29 @@ def test_activity_paper_candidate_maps_following_confirmation_candle():
         "score": 80.0,
         "entry_price": 100.0,
         "price_change_pct": 0.0,
+        "volume_ratio": 6.0,
         "confirmation_time": confirmation_time,
         "confirmation_price": 100.2,
         "confirmation_move_pct": 0.002,
         "latest_entry_time": None,
     }]
+
+
+def test_count_activity_paper_entries_since_uses_entry_time_boundary():
+    repo, conn = _make_repo()
+    conn.execute.return_value.fetchone.return_value = (12,)
+    since = datetime(2026, 8, 23, 21, 0, tzinfo=UTC)
+
+    result = repo.count_activity_paper_entries_since(
+        "activity-volume-confirmed-v2",
+        since,
+    )
+
+    assert result == 12
+    sql, params = conn.execute.call_args.args
+    assert "activity_paper_positions" in sql
+    assert "entry_time >= %s" in sql
+    assert params == ("activity-volume-confirmed-v2", since)
 
 
 def test_resolved_activity_positions_use_virtual_entry_price():

@@ -92,12 +92,14 @@ restricted to a configured Moscow trading session by default.
 
 ### 10. Activity Paper Strategy
 Isolated virtual portfolios compare momentum and reversion after qualified
-market-activity spikes. An optional third arm tests pure-volume spikes only
+market-activity spikes. Optional confirmed-volume arms test pure-volume spikes only
 after the following closed candle confirms direction. Capital, exposure,
 cooldown, commission, and slippage are simulated locally. Activity-paper
 records never represent broker positions and cannot reach the execution engine.
 Unresolvable virtual positions expire without fabricated prices or PnL so that
 missing candle windows cannot permanently consume paper capacity.
+A stricter v2 arm adds score, volume-ratio, confirmation-move, cooldown, and
+daily-entry gates without changing the original v1 control group.
 
 ---
 

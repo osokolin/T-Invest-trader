@@ -2864,6 +2864,7 @@ class TradingRepository:
             SELECT s.id, s.ticker, s.figi, s.candle_time, s.spike_type,
                    s.severity, s.score, o.close_price,
                    (s.metrics_json->>'price_change_pct')::double precision,
+                   (s.metrics_json->>'volume_ratio')::double precision,
                    confirmation.candle_time,
                    confirmation.close_price,
                    (confirmation.close_price - o.close_price)
@@ -2904,6 +2905,7 @@ class TradingRepository:
         columns = (
             "spike_id", "ticker", "figi", "entry_time", "spike_type",
             "severity", "score", "entry_price", "price_change_pct",
+            "volume_ratio",
             "confirmation_time", "confirmation_price",
             "confirmation_move_pct",
             "latest_entry_time",
@@ -2918,6 +2920,8 @@ class TradingRepository:
             candidate["price_change_pct"] = float(
                 candidate["price_change_pct"] or 0.0,
             )
+            if candidate["volume_ratio"] is not None:
+                candidate["volume_ratio"] = float(candidate["volume_ratio"])
             if candidate["confirmation_price"] is not None:
                 candidate["confirmation_price"] = float(
                     candidate["confirmation_price"],
@@ -2928,6 +2932,21 @@ class TradingRepository:
                 )
             candidates.append(candidate)
         return candidates
+
+    def count_activity_paper_entries_since(
+        self,
+        portfolio_name: str,
+        since: datetime,
+    ) -> int:
+        """Count virtual entries since a boundary for an experiment arm."""
+        sql = """
+            SELECT count(*)
+            FROM activity_paper_positions
+            WHERE portfolio_name = %s AND entry_time >= %s
+        """
+        with self._pool.get_connection() as conn:
+            row = conn.execute(sql, (portfolio_name, since)).fetchone()
+        return int(row[0]) if row else 0
 
     def insert_activity_paper_position(self, position: dict) -> int | None:
         """Insert one virtual position without touching broker execution."""

@@ -245,6 +245,14 @@ class ActivityPaperConfig:
     volume_confirmed_portfolio_name: str = "activity-volume-confirmed-v1"
     volume_confirmation_min_move_pct: float = 0.002
     volume_confirmation_max_delay_minutes: int = 3
+    volume_confirmed_v2_enabled: bool = False
+    volume_confirmed_v2_portfolio_name: str = "activity-volume-confirmed-v2"
+    volume_confirmed_v2_min_score: float = 80.0
+    volume_confirmed_v2_min_volume_ratio: float = 5.0
+    volume_confirmed_v2_min_move_pct: float = 0.004
+    volume_confirmed_v2_max_delay_minutes: int = 2
+    volume_confirmed_v2_cooldown_minutes: int = 120
+    volume_confirmed_v2_max_entries_per_day: int = 20
     horizon: str = "15m"
     initial_cash: float = 1_000_000.0
     position_fraction: float = 0.02
@@ -831,6 +839,36 @@ def load_config() -> AppConfig:
             volume_confirmation_max_delay_minutes=int(os.environ.get(
                 "TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMATION_MAX_DELAY_MINUTES",
                 "3",
+            )),
+            volume_confirmed_v2_enabled=os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_V2_ENABLED", "false",
+            ).lower() == "true",
+            volume_confirmed_v2_portfolio_name=os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_V2_NAME",
+                "activity-volume-confirmed-v2",
+            ),
+            volume_confirmed_v2_min_score=float(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_V2_MIN_SCORE", "80",
+            )),
+            volume_confirmed_v2_min_volume_ratio=float(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_V2_MIN_VOLUME_RATIO",
+                "5",
+            )),
+            volume_confirmed_v2_min_move_pct=float(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_V2_MIN_MOVE_PCT",
+                "0.004",
+            )),
+            volume_confirmed_v2_max_delay_minutes=int(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_V2_MAX_DELAY_MINUTES",
+                "2",
+            )),
+            volume_confirmed_v2_cooldown_minutes=int(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_V2_COOLDOWN_MINUTES",
+                "120",
+            )),
+            volume_confirmed_v2_max_entries_per_day=int(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_V2_MAX_ENTRIES_PER_DAY",
+                "20",
             )),
             horizon=os.environ.get("TINVEST_ACTIVITY_PAPER_HORIZON", "15m"),
             initial_cash=float(os.environ.get(

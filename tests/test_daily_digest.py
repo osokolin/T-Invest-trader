@@ -257,7 +257,20 @@ class TestFormatDailyDigest:
 
 
 class TestSendDailyDigest:
-    def test_dry_run_does_not_send(self, mock_repo, delivery_config, mock_logger):
+    @patch("tinvest_trader.services.daily_digest.datetime")
+    def test_dry_run_does_not_send(
+        self,
+        mock_datetime,
+        mock_repo,
+        delivery_config,
+        mock_logger,
+    ):
+        from zoneinfo import ZoneInfo
+
+        monday = datetime(2026, 3, 23, 17, 0, tzinfo=UTC)
+        mock_datetime.now.return_value = monday.astimezone(
+            ZoneInfo("Europe/Moscow"),
+        )
         mock_repo.get_daily_digest_data.return_value = {"signals_total": 5}
         result = send_daily_digest(
             mock_repo, delivery_config, mock_logger,

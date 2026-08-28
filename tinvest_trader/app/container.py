@@ -640,6 +640,12 @@ class Container:
                 "volume_confirmed_portfolio": (
                     self.config.activity_paper.volume_confirmed_portfolio_name
                 ),
+                "volume_confirmed_v2_enabled": (
+                    self.config.activity_paper.volume_confirmed_v2_enabled
+                ),
+                "volume_confirmed_v2_portfolio": (
+                    self.config.activity_paper.volume_confirmed_v2_portfolio_name
+                ),
             },
         )
 

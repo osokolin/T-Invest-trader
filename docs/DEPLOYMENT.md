@@ -185,6 +185,10 @@ only when that candle confirms a configured minimum price direction. It stores
 virtual positions and explainable enter/skip decisions only. It has no broker
 client, order, or execution dependency.
 
+An independent `volume-confirmed-v2` arm applies stricter score, volume-ratio,
+confirmation, cooldown, and Moscow-calendar daily-entry gates. Run it alongside
+v1 so historical v1 behavior and results remain an honest control group.
+
 The configured horizon must also be enabled in the market-activity outcome
 resolver. The confirmed-volume arm enters at the confirmation close and uses
 the existing spike-horizon outcome price; its return is calculated from that
@@ -199,6 +203,14 @@ TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_ENABLED=false
 TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_NAME=activity-volume-confirmed-v1
 TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMATION_MIN_MOVE_PCT=0.002
 TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMATION_MAX_DELAY_MINUTES=3
+TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_V2_ENABLED=false
+TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_V2_NAME=activity-volume-confirmed-v2
+TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_V2_MIN_SCORE=80
+TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_V2_MIN_VOLUME_RATIO=5
+TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_V2_MIN_MOVE_PCT=0.004
+TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_V2_MAX_DELAY_MINUTES=2
+TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_V2_COOLDOWN_MINUTES=120
+TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_V2_MAX_ENTRIES_PER_DAY=20
 TINVEST_ACTIVITY_PAPER_HORIZON=15m
 TINVEST_ACTIVITY_PAPER_INITIAL_CASH=1000000
 TINVEST_ACTIVITY_PAPER_POSITION_FRACTION=0.02
