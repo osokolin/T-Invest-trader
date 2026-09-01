@@ -202,6 +202,39 @@ def test_cli_activity_paper_stats_prints_enabled_arm_comparison(monkeypatch, cap
     assert "60.0%" in output
 
 
+def test_cli_medium_term_paper_stats_prints_three_arm_comparison(monkeypatch, capsys):
+    config = _make_config()
+    config.medium_term_paper = SimpleNamespace(
+        staircase_portfolio_name="medium-term-staircase-v1",
+        atr_portfolio_name="medium-term-atr-v1",
+        hybrid_portfolio_name="medium-term-hybrid-v1",
+    )
+    container = _make_container()
+    container.repository.get_medium_term_paper_summary.side_effect = [
+        {
+            "name": "medium-term-staircase-v1",
+            "strategy": "staircase",
+            "open_positions": 1,
+            "closed_positions": 2,
+            "wins": 1,
+            "realized_pnl": 500.0,
+            "avg_net_return_pct": 0.01,
+        },
+        None,
+        None,
+    ]
+    monkeypatch.setattr("tinvest_trader.cli.load_config", lambda: config)
+    monkeypatch.setattr("tinvest_trader.cli.build_container", lambda cfg: container)
+
+    exit_code = main(["medium-term-paper-stats"])
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "virtual only" in output
+    assert "medium-term-staircase-v1" in output
+    assert "50.0%" in output
+
+
 def test_cli_db_summary_handles_missing_database(monkeypatch, capsys):
     config = _make_config()
     container = _make_container()

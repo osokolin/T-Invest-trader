@@ -106,6 +106,7 @@ Start with these operational dashboards:
 
 - `Operator Overview` -- signal throughput, outcomes, and the latest paper portfolio
 - `Paper Trading` -- virtual positions, realized PnL, and source/ticker attribution
+- `Medium-Term Paper Strategy` -- staircase, ATR, and hybrid virtual portfolios
 - `Market Activity Monitor` -- T-Bank candle volume and price spikes; observational only
 - `Data Freshness & Pipeline Health` -- ingestion freshness and source errors
 - `Signal Lifecycle` -- generation, filtering, delivery, and outcomes
@@ -247,6 +248,54 @@ Inspect all enabled arms with the `Activity Paper Strategy` Grafana dashboard or
 
 ```
 python -m tinvest_trader.cli activity-paper-stats
+```
+
+## Medium-Term Paper Strategy
+
+The medium-term experiment is a daily, long-only A/B/C comparison built only
+from stored MOEX history. It never submits broker orders or creates broker stop
+orders. A completed day produces a trend/breakout/volume decision, and an
+eligible signal enters virtually at the next available daily open.
+
+The three isolated portfolios compare:
+
+- `staircase`: initial 2% stop, then +1 percentage point for every +2% gain
+- `atr`: initial and trailing stop based on two average true ranges
+- `hybrid`: ATR-aware initial stop, then breakeven and ATR trailing after +3%
+
+All arms use the same conservative defaults: 0.5% virtual equity risk per
+position, 20% maximum allocation, five concurrent positions, modeled round-trip
+commission/slippage, and a 63-session maximum holding period. A gap below the
+virtual stop exits at the next stored open rather than assuming the stop price.
+
+Enable sufficient MOEX history before enabling the experiment:
+
+```dotenv
+TINVEST_MOEX_ENABLED=true
+TINVEST_MOEX_HISTORY_ENABLED=true
+TINVEST_MOEX_HISTORY_LOOKBACK_DAYS=1825
+TINVEST_BACKGROUND_RUN_MOEX=true
+
+TINVEST_MEDIUM_TERM_PAPER_ENABLED=true
+TINVEST_MEDIUM_TERM_PAPER_POLL_INTERVAL_SECONDS=3600
+TINVEST_MEDIUM_TERM_PAPER_TRACKED_TICKERS=SBER,GAZP,LKOH
+TINVEST_MEDIUM_TERM_PAPER_RISK_PER_POSITION=0.005
+TINVEST_MEDIUM_TERM_PAPER_MAX_POSITION_FRACTION=0.20
+TINVEST_MEDIUM_TERM_PAPER_MAX_OPEN_POSITIONS=5
+TINVEST_MEDIUM_TERM_PAPER_INITIAL_STOP_PCT=0.02
+TINVEST_MEDIUM_TERM_PAPER_MAX_HOLDING_SESSIONS=63
+TINVEST_BACKGROUND_RUN_MEDIUM_TERM_PAPER_STRATEGY=true
+```
+
+An empty `TINVEST_MEDIUM_TERM_PAPER_TRACKED_TICKERS` falls back to the tracked
+instrument catalog. The initial MOEX backfill may take multiple cycles; verify
+at least 51 complete daily bars per ticker before judging signal frequency.
+Dividends are not credited to virtual PnL in this first research version.
+
+Inspect the three arms in the `Medium-Term Paper Strategy` Grafana dashboard or:
+
+```bash
+docker compose exec -T app python -m tinvest_trader.cli medium-term-paper-stats
 ```
 
 To confirm the datasource is connected:

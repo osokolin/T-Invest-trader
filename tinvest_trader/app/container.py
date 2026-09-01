@@ -36,6 +36,9 @@ from tinvest_trader.services.market_activity_outcome_service import (
     MarketActivityOutcomeService,
 )
 from tinvest_trader.services.market_activity_service import MarketActivityService
+from tinvest_trader.services.medium_term_paper_strategy_service import (
+    MediumTermPaperStrategyService,
+)
 from tinvest_trader.services.moex_ingestion_service import MoexIngestionService
 from tinvest_trader.services.observation_service import ObservationService
 from tinvest_trader.services.paper_portfolio_service import PaperPortfolioService
@@ -81,6 +84,9 @@ class Container:
         init=False, default=None,
     )
     activity_paper_strategy_service: ActivityPaperStrategyService | None = field(
+        init=False, default=None,
+    )
+    medium_term_paper_strategy_service: MediumTermPaperStrategyService | None = field(
         init=False, default=None,
     )
     background_runner: BackgroundRunner | None = field(init=False, default=None)
@@ -169,6 +175,10 @@ class Container:
         # A/B/C virtual portfolios for activity spikes (never broker execution)
         if self.config.activity_paper.enabled:
             self._wire_activity_paper_strategy()
+
+        # Daily medium-term virtual portfolios (never broker execution)
+        if self.config.medium_term_paper.enabled:
+            self._wire_medium_term_paper_strategy()
 
         # Signal generation callable (used by background runner and CLI)
         self._signal_generation_fn = self._build_signal_generation_fn()
@@ -649,6 +659,39 @@ class Container:
             },
         )
 
+    def _wire_medium_term_paper_strategy(self) -> None:
+        """Wire daily medium-term shadow portfolios from stored MOEX bars."""
+        if self.repository is None:
+            self.logger.warning(
+                "medium-term paper strategy disabled: database unavailable",
+                extra={"component": "medium_term_paper"},
+            )
+            return
+        cfg = self.config.medium_term_paper
+        tracked_tickers = cfg.tracked_tickers_override
+        if not tracked_tickers:
+            tracked_tickers = tuple(sorted(self._resolve_tracked_tickers()))
+        if not tracked_tickers:
+            self.logger.warning(
+                "medium-term paper strategy disabled: no tracked tickers",
+                extra={"component": "medium_term_paper"},
+            )
+            return
+        self.medium_term_paper_strategy_service = MediumTermPaperStrategyService(
+            repository=self.repository,
+            config=cfg,
+            logger=self.logger,
+            tracked_tickers=tracked_tickers,
+        )
+        self.logger.info(
+            "medium-term paper strategy initialized",
+            extra={
+                "component": "medium_term_paper",
+                "tracked_tickers": len(tracked_tickers),
+                "max_holding_sessions": cfg.max_holding_sessions,
+            },
+        )
+
     def _build_signal_resolution_fn(self):
         """Build a callable for signal resolution if prerequisites are met."""
         cfg = self.config.signal_resolution
@@ -914,6 +957,10 @@ class Container:
             ),
             activity_paper_strategy_service=self.activity_paper_strategy_service,
             activity_paper_config=self.config.activity_paper,
+            medium_term_paper_strategy_service=(
+                self.medium_term_paper_strategy_service
+            ),
+            medium_term_paper_config=self.config.medium_term_paper,
             signal_delivery_config=self.config.signal_delivery,
             signal_delivery_fn=self._signal_delivery_fn,
             callback_handler_fn=self._callback_handler_fn,
@@ -940,6 +987,9 @@ class Container:
                 ),
                 "run_activity_paper_strategy": (
                     self.activity_paper_strategy_service is not None
+                ),
+                "run_medium_term_paper_strategy": (
+                    self.medium_term_paper_strategy_service is not None
                 ),
             },
         )

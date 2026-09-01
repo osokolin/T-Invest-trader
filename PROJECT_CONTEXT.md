@@ -101,6 +101,14 @@ missing candle windows cannot permanently consume paper capacity.
 A stricter v2 arm adds score, volume-ratio, confirmation-move, cooldown, and
 daily-entry gates without changing the original v1 control group.
 
+### 11. Medium-Term Paper Strategy
+Stored MOEX daily bars drive three isolated long-only virtual portfolios:
+staircase trailing stops, ATR trailing stops, and a hybrid breakeven/ATR arm.
+Signals use completed daily bars and virtual entries use the next available
+daily open. Risk-based sizing, exposure limits, costs, gap-aware stops, and a
+maximum holding period are simulated locally. These records cannot reach the
+execution engine or represent broker positions or stop orders.
+
 ---
 
 ## Environments

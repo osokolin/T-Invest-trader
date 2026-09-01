@@ -17,6 +17,7 @@ def test_dashboard_json_files_are_present_and_valid() -> None:
         "operator-overview.json": "Operator Overview",
         "paper-trading.json": "Paper Trading",
         "activity-paper-strategy.json": "Activity Paper Strategy",
+        "medium-term-paper-strategy.json": "Medium-Term Paper Strategy",
         "market-activity.json": "Market Activity Monitor",
         "data-infra-health.json": "Data Freshness & Pipeline Health",
         "raw-data-flow.json": "Pipeline Debugging · Raw Data Flow",
@@ -121,6 +122,31 @@ def test_activity_paper_dashboard_is_virtual_and_explainable() -> None:
     assert portfolio_variable["includeAll"] is True
     assert portfolio_variable["multi"] is True
     assert portfolio_variable["current"]["value"] == "$__all"
+    assert "order_intents" not in query_text
+    assert "execution_events" not in query_text
+
+
+def test_medium_term_paper_dashboard_is_virtual_and_explainable() -> None:
+    dashboard = json.loads(
+        (GRAFANA_ROOT / "dashboards" / "medium-term-paper-strategy.json").read_text(),
+    )
+    titles = {panel["title"] for panel in dashboard["panels"]}
+    query_text = "\n".join(
+        target.get("rawSql", "")
+        for panel in dashboard["panels"]
+        for target in panel.get("targets", [])
+    )
+
+    assert "Virtual Portfolio Comparison" in titles
+    assert "Open Virtual Positions & Current Stops" in titles
+    assert "Virtual Stop Raises" in titles
+    assert "Why Daily Candidates Were Skipped" in titles
+    assert "medium_term_paper_positions" in query_text
+    assert "medium_term_stop_history" in query_text
+    assert "medium_term_paper_decisions" in query_text
+    assert query_text.count("IN (${portfolio:sqlstring})") == len(
+        dashboard["panels"],
+    )
     assert "order_intents" not in query_text
     assert "execution_events" not in query_text
 

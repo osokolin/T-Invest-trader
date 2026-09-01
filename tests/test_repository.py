@@ -596,3 +596,91 @@ def test_activity_paper_summary_reports_expired_separately() -> None:
     assert summary["closed_positions"] == 10
     assert summary["expired_positions"] == 2
     assert summary["realized_pnl"] == 125.0
+
+
+def test_list_moex_daily_history_is_complete_and_chronological() -> None:
+    repo, conn = _make_repo()
+    first = datetime(2026, 8, 21, tzinfo=UTC).date()
+    second = datetime(2026, 8, 24, tzinfo=UTC).date()
+    conn.execute.return_value.fetchall.return_value = [
+        (first, 100, 103, 99, 102, 1000),
+        (second, 102, 105, 101, 104, 1500),
+    ]
+
+    bars = repo.list_moex_daily_history("sber", 120)
+
+    sql, params = conn.execute.call_args.args
+    assert "moex_market_history" in sql
+    assert "open IS NOT NULL" in sql
+    assert "ORDER BY trade_date ASC" in sql
+    assert params == ("SBER", 120)
+    assert bars[0]["trade_date"] == first
+    assert bars[-1]["close"] == 104.0
+
+
+def test_insert_medium_term_position_is_virtual_and_idempotent() -> None:
+    repo, conn = _make_repo()
+    conn.execute.return_value.fetchone.return_value = (73,)
+    signal_date = datetime(2026, 8, 21, tzinfo=UTC).date()
+    entry_date = datetime(2026, 8, 24, tzinfo=UTC).date()
+
+    position_id = repo.insert_medium_term_position({
+        "portfolio_name": "medium-term-staircase-v1",
+        "strategy": "staircase",
+        "ticker": "SBER",
+        "signal_date": signal_date,
+        "entry_date": entry_date,
+        "entry_price": 100.0,
+        "notional": 200_000.0,
+        "atr_at_entry": 1.5,
+        "initial_stop": 98.0,
+    })
+
+    assert position_id == 73
+    sql = conn.execute.call_args.args[0]
+    assert "medium_term_paper_positions" in sql
+    assert "ON CONFLICT (portfolio_name, ticker, signal_date) DO NOTHING" in sql
+    assert "order_intents" not in sql
+    assert "execution_events" not in sql
+
+
+def test_update_medium_term_position_audits_only_stop_raise() -> None:
+    repo, conn = _make_repo()
+    trade_date = datetime(2026, 8, 25, tzinfo=UTC).date()
+
+    repo.update_medium_term_position_state(
+        position_id=73,
+        trade_date=trade_date,
+        held_sessions=2,
+        highest_close=104.0,
+        previous_stop=98.0,
+        new_stop=99.0,
+        stop_reason="staircase",
+    )
+
+    assert conn.execute.call_count == 2
+    assert "medium_term_stop_history" in conn.execute.call_args_list[1].args[0]
+
+
+def test_close_medium_term_position_is_guarded_by_open_status() -> None:
+    repo, conn = _make_repo()
+    conn.execute.return_value.fetchone.return_value = (73,)
+    exit_date = datetime(2026, 9, 10, tzinfo=UTC).date()
+
+    closed = repo.close_medium_term_position(
+        position_id=73,
+        exit_date=exit_date,
+        exit_price=110.0,
+        exit_reason="max_holding",
+        held_sessions=63,
+        gross_return_pct=0.10,
+        net_return_pct=0.098,
+        gross_pnl=20_000.0,
+        costs=400.0,
+        net_pnl=19_600.0,
+    )
+
+    assert closed is True
+    sql = conn.execute.call_args.args[0]
+    assert "medium_term_paper_positions" in sql
+    assert "WHERE id = %s AND status = 'open'" in sql

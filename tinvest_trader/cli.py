@@ -170,6 +170,10 @@ def build_parser() -> argparse.ArgumentParser:
         "activity-paper-stats",
         help="Compare virtual activity momentum and reversion portfolios",
     )
+    subparsers.add_parser(
+        "medium-term-paper-stats",
+        help="Compare staircase, ATR, and hybrid medium-term portfolios",
+    )
 
     # -- signal-calibration-report --
     subparsers.add_parser(
@@ -479,6 +483,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_market_activity_outcomes(container)
         if args.command == "activity-paper-stats":
             return _run_activity_paper_stats(config, container)
+        if args.command == "medium-term-paper-stats":
+            return _run_medium_term_paper_stats(config, container)
         if args.command == "signal-calibration-report":
             return _run_signal_calibration_report(container, config)
         if args.command == "market-binding-debug":
@@ -1083,6 +1089,27 @@ def _run_activity_paper_stats(config: AppConfig, container: Container) -> int:
         names.append(config.activity_paper.volume_confirmed_v2_portfolio_name)
     summaries = [repository.get_activity_paper_summary(name) for name in names]
     print(format_activity_paper_summary(summaries))
+    return 0
+
+
+def _run_medium_term_paper_stats(config: AppConfig, container: Container) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.medium_term_paper_strategy_service import (
+        format_medium_term_paper_summary,
+    )
+
+    cfg = config.medium_term_paper
+    names = (
+        cfg.staircase_portfolio_name,
+        cfg.atr_portfolio_name,
+        cfg.hybrid_portfolio_name,
+    )
+    summaries = [repository.get_medium_term_paper_summary(name) for name in names]
+    print(format_medium_term_paper_summary(summaries))
     return 0
 
 

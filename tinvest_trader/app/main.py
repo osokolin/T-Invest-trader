@@ -123,6 +123,17 @@ def main() -> None:
             extra={"component": "activity_paper_strategy"},
         )
 
+    if container.medium_term_paper_strategy_service is not None:
+        logger.info(
+            "medium-term paper strategy ready (virtual only)",
+            extra={"component": "medium_term_paper"},
+        )
+    else:
+        logger.info(
+            "medium-term paper strategy disabled",
+            extra={"component": "medium_term_paper"},
+        )
+
     # Background runner status
     if container.background_runner is not None:
         logger.info("background runner enabled", extra={"component": "background_runner"})
