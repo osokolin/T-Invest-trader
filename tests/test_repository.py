@@ -748,6 +748,8 @@ def test_create_medium_term_replay_run_is_immutable_by_name() -> None:
 
 def test_insert_medium_term_replay_results_is_virtual_only() -> None:
     repo, conn = _make_repo()
+    cursor = MagicMock()
+    conn.cursor.return_value.__enter__.return_value = cursor
     trade_date = datetime(2026, 1, 5, tzinfo=UTC).date()
     repo.insert_medium_term_replay_results(
         run_id=91,
@@ -780,8 +782,9 @@ def test_insert_medium_term_replay_results_is_virtual_only() -> None:
         }],
     )
 
-    assert conn.executemany.call_count == 2
-    sql_text = "\n".join(call.args[0] for call in conn.executemany.call_args_list)
+    conn.executemany.assert_not_called()
+    assert cursor.executemany.call_count == 2
+    sql_text = "\n".join(call.args[0] for call in cursor.executemany.call_args_list)
     assert "medium_term_replay_trades" in sql_text
     assert "medium_term_replay_equity" in sql_text
     assert "order_intents" not in sql_text

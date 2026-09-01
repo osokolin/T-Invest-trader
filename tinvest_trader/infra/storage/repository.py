@@ -3415,11 +3415,14 @@ class TradingRepository:
             item["position_value"], item["total_equity"],
             item["drawdown_pct"], item["open_positions"],
         ) for item in equity_rows]
-        with self._pool.get_connection() as conn:
+        with (
+            self._pool.get_connection() as conn,
+            conn.cursor() as cursor,
+        ):
             if trade_values:
-                conn.executemany(trade_sql, trade_values)
+                cursor.executemany(trade_sql, trade_values)
             if equity_values:
-                conn.executemany(equity_sql, equity_values)
+                cursor.executemany(equity_sql, equity_values)
 
     def complete_medium_term_replay_run(self, run_id: int) -> None:
         sql = """
