@@ -105,6 +105,24 @@ def test_insert_paper_position_is_idempotent():
     assert "ON CONFLICT" in sql
 
 
+def test_lists_both_paper_position_types_for_tariff_comparison():
+    repo, conn = _make_repo()
+    now = datetime.now(tz=UTC)
+    conn.execute.return_value.fetchall.return_value = [
+        ("shadow-v1", "signal", 100_000, 1_000, now),
+        ("activity-v2", "activity", 20_000, -50, now),
+    ]
+
+    rows = repo.list_closed_paper_positions_for_tariff_comparison(now)
+
+    sql, params = conn.execute.call_args.args
+    assert "paper_portfolio_positions" in sql
+    assert "activity_paper_positions" in sql
+    assert params == (now, now)
+    assert rows[0]["portfolio_type"] == "signal"
+    assert rows[1]["portfolio_type"] == "activity"
+
+
 def test_first_quote_after_uses_bounded_source_time_window():
     repo, conn = _make_repo()
     conn.execute.return_value.fetchone.return_value = (101.5, datetime.now(tz=UTC))
