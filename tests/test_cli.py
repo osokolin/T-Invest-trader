@@ -125,6 +125,35 @@ def test_cli_paper_portfolio_stats_prints_summary(monkeypatch, capsys):
     assert "paper_portfolio: shadow-v1" in capsys.readouterr().out
 
 
+def test_cli_paper_tariff_comparison_prints_all_profiles(monkeypatch, capsys):
+    from datetime import UTC, datetime
+
+    from tinvest_trader.app.config import PaperTariffComparisonConfig
+
+    config = _make_config()
+    config.paper_tariff_comparison = PaperTariffComparisonConfig()
+    container = _make_container()
+    container.repository.list_closed_paper_positions_for_tariff_comparison.return_value = [{
+        "portfolio_name": "shadow-v1",
+        "portfolio_type": "signal",
+        "notional": 100_000,
+        "gross_pnl": 1_000,
+        "exit_time": datetime(2026, 8, 31, 12, 0, tzinfo=UTC),
+    }]
+    monkeypatch.setattr("tinvest_trader.cli.load_config", lambda: config)
+    monkeypatch.setattr("tinvest_trader.cli.build_container", lambda cfg: container)
+
+    exit_code = main(["paper-tariff-comparison", "--days", "7"])
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "lookback_days: 7" in output
+    assert "investor" in output
+    assert "trader_paid" in output
+    assert "premium_free" in output
+    container.repository.list_closed_paper_positions_for_tariff_comparison.assert_called_once()
+
+
 def test_cli_market_activity_outcomes_prints_comparison(monkeypatch, capsys):
     config = _make_config()
     container = _make_container()

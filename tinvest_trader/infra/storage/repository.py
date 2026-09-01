@@ -1129,6 +1129,31 @@ class TradingRepository:
             "expired_positions": row[10],
         }
 
+    def list_closed_paper_positions_for_tariff_comparison(
+        self,
+        since: datetime,
+    ) -> list[dict]:
+        """Return closed positions from both isolated paper subsystems."""
+        sql = """
+            SELECT portfolio_name, 'signal' AS portfolio_type, notional,
+                   gross_pnl, exit_time
+            FROM paper_portfolio_positions
+            WHERE status = 'closed' AND exit_time >= %s
+            UNION ALL
+            SELECT portfolio_name, 'activity' AS portfolio_type, notional,
+                   gross_pnl, exit_time
+            FROM activity_paper_positions
+            WHERE status = 'closed' AND exit_time >= %s
+            ORDER BY exit_time
+        """
+        columns = (
+            "portfolio_name", "portfolio_type", "notional", "gross_pnl",
+            "exit_time",
+        )
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql, (since, since)).fetchall()
+        return [dict(zip(columns, row, strict=True)) for row in rows]
+
     # -- Source performance attribution --
 
     def get_signal_stats_by_source(self) -> list[dict]:

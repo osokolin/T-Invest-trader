@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
 
 from tinvest_trader.app.config import AppConfig, load_config
 from tinvest_trader.app.container import Container, build_container
@@ -161,6 +162,14 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "paper-portfolio-stats",
         help="Show realized statistics for the virtual portfolio",
+    )
+    tariff_parser = subparsers.add_parser(
+        "paper-tariff-comparison",
+        help="Compare paper PnL under T-Bank tariff cost profiles",
+    )
+    tariff_parser.add_argument(
+        "--days", type=int, default=30,
+        help="Closed-position lookback in days (default 30)",
     )
     subparsers.add_parser(
         "market-activity-outcomes",
@@ -475,6 +484,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_signal_stats(container)
         if args.command == "paper-portfolio-stats":
             return _run_paper_portfolio_stats(config, container)
+        if args.command == "paper-tariff-comparison":
+            return _run_paper_tariff_comparison(
+                config,
+                container,
+                days=args.days,
+            )
         if args.command == "market-activity-outcomes":
             return _run_market_activity_outcomes(container)
         if args.command == "activity-paper-stats":
@@ -1045,6 +1060,30 @@ def _run_paper_portfolio_stats(config: AppConfig, container: Container) -> int:
 
     summary = repository.get_paper_portfolio_summary(config.paper_portfolio.name)
     print(format_paper_portfolio_summary(summary))
+    return 0
+
+
+def _run_paper_tariff_comparison(
+    config: AppConfig,
+    container: Container,
+    *,
+    days: int,
+) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    from tinvest_trader.services.paper_tariff_comparison import (
+        compare_tariffs,
+        format_tariff_comparison,
+    )
+
+    since = datetime.now(UTC) - timedelta(days=max(1, days))
+    positions = repository.list_closed_paper_positions_for_tariff_comparison(since)
+    results = compare_tariffs(positions, config.paper_tariff_comparison)
+    print(f"lookback_days: {max(1, days)}")
+    print(format_tariff_comparison(results))
     return 0
 
 

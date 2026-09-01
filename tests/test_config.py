@@ -82,3 +82,33 @@ def test_account_id_from_env(monkeypatch):
 
     cfg = load_config()
     assert cfg.broker.account_id == "acc-123"
+
+
+def test_paper_tariff_comparison_config_from_env(monkeypatch):
+    monkeypatch.setenv("TINVEST_PAPER_TARIFF_INVESTOR_COMMISSION_RATE", "0.0025")
+    monkeypatch.setenv("TINVEST_PAPER_TARIFF_TRADER_COMMISSION_RATE", "0.0004")
+    monkeypatch.setenv("TINVEST_PAPER_TARIFF_TRADER_MONTHLY_FEE", "350")
+    monkeypatch.setenv("TINVEST_PAPER_TARIFF_PREMIUM_COMMISSION_RATE", "0.0003")
+    monkeypatch.setenv("TINVEST_PAPER_TARIFF_PREMIUM_MONTHLY_FEE", "2500")
+    monkeypatch.setenv("TINVEST_PAPER_TARIFF_SLIPPAGE_RATE", "0.0002")
+    from tinvest_trader.app.config import load_config
+
+    cfg = load_config().paper_tariff_comparison
+
+    assert cfg.investor_commission_rate == 0.0025
+    assert cfg.trader_commission_rate == 0.0004
+    assert cfg.trader_monthly_fee == 350
+    assert cfg.premium_commission_rate == 0.0003
+    assert cfg.premium_monthly_fee == 2500
+    assert cfg.slippage_rate == 0.0002
+
+
+def test_paper_tariff_comparison_defaults(config):
+    cfg = config.paper_tariff_comparison
+
+    assert cfg.investor_commission_rate == 0.003
+    assert cfg.trader_commission_rate == 0.0005
+    assert cfg.trader_monthly_fee == 390
+    assert cfg.premium_commission_rate == 0.0004
+    assert cfg.premium_monthly_fee == 2990
+    assert cfg.slippage_rate == 0.0005
