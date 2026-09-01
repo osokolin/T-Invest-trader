@@ -69,6 +69,19 @@ target cannot starve already elapsed short horizons.
 Sparse candles use a bounded configurable delay; positions that still cannot be
 resolved expire as virtual-only records without synthetic returns.
 
+## Medium-Term Paper Flow
+
+1. MOEX daily history → `moex_market_history`
+2. Completed trend/breakout/volume setup → `MediumTermPaperStrategyService`
+3. Next available daily open → virtual entry in `medium_term_paper_positions`
+4. Staircase, ATR, or hybrid stop update → `medium_term_stop_history`
+5. Skip/enter rationale → `medium_term_paper_decisions`
+6. A/B/C performance → CLI and Grafana
+
+This flow reads persisted market data and writes dedicated virtual research
+records only. It has no broker client, execution engine, order-intent, or
+reconciliation path.
+
 ---
 
 ## Safety Critical Areas

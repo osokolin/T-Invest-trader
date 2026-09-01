@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from tinvest_trader.cbr.models import CbrEvent, CbrFeedItem
 from tinvest_trader.domain.models import (
@@ -3061,6 +3061,234 @@ class TradingRepository:
             "realized_pnl": float(row[10]),
             "wins": row[11],
             "avg_net_return_pct": float(row[12]) if row[12] is not None else None,
+        }
+
+    # -- Medium-term daily paper strategy --
+
+    def ensure_medium_term_paper_portfolio(
+        self,
+        *,
+        name: str,
+        strategy: str,
+        initial_cash: float,
+    ) -> dict:
+        """Create or return one isolated medium-term virtual portfolio."""
+        sql = """
+            INSERT INTO medium_term_paper_portfolios
+                (name, strategy, initial_cash)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+            RETURNING name, strategy, initial_cash, currency, started_at
+        """
+        with self._pool.get_connection() as conn:
+            row = conn.execute(sql, (name, strategy, initial_cash)).fetchone()
+        return {
+            "name": row[0],
+            "strategy": row[1],
+            "initial_cash": float(row[2]),
+            "currency": row[3],
+            "started_at": row[4],
+        }
+
+    def list_moex_daily_history(self, ticker: str, limit: int) -> list[dict]:
+        """Return latest complete daily bars in chronological order."""
+        sql = """
+            SELECT trade_date, open, high, low, close, volume
+            FROM (
+                SELECT trade_date, open, high, low, close, volume
+                FROM moex_market_history
+                WHERE secid = %s
+                  AND open IS NOT NULL AND high IS NOT NULL
+                  AND low IS NOT NULL AND close IS NOT NULL
+                  AND volume IS NOT NULL
+                ORDER BY trade_date DESC
+                LIMIT %s
+            ) recent
+            ORDER BY trade_date ASC
+        """
+        columns = ("trade_date", "open", "high", "low", "close", "volume")
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql, (ticker.upper(), max(1, limit))).fetchall()
+        result = []
+        for row in rows:
+            item = dict(zip(columns, row, strict=True))
+            for field in ("open", "high", "low", "close"):
+                item[field] = float(item[field])
+            item["volume"] = int(item["volume"])
+            result.append(item)
+        return result
+
+    def list_open_medium_term_positions(self, portfolio_name: str) -> list[dict]:
+        """Return open virtual medium-term positions."""
+        sql = """
+            SELECT id, portfolio_name, strategy, ticker, signal_date, entry_date,
+                   entry_price, notional, atr_at_entry, initial_stop,
+                   current_stop, highest_close, last_evaluated_date, held_sessions
+            FROM medium_term_paper_positions
+            WHERE portfolio_name = %s AND status = 'open'
+            ORDER BY entry_date, id
+        """
+        columns = (
+            "id", "portfolio_name", "strategy", "ticker", "signal_date",
+            "entry_date", "entry_price", "notional", "atr_at_entry",
+            "initial_stop", "current_stop", "highest_close",
+            "last_evaluated_date", "held_sessions",
+        )
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql, (portfolio_name,)).fetchall()
+        result = []
+        for row in rows:
+            item = dict(zip(columns, row, strict=True))
+            for field in (
+                "entry_price", "notional", "atr_at_entry", "initial_stop",
+                "current_stop", "highest_close",
+            ):
+                item[field] = float(item[field])
+            result.append(item)
+        return result
+
+    def insert_medium_term_decision(self, decision: dict) -> bool:
+        """Record one daily enter/skip decision idempotently."""
+        sql = """
+            INSERT INTO medium_term_paper_decisions
+                (portfolio_name, ticker, signal_date, decision, reason, metrics_json)
+            VALUES (%s, %s, %s, %s, %s, %s::jsonb)
+            ON CONFLICT (portfolio_name, ticker, signal_date) DO NOTHING
+            RETURNING id
+        """
+        values = (
+            decision["portfolio_name"], decision["ticker"],
+            decision["signal_date"], decision["decision"], decision["reason"],
+            json.dumps(decision.get("metrics", {})),
+        )
+        with self._pool.get_connection() as conn:
+            row = conn.execute(sql, values).fetchone()
+        return row is not None
+
+    def insert_medium_term_position(self, position: dict) -> int | None:
+        """Insert one virtual long position without broker execution."""
+        sql = """
+            INSERT INTO medium_term_paper_positions
+                (portfolio_name, strategy, ticker, signal_date, entry_date,
+                 entry_price, notional, atr_at_entry, initial_stop,
+                 current_stop, highest_close, last_evaluated_date)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (portfolio_name, ticker, signal_date) DO NOTHING
+            RETURNING id
+        """
+        values = (
+            position["portfolio_name"], position["strategy"], position["ticker"],
+            position["signal_date"], position["entry_date"],
+            position["entry_price"], position["notional"],
+            position["atr_at_entry"], position["initial_stop"],
+            position["initial_stop"], position["entry_price"],
+            position["signal_date"],
+        )
+        with self._pool.get_connection() as conn:
+            row = conn.execute(sql, values).fetchone()
+        return row[0] if row else None
+
+    def update_medium_term_position_state(
+        self,
+        *,
+        position_id: int,
+        trade_date: date,
+        held_sessions: int,
+        highest_close: float,
+        previous_stop: float,
+        new_stop: float,
+        stop_reason: str | None,
+    ) -> None:
+        """Advance a position by one completed daily bar and audit stop raises."""
+        update_sql = """
+            UPDATE medium_term_paper_positions
+            SET current_stop = %s, highest_close = %s,
+                last_evaluated_date = %s, held_sessions = %s, updated_at = now()
+            WHERE id = %s AND status = 'open'
+        """
+        history_sql = """
+            INSERT INTO medium_term_stop_history
+                (position_id, trade_date, previous_stop, new_stop,
+                 highest_close, reason)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (position_id, trade_date) DO NOTHING
+        """
+        with self._pool.get_connection() as conn:
+            conn.execute(update_sql, (
+                new_stop, highest_close, trade_date, held_sessions, position_id,
+            ))
+            if stop_reason is not None and new_stop > previous_stop:
+                conn.execute(history_sql, (
+                    position_id, trade_date, previous_stop, new_stop,
+                    highest_close, stop_reason,
+                ))
+
+    def close_medium_term_position(
+        self,
+        *,
+        position_id: int,
+        exit_date: date,
+        exit_price: float,
+        exit_reason: str,
+        held_sessions: int,
+        gross_return_pct: float,
+        net_return_pct: float,
+        gross_pnl: float,
+        costs: float,
+        net_pnl: float,
+    ) -> bool:
+        """Close one virtual medium-term position exactly once."""
+        sql = """
+            UPDATE medium_term_paper_positions
+            SET status = 'closed', exit_date = %s, exit_price = %s,
+                exit_reason = %s, held_sessions = %s,
+                gross_return_pct = %s, net_return_pct = %s,
+                gross_pnl = %s, costs = %s, net_pnl = %s, updated_at = now()
+            WHERE id = %s AND status = 'open'
+            RETURNING id
+        """
+        values = (
+            exit_date, exit_price, exit_reason, held_sessions,
+            gross_return_pct, net_return_pct, gross_pnl, costs, net_pnl,
+            position_id,
+        )
+        with self._pool.get_connection() as conn:
+            row = conn.execute(sql, values).fetchone()
+        return row is not None
+
+    def get_medium_term_paper_summary(self, portfolio_name: str) -> dict | None:
+        """Return realized performance and open exposure for one arm."""
+        sql = """
+            SELECT portfolio.name, portfolio.strategy, portfolio.initial_cash,
+                   portfolio.currency, portfolio.started_at,
+                   count(position.id) FILTER (WHERE position.status = 'open'),
+                   count(position.id) FILTER (WHERE position.status = 'closed'),
+                   coalesce(sum(position.notional)
+                       FILTER (WHERE position.status = 'open'), 0),
+                   coalesce(sum(position.net_pnl)
+                       FILTER (WHERE position.status = 'closed'), 0),
+                   count(position.id) FILTER (
+                       WHERE position.status = 'closed' AND position.net_pnl > 0
+                   ),
+                   avg(position.net_return_pct)
+                       FILTER (WHERE position.status = 'closed')
+            FROM medium_term_paper_portfolios portfolio
+            LEFT JOIN medium_term_paper_positions position
+              ON position.portfolio_name = portfolio.name
+            WHERE portfolio.name = %s
+            GROUP BY portfolio.name, portfolio.strategy, portfolio.initial_cash,
+                     portfolio.currency, portfolio.started_at
+        """
+        with self._pool.get_connection() as conn:
+            row = conn.execute(sql, (portfolio_name,)).fetchone()
+        if row is None:
+            return None
+        return {
+            "name": row[0], "strategy": row[1], "initial_cash": float(row[2]),
+            "currency": row[3], "started_at": row[4], "open_positions": row[5],
+            "closed_positions": row[6], "open_notional": float(row[7]),
+            "realized_pnl": float(row[8]), "wins": row[9],
+            "avg_net_return_pct": float(row[10]) if row[10] is not None else None,
         }
 
     def get_latest_quote_by_ticker(self, ticker: str) -> dict | None:

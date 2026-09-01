@@ -707,6 +707,78 @@ CREATE TABLE IF NOT EXISTS activity_paper_decisions (
 CREATE INDEX IF NOT EXISTS idx_activity_paper_decision_reason
     ON activity_paper_decisions (portfolio_name, reason, recorded_at DESC);
 
+-- Daily, long-only medium-term shadow experiments. These records are virtual
+-- and cannot represent broker positions, stop orders, or execution requests.
+CREATE TABLE IF NOT EXISTS medium_term_paper_portfolios (
+    name                TEXT PRIMARY KEY,
+    strategy            TEXT NOT NULL,
+    initial_cash        NUMERIC(20, 2) NOT NULL,
+    currency            TEXT NOT NULL DEFAULT 'RUB',
+    started_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS medium_term_paper_positions (
+    id                  BIGSERIAL PRIMARY KEY,
+    portfolio_name      TEXT NOT NULL REFERENCES medium_term_paper_portfolios(name),
+    strategy            TEXT NOT NULL,
+    ticker              TEXT NOT NULL,
+    signal_date         DATE NOT NULL,
+    entry_date          DATE NOT NULL,
+    entry_price         NUMERIC(20, 9) NOT NULL,
+    notional            NUMERIC(20, 2) NOT NULL,
+    atr_at_entry        NUMERIC(20, 9) NOT NULL,
+    initial_stop        NUMERIC(20, 9) NOT NULL,
+    current_stop        NUMERIC(20, 9) NOT NULL,
+    highest_close       NUMERIC(20, 9) NOT NULL,
+    last_evaluated_date DATE NOT NULL,
+    held_sessions       INTEGER NOT NULL DEFAULT 0,
+    status              TEXT NOT NULL DEFAULT 'open',
+    exit_date           DATE,
+    exit_price          NUMERIC(20, 9),
+    exit_reason         TEXT,
+    gross_return_pct    NUMERIC(12, 8),
+    net_return_pct      NUMERIC(12, 8),
+    gross_pnl           NUMERIC(20, 2),
+    costs               NUMERIC(20, 2),
+    net_pnl             NUMERIC(20, 2),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (portfolio_name, ticker, signal_date)
+);
+CREATE INDEX IF NOT EXISTS idx_medium_term_position_status
+    ON medium_term_paper_positions (portfolio_name, status, entry_date DESC);
+CREATE INDEX IF NOT EXISTS idx_medium_term_position_ticker
+    ON medium_term_paper_positions (portfolio_name, ticker, entry_date DESC);
+
+CREATE TABLE IF NOT EXISTS medium_term_paper_decisions (
+    id                  BIGSERIAL PRIMARY KEY,
+    portfolio_name      TEXT NOT NULL REFERENCES medium_term_paper_portfolios(name),
+    ticker              TEXT NOT NULL,
+    signal_date         DATE NOT NULL,
+    decision            TEXT NOT NULL,
+    reason              TEXT NOT NULL,
+    metrics_json        JSONB NOT NULL DEFAULT '{}'::jsonb,
+    recorded_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (portfolio_name, ticker, signal_date)
+);
+CREATE INDEX IF NOT EXISTS idx_medium_term_decision_reason
+    ON medium_term_paper_decisions (portfolio_name, reason, signal_date DESC);
+
+CREATE TABLE IF NOT EXISTS medium_term_stop_history (
+    id                  BIGSERIAL PRIMARY KEY,
+    position_id         BIGINT NOT NULL REFERENCES medium_term_paper_positions(id),
+    trade_date          DATE NOT NULL,
+    previous_stop       NUMERIC(20, 9) NOT NULL,
+    new_stop            NUMERIC(20, 9) NOT NULL,
+    highest_close       NUMERIC(20, 9) NOT NULL,
+    reason              TEXT NOT NULL,
+    recorded_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (position_id, trade_date)
+);
+CREATE INDEX IF NOT EXISTS idx_medium_term_stop_position_date
+    ON medium_term_stop_history (position_id, trade_date DESC);
+
 -- ============================================================
 -- Source-aware weighting (shadow mode)
 -- ============================================================

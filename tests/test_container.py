@@ -21,6 +21,9 @@ from tinvest_trader.services.broker_event_ingestion_service import (
 )
 from tinvest_trader.services.cbr_ingestion_service import CbrIngestionService
 from tinvest_trader.services.fusion_service import FusionService
+from tinvest_trader.services.medium_term_paper_strategy_service import (
+    MediumTermPaperStrategyService,
+)
 from tinvest_trader.services.moex_ingestion_service import MoexIngestionService
 from tinvest_trader.services.trading_service import TradingService
 
@@ -208,6 +211,31 @@ def test_container_background_runner_can_exist_without_optional_services(monkeyp
     assert isinstance(c.background_runner, BackgroundRunner)
     assert c.telegram_sentiment_service is None
     assert c.observation_service is None
+
+
+def test_container_medium_term_paper_none_when_disabled(container):
+    assert container.medium_term_paper_strategy_service is None
+
+
+def test_container_wires_medium_term_paper_with_explicit_tickers(monkeypatch):
+    monkeypatch.setenv("TINVEST_POSTGRES_DSN", "postgresql://test")
+    monkeypatch.setenv("TINVEST_MEDIUM_TERM_PAPER_ENABLED", "true")
+    monkeypatch.setenv("TINVEST_MEDIUM_TERM_PAPER_TRACKED_TICKERS", "SBER,GAZP")
+    monkeypatch.setattr("tinvest_trader.app.container.PostgresPool", MagicMock())
+    monkeypatch.setattr("tinvest_trader.app.container.TradingRepository", MagicMock())
+    from tinvest_trader.app.config import load_config
+    from tinvest_trader.app.container import build_container
+
+    built = build_container(load_config())
+
+    assert isinstance(
+        built.medium_term_paper_strategy_service,
+        MediumTermPaperStrategyService,
+    )
+    assert built.medium_term_paper_strategy_service._tracked_tickers == (
+        "GAZP",
+        "SBER",
+    )
 
 
 def test_container_broker_event_service_none_when_disabled(container):

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
         ActivityPaperConfig,
         BackgroundConfig,
         DailyDigestConfig,
+        MediumTermPaperConfig,
         PaperPortfolioConfig,
         QuoteSyncConfig,
         SignalDeliveryConfig,
@@ -42,6 +43,9 @@ if TYPE_CHECKING:
         MarketActivityOutcomeService,
     )
     from tinvest_trader.services.market_activity_service import MarketActivityService
+    from tinvest_trader.services.medium_term_paper_strategy_service import (
+        MediumTermPaperStrategyService,
+    )
     from tinvest_trader.services.moex_ingestion_service import MoexIngestionService
     from tinvest_trader.services.observation_service import ObservationService
     from tinvest_trader.services.paper_portfolio_service import PaperPortfolioService
@@ -91,6 +95,8 @@ class BackgroundRunner:
         market_activity_outcome_interval_seconds: int = 60,
         activity_paper_strategy_service: ActivityPaperStrategyService | None = None,
         activity_paper_config: ActivityPaperConfig | None = None,
+        medium_term_paper_strategy_service: MediumTermPaperStrategyService | None = None,
+        medium_term_paper_config: MediumTermPaperConfig | None = None,
         daily_digest_fn: Callable[[], object] | None = None,
         daily_digest_config: DailyDigestConfig | None = None,
         time_fn: Callable[[], float] | None = None,
@@ -132,6 +138,8 @@ class BackgroundRunner:
         )
         self._activity_paper_strategy_service = activity_paper_strategy_service
         self._activity_paper_config = activity_paper_config
+        self._medium_term_paper_strategy_service = medium_term_paper_strategy_service
+        self._medium_term_paper_config = medium_term_paper_config
         self._daily_digest_fn = daily_digest_fn
         self._daily_digest_config = daily_digest_config
         self._daily_digest_sent_today: str = ""
@@ -274,6 +282,7 @@ class BackgroundRunner:
             or self._market_activity_is_runnable()
             or self._market_activity_outcomes_are_runnable()
             or self._activity_paper_strategy_is_runnable()
+            or self._medium_term_paper_strategy_is_runnable()
             or self._cbr_is_runnable()
             or self._moex_is_runnable()
             or self._global_context_is_runnable()
@@ -486,6 +495,14 @@ class BackgroundRunner:
             and self._activity_paper_strategy_service is not None
         )
 
+    def _medium_term_paper_strategy_is_runnable(self) -> bool:
+        return (
+            self._config.run_medium_term_paper_strategy
+            and self._medium_term_paper_config is not None
+            and self._medium_term_paper_config.enabled
+            and self._medium_term_paper_strategy_service is not None
+        )
+
     def run_paper_portfolio_cycle(self) -> None:
         """Run one virtual portfolio cycle safely."""
         if not self._paper_portfolio_is_runnable():
@@ -551,6 +568,22 @@ class BackgroundRunner:
         except Exception:
             self._logger.exception(
                 "background activity paper strategy cycle failed",
+                extra={"component": "background_runner"},
+            )
+
+    def run_medium_term_paper_strategy_cycle(self) -> None:
+        """Run one isolated virtual medium-term strategy cycle safely."""
+        if not self._medium_term_paper_strategy_is_runnable():
+            return
+        try:
+            result = self._medium_term_paper_strategy_service.run_cycle()
+            self._logger.info(
+                "background medium-term paper strategy cycle complete",
+                extra={"component": "background_runner", "result": str(result)},
+            )
+        except Exception:
+            self._logger.exception(
+                "background medium-term paper strategy cycle failed",
                 extra={"component": "background_runner"},
             )
 
@@ -769,6 +802,7 @@ class BackgroundRunner:
         next_market_activity_run = self._time_fn()
         next_market_activity_outcome_run = self._time_fn()
         next_activity_paper_strategy_run = self._time_fn()
+        next_medium_term_paper_strategy_run = self._time_fn()
         next_signal_delivery_run = self._time_fn()
         next_callback_handler_run = self._time_fn()
         next_alerting_run = self._time_fn()
@@ -983,6 +1017,22 @@ class BackgroundRunner:
                     strategy_wait
                     if next_wait is None
                     else min(next_wait, strategy_wait)
+                )
+
+            if self._medium_term_paper_strategy_is_runnable():
+                if now >= next_medium_term_paper_strategy_run:
+                    self.run_medium_term_paper_strategy_cycle()
+                    interval = self._medium_term_paper_config.poll_interval_seconds
+                    next_medium_term_paper_strategy_run = (
+                        self._time_fn() + max(1, interval)
+                    )
+                medium_term_wait = max(
+                    0.0, next_medium_term_paper_strategy_run - self._time_fn(),
+                )
+                next_wait = (
+                    medium_term_wait
+                    if next_wait is None
+                    else min(next_wait, medium_term_wait)
                 )
 
             if self._signal_delivery_is_runnable():

@@ -1,0 +1,153 @@
+{
+  "annotations": { "list": [] },
+  "description": "Daily long-only A/B/C comparison of staircase, ATR, and hybrid medium-term virtual portfolios. No broker positions, stop orders, or executions are represented.",
+  "editable": false,
+  "links": [
+    { "asDropdown": true, "includeTimeRange": true, "keepTimeRange": true, "tags": ["tinvest"], "title": "Open another T-Invest dashboard", "type": "dashboards" }
+  ],
+  "panels": [
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "table",
+        "rawSql": "SELECT portfolio.name, portfolio.strategy, portfolio.initial_cash + COALESCE(sum(position.net_pnl) FILTER (WHERE position.status = 'closed'), 0) AS realized_equity, count(position.id) FILTER (WHERE position.status = 'open') AS open_positions, count(position.id) FILTER (WHERE position.status = 'closed') AS closed_positions, count(position.id) FILTER (WHERE position.status = 'closed' AND position.net_pnl > 0)::numeric / NULLIF(count(position.id) FILTER (WHERE position.status = 'closed'), 0) AS win_rate, avg(position.net_return_pct) FILTER (WHERE position.status = 'closed') AS avg_net_return, COALESCE(sum(position.net_pnl) FILTER (WHERE position.status = 'closed'), 0) AS realized_pnl, COALESCE(sum(position.notional) FILTER (WHERE position.status = 'open'), 0) AS open_notional FROM medium_term_paper_portfolios portfolio LEFT JOIN medium_term_paper_positions position ON position.portfolio_name = portfolio.name WHERE portfolio.name IN (${portfolio:sqlstring}) GROUP BY portfolio.name, portfolio.strategy, portfolio.initial_cash ORDER BY portfolio.strategy",
+        "refId": "A"
+      }],
+      "title": "Virtual Portfolio Comparison",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": { "unit": "currencyRUB" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 7 },
+      "id": 2,
+      "options": { "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "time_series",
+        "rawSql": "SELECT exit_date::timestamp AS time, sum(net_pnl) OVER (PARTITION BY portfolio_name ORDER BY exit_date, id)::double precision AS value, portfolio_name AS metric FROM medium_term_paper_positions WHERE status = 'closed' AND $__timeFilter(exit_date::timestamp) AND portfolio_name IN (${portfolio:sqlstring}) ORDER BY exit_date ASC, id ASC",
+        "refId": "A"
+      }],
+      "title": "Cumulative Net PnL After Costs",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": { "unit": "currencyRUB" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 7 },
+      "id": 3,
+      "options": { "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "asc" } },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "time_series",
+        "rawSql": "WITH curve AS (SELECT id, portfolio_name, exit_date, sum(net_pnl) OVER (PARTITION BY portfolio_name ORDER BY exit_date, id) AS cumulative_pnl FROM medium_term_paper_positions WHERE status = 'closed'), drawdown AS (SELECT id, portfolio_name, exit_date, cumulative_pnl - max(cumulative_pnl) OVER (PARTITION BY portfolio_name ORDER BY exit_date, id) AS value FROM curve) SELECT exit_date::timestamp AS time, value::double precision, portfolio_name AS metric FROM drawdown WHERE $__timeFilter(exit_date::timestamp) AND portfolio_name IN (${portfolio:sqlstring}) ORDER BY exit_date ASC, id ASC",
+        "refId": "A"
+      }],
+      "title": "Realized Drawdown",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 15 },
+      "id": 4,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "table",
+        "rawSql": "SELECT position.entry_date, position.portfolio_name, position.ticker, position.strategy, position.entry_price, latest.close AS latest_close, (latest.close / position.entry_price - 1) AS unrealized_return, position.current_stop, (position.current_stop / position.entry_price - 1) AS locked_return, position.highest_close, position.held_sessions, position.notional FROM medium_term_paper_positions position LEFT JOIN LATERAL (SELECT close FROM moex_market_history WHERE secid = position.ticker AND close IS NOT NULL ORDER BY trade_date DESC LIMIT 1) latest ON true WHERE position.status = 'open' AND position.portfolio_name IN (${portfolio:sqlstring}) ORDER BY position.entry_date DESC, position.ticker",
+        "refId": "A"
+      }],
+      "title": "Open Virtual Positions & Current Stops",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 9, "w": 14, "x": 0, "y": 24 },
+      "id": 5,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "table",
+        "rawSql": "SELECT exit_date, portfolio_name, ticker, strategy, entry_date, entry_price, exit_price, exit_reason, held_sessions, gross_return_pct, net_return_pct, costs, net_pnl FROM medium_term_paper_positions WHERE status = 'closed' AND portfolio_name IN (${portfolio:sqlstring}) ORDER BY exit_date DESC, id DESC LIMIT 150",
+        "refId": "A"
+      }],
+      "title": "Recent Closed Virtual Positions",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 9, "w": 10, "x": 14, "y": 24 },
+      "id": 6,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "table",
+        "rawSql": "SELECT history.trade_date, position.portfolio_name, position.ticker, position.strategy, history.previous_stop, history.new_stop, history.highest_close, history.reason FROM medium_term_stop_history history JOIN medium_term_paper_positions position ON position.id = history.position_id WHERE position.portfolio_name IN (${portfolio:sqlstring}) ORDER BY history.trade_date DESC, history.id DESC LIMIT 150",
+        "refId": "A"
+      }],
+      "title": "Virtual Stop Raises",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 10, "x": 0, "y": 33 },
+      "id": 7,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "table",
+        "rawSql": "SELECT portfolio_name, reason, count(*) AS decisions, max(signal_date) AS latest_signal_date FROM medium_term_paper_decisions WHERE decision = 'skip' AND portfolio_name IN (${portfolio:sqlstring}) GROUP BY portfolio_name, reason ORDER BY decisions DESC",
+        "refId": "A"
+      }],
+      "title": "Why Daily Candidates Were Skipped",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 14, "x": 10, "y": 33 },
+      "id": 8,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "table",
+        "rawSql": "SELECT portfolio_name, ticker, exit_reason, count(*) AS closed_positions, count(*) FILTER (WHERE net_pnl > 0)::numeric / NULLIF(count(*), 0) AS win_rate, avg(net_return_pct) AS avg_net_return, sum(net_pnl) AS net_pnl FROM medium_term_paper_positions WHERE status = 'closed' AND portfolio_name IN (${portfolio:sqlstring}) GROUP BY portfolio_name, ticker, exit_reason ORDER BY net_pnl DESC",
+        "refId": "A"
+      }],
+      "title": "Performance by Ticker & Exit Reason",
+      "type": "table"
+    }
+  ],
+  "refresh": "1h",
+  "schemaVersion": 39,
+  "tags": ["tinvest", "paper", "medium-term", "observability"],
+  "templating": {
+    "list": [{
+      "current": { "selected": true, "text": "All", "value": "$__all" },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "definition": "SELECT name FROM medium_term_paper_portfolios ORDER BY strategy",
+      "includeAll": true,
+      "label": "Portfolio",
+      "multi": true,
+      "name": "portfolio",
+      "options": [],
+      "query": "SELECT name FROM medium_term_paper_portfolios ORDER BY strategy",
+      "refresh": 1,
+      "type": "query"
+    }]
+  },
+  "time": { "from": "now-180d", "to": "now" },
+  "timezone": "browser",
+  "title": "Medium-Term Paper Strategy",
+  "uid": "medium-term-paper-strategy",
+  "version": 1
+}

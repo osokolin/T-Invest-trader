@@ -83,6 +83,7 @@ class BackgroundConfig:
     run_market_activity: bool = True
     run_market_activity_outcomes: bool = True
     run_activity_paper_strategy: bool = True
+    run_medium_term_paper_strategy: bool = True
 
 
 @dataclass(frozen=True)
@@ -281,6 +282,39 @@ class ActivityPaperConfig:
 
 
 @dataclass(frozen=True)
+class MediumTermPaperConfig:
+    """Daily, long-only virtual portfolios for medium-term research."""
+
+    enabled: bool = False
+    poll_interval_seconds: int = 3600
+    tracked_tickers_override: tuple[str, ...] = ()
+    staircase_portfolio_name: str = "medium-term-staircase-v1"
+    atr_portfolio_name: str = "medium-term-atr-v1"
+    hybrid_portfolio_name: str = "medium-term-hybrid-v1"
+    initial_cash: float = 1_000_000.0
+    risk_per_position: float = 0.005
+    max_position_fraction: float = 0.20
+    max_open_positions: int = 5
+    commission_rate: float = 0.0005
+    slippage_rate: float = 0.0005
+    sma_short_period: int = 20
+    sma_long_period: int = 50
+    breakout_period: int = 20
+    volume_period: int = 20
+    volume_multiplier: float = 1.5
+    atr_period: int = 14
+    initial_stop_pct: float = 0.02
+    max_stop_distance_pct: float = 0.08
+    staircase_trigger_pct: float = 0.02
+    staircase_raise_pct: float = 0.01
+    atr_multiplier: float = 2.0
+    hybrid_trailing_atr_multiplier: float = 2.5
+    hybrid_breakeven_trigger_pct: float = 0.03
+    max_holding_sessions: int = 63
+    history_bars: int = 120
+
+
+@dataclass(frozen=True)
 class SignalDeliveryConfig:
     enabled: bool = False
     bot_token: str = ""
@@ -384,6 +418,9 @@ class AppConfig:
         default_factory=MarketActivityOutcomeConfig,
     )
     activity_paper: ActivityPaperConfig = field(default_factory=ActivityPaperConfig)
+    medium_term_paper: MediumTermPaperConfig = field(
+        default_factory=MediumTermPaperConfig,
+    )
     signal_delivery: SignalDeliveryConfig = field(
         default_factory=SignalDeliveryConfig,
     )
@@ -527,6 +564,9 @@ def load_config() -> AppConfig:
             ).lower() == "true",
             run_activity_paper_strategy=os.environ.get(
                 "TINVEST_BACKGROUND_RUN_ACTIVITY_PAPER_STRATEGY", "true",
+            ).lower() == "true",
+            run_medium_term_paper_strategy=os.environ.get(
+                "TINVEST_BACKGROUND_RUN_MEDIUM_TERM_PAPER_STRATEGY", "true",
             ).lower() == "true",
         ),
         signal_generation=SignalGenerationConfig(
@@ -922,6 +962,90 @@ def load_config() -> AppConfig:
             )),
             unresolved_position_expiry_minutes=int(os.environ.get(
                 "TINVEST_ACTIVITY_PAPER_UNRESOLVED_EXPIRY_MINUTES", "180",
+            )),
+        ),
+        medium_term_paper=MediumTermPaperConfig(
+            enabled=os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_ENABLED", "false",
+            ).lower() == "true",
+            poll_interval_seconds=int(os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_POLL_INTERVAL_SECONDS", "3600",
+            )),
+            tracked_tickers_override=_parse_csv(os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_TRACKED_TICKERS", "",
+            )),
+            staircase_portfolio_name=os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_STAIRCASE_NAME",
+                "medium-term-staircase-v1",
+            ),
+            atr_portfolio_name=os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_ATR_NAME", "medium-term-atr-v1",
+            ),
+            hybrid_portfolio_name=os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_HYBRID_NAME", "medium-term-hybrid-v1",
+            ),
+            initial_cash=float(os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_INITIAL_CASH", "1000000",
+            )),
+            risk_per_position=float(os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_RISK_PER_POSITION", "0.005",
+            )),
+            max_position_fraction=float(os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_MAX_POSITION_FRACTION", "0.20",
+            )),
+            max_open_positions=int(os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_MAX_OPEN_POSITIONS", "5",
+            )),
+            commission_rate=float(os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_COMMISSION_RATE", "0.0005",
+            )),
+            slippage_rate=float(os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_SLIPPAGE_RATE", "0.0005",
+            )),
+            sma_short_period=int(os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_SMA_SHORT_PERIOD", "20",
+            )),
+            sma_long_period=int(os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_SMA_LONG_PERIOD", "50",
+            )),
+            breakout_period=int(os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_BREAKOUT_PERIOD", "20",
+            )),
+            volume_period=int(os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_VOLUME_PERIOD", "20",
+            )),
+            volume_multiplier=float(os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_VOLUME_MULTIPLIER", "1.5",
+            )),
+            atr_period=int(os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_ATR_PERIOD", "14",
+            )),
+            initial_stop_pct=float(os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_INITIAL_STOP_PCT", "0.02",
+            )),
+            max_stop_distance_pct=float(os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_MAX_STOP_DISTANCE_PCT", "0.08",
+            )),
+            staircase_trigger_pct=float(os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_STAIRCASE_TRIGGER_PCT", "0.02",
+            )),
+            staircase_raise_pct=float(os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_STAIRCASE_RAISE_PCT", "0.01",
+            )),
+            atr_multiplier=float(os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_ATR_MULTIPLIER", "2.0",
+            )),
+            hybrid_trailing_atr_multiplier=float(os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_HYBRID_TRAILING_ATR_MULTIPLIER", "2.5",
+            )),
+            hybrid_breakeven_trigger_pct=float(os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_HYBRID_BREAKEVEN_TRIGGER_PCT", "0.03",
+            )),
+            max_holding_sessions=int(os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_MAX_HOLDING_SESSIONS", "63",
+            )),
+            history_bars=int(os.environ.get(
+                "TINVEST_MEDIUM_TERM_PAPER_HISTORY_BARS", "120",
             )),
         ),
         signal_delivery=SignalDeliveryConfig(
