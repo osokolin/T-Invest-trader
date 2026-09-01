@@ -779,6 +779,64 @@ CREATE TABLE IF NOT EXISTS medium_term_stop_history (
 CREATE INDEX IF NOT EXISTS idx_medium_term_stop_position_date
     ON medium_term_stop_history (position_id, trade_date DESC);
 
+-- Immutable historical replays for the medium-term virtual strategy. Replay
+-- records are research artifacts and never represent broker execution.
+CREATE TABLE IF NOT EXISTS medium_term_replay_runs (
+    id                  BIGSERIAL PRIMARY KEY,
+    name                TEXT NOT NULL UNIQUE,
+    start_date          DATE NOT NULL,
+    end_date            DATE NOT NULL,
+    tickers_json        JSONB NOT NULL,
+    config_json         JSONB NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'running',
+    error_message       TEXT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at        TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_medium_term_replay_run_created
+    ON medium_term_replay_runs (created_at DESC);
+
+CREATE TABLE IF NOT EXISTS medium_term_replay_trades (
+    id                  BIGSERIAL PRIMARY KEY,
+    run_id              BIGINT NOT NULL REFERENCES medium_term_replay_runs(id),
+    arm                 TEXT NOT NULL,
+    ticker              TEXT NOT NULL,
+    signal_date         DATE NOT NULL,
+    entry_date          DATE NOT NULL,
+    exit_date           DATE NOT NULL,
+    entry_price         NUMERIC(20, 9) NOT NULL,
+    exit_price          NUMERIC(20, 9) NOT NULL,
+    notional            NUMERIC(20, 2) NOT NULL,
+    initial_stop        NUMERIC(20, 9) NOT NULL,
+    exit_reason         TEXT NOT NULL,
+    held_sessions       INTEGER NOT NULL,
+    gross_return_pct    NUMERIC(12, 8) NOT NULL,
+    net_return_pct      NUMERIC(12, 8) NOT NULL,
+    gross_pnl           NUMERIC(20, 2) NOT NULL,
+    costs               NUMERIC(20, 2) NOT NULL,
+    net_pnl             NUMERIC(20, 2) NOT NULL,
+    recorded_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (run_id, arm, ticker, signal_date)
+);
+CREATE INDEX IF NOT EXISTS idx_medium_term_replay_trade_arm_date
+    ON medium_term_replay_trades (run_id, arm, exit_date DESC);
+
+CREATE TABLE IF NOT EXISTS medium_term_replay_equity (
+    id                  BIGSERIAL PRIMARY KEY,
+    run_id              BIGINT NOT NULL REFERENCES medium_term_replay_runs(id),
+    arm                 TEXT NOT NULL,
+    trade_date          DATE NOT NULL,
+    cash                NUMERIC(20, 2) NOT NULL,
+    position_value      NUMERIC(20, 2) NOT NULL,
+    total_equity        NUMERIC(20, 2) NOT NULL,
+    drawdown_pct        NUMERIC(12, 8) NOT NULL,
+    open_positions      INTEGER NOT NULL,
+    recorded_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (run_id, arm, trade_date)
+);
+CREATE INDEX IF NOT EXISTS idx_medium_term_replay_equity_arm_date
+    ON medium_term_replay_equity (run_id, arm, trade_date DESC);
+
 -- ============================================================
 -- Source-aware weighting (shadow mode)
 -- ============================================================

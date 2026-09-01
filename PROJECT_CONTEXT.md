@@ -108,6 +108,9 @@ Signals use completed daily bars and virtual entries use the next available
 daily open. Risk-based sizing, exposure limits, costs, gap-aware stops, and a
 maximum holding period are simulated locally. These records cannot reach the
 execution engine or represent broker positions or stop orders.
+Historical replay uses the same pure signal and stop-policy functions, persists
+immutable research runs separately, and compares daily net-liquidation equity
+against an equal-weight buy-and-hold benchmark.
 
 ---
 

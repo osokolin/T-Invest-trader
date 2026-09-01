@@ -78,6 +78,14 @@ resolved expire as virtual-only records without synthetic returns.
 5. Skip/enter rationale → `medium_term_paper_decisions`
 6. A/B/C performance → CLI and Grafana
 
+Optional historical research path:
+
+7. Stored MOEX range + warmup bars → `MediumTermReplayService`
+8. Shared signal/stop policies → staircase, ATR, and hybrid replay arms
+9. Daily mark-to-market state → `medium_term_replay_equity`
+10. Virtual closed trades → `medium_term_replay_trades`
+11. Equal-weight buy-and-hold comparison → replay Grafana dashboard
+
 This flow reads persisted market data and writes dedicated virtual research
 records only. It has no broker client, execution engine, order-intent, or
 reconciliation path.

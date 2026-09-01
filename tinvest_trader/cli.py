@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from tinvest_trader.app.config import AppConfig, load_config
 from tinvest_trader.app.container import Container, build_container
@@ -182,6 +182,24 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "medium-term-paper-stats",
         help="Compare staircase, ATR, and hybrid medium-term portfolios",
+    )
+    replay_parser = subparsers.add_parser(
+        "medium-term-replay",
+        help="Replay medium-term virtual portfolios from stored MOEX daily bars",
+    )
+    replay_parser.add_argument(
+        "--start", required=True, help="Replay start date (YYYY-MM-DD)",
+    )
+    replay_parser.add_argument(
+        "--end", required=True, help="Replay end date (YYYY-MM-DD)",
+    )
+    replay_parser.add_argument(
+        "--tickers", default="",
+        help="Comma-separated tickers (default: strategy override or tracked catalog)",
+    )
+    replay_parser.add_argument(
+        "--name", default="",
+        help="Immutable replay name (default: generated timestamped name)",
     )
 
     # -- signal-calibration-report --
@@ -500,6 +518,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_activity_paper_stats(config, container)
         if args.command == "medium-term-paper-stats":
             return _run_medium_term_paper_stats(config, container)
+        if args.command == "medium-term-replay":
+            return _run_medium_term_replay(
+                config,
+                container,
+                start=args.start,
+                end=args.end,
+                tickers=args.tickers,
+                name=args.name,
+            )
         if args.command == "signal-calibration-report":
             return _run_signal_calibration_report(container, config)
         if args.command == "market-binding-debug":
@@ -1149,6 +1176,64 @@ def _run_medium_term_paper_stats(config: AppConfig, container: Container) -> int
     )
     summaries = [repository.get_medium_term_paper_summary(name) for name in names]
     print(format_medium_term_paper_summary(summaries))
+    return 0
+
+
+def _run_medium_term_replay(
+    config: AppConfig,
+    container: Container,
+    *,
+    start: str,
+    end: str,
+    tickers: str,
+    name: str,
+) -> int:
+    repository = container.repository
+    if repository is None:
+        print("database is not configured")
+        return 1
+
+    try:
+        start_date = date.fromisoformat(start)
+        end_date = date.fromisoformat(end)
+    except ValueError:
+        print("start and end must use YYYY-MM-DD")
+        return 1
+
+    selected_tickers = tuple(
+        item.strip().upper() for item in tickers.split(",") if item.strip()
+    )
+    if not selected_tickers:
+        selected_tickers = config.medium_term_paper.tracked_tickers_override
+    if not selected_tickers:
+        selected_tickers = tuple(
+            item["ticker"] for item in repository.list_tracked_instruments()
+            if item.get("ticker")
+        )
+    if not selected_tickers:
+        print("medium-term replay requires tickers")
+        return 1
+
+    from tinvest_trader.services.medium_term_replay_service import (
+        MediumTermReplayService,
+        format_medium_term_replay_result,
+    )
+
+    run_name = name.strip() or (
+        f"medium-term-replay-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
+    )
+    service = MediumTermReplayService(
+        repository=repository,
+        config=config.medium_term_paper,
+        logger=container.logger,
+    )
+    result = service.run(
+        name=run_name,
+        start_date=start_date,
+        end_date=end_date,
+        tickers=selected_tickers,
+    )
+    print(format_medium_term_replay_result(result))
     return 0
 
 
