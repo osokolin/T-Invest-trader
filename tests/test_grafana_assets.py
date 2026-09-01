@@ -16,6 +16,7 @@ def test_dashboard_json_files_are_present_and_valid() -> None:
         "combined-overview.json": "Combined Market Context",
         "operator-overview.json": "Operator Overview",
         "paper-trading.json": "Paper Trading",
+        "paper-tariff-comparison.json": "Paper Tariff Comparison",
         "activity-paper-strategy.json": "Activity Paper Strategy",
         "medium-term-paper-strategy.json": "Medium-Term Paper Strategy",
         "market-activity.json": "Market Activity Monitor",
@@ -76,6 +77,28 @@ def test_paper_trading_dashboard_is_virtual_only() -> None:
     assert "paper_portfolio_positions" in combined_queries
     assert "order_intents" not in combined_queries
     assert "execution_events" not in combined_queries
+
+
+def test_paper_tariff_dashboard_compares_costs_without_execution() -> None:
+    dashboard = json.loads(
+        (GRAFANA_ROOT / "dashboards" / "paper-tariff-comparison.json").read_text(),
+    )
+    titles = {panel["title"] for panel in dashboard["panels"]}
+    query_text = "\n".join(
+        target.get("rawSql", "")
+        for panel in dashboard["panels"]
+        for target in panel.get("targets", [])
+    )
+
+    assert "Combined Tariff Comparison" in titles
+    assert "Standalone Portfolio Economics" in titles
+    assert "Base Tariff Break-even Turnover" in titles
+    assert "paper_portfolio_positions" in query_text
+    assert "activity_paper_positions" in query_text
+    assert "Trader paid" in query_text
+    assert "Premium free" in query_text
+    assert "order_intents" not in query_text
+    assert "execution_events" not in query_text
 
 
 def test_market_activity_dashboard_references_observations_and_spikes() -> None:

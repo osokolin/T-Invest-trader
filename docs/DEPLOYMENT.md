@@ -106,6 +106,7 @@ Start with these operational dashboards:
 
 - `Operator Overview` -- signal throughput, outcomes, and the latest paper portfolio
 - `Paper Trading` -- virtual positions, realized PnL, and source/ticker attribution
+- `Paper Tariff Comparison` -- counterfactual net PnL under T-Bank cost profiles
 - `Medium-Term Paper Strategy` -- staircase, ATR, and hybrid virtual portfolios
 - `Market Activity Monitor` -- T-Bank candle volume and price spikes; observational only
 - `Data Freshness & Pipeline Health` -- ingestion freshness and source errors
@@ -343,6 +344,21 @@ TINVEST_PAPER_PORTFOLIO_SLIPPAGE_RATE=0.0005
 TINVEST_PAPER_PORTFOLIO_UNRESOLVED_EXPIRY_MINUTES=180
 TINVEST_BACKGROUND_RUN_PAPER_PORTFOLIO=true
 ```
+
+Compare the same closed virtual positions under configurable T-Bank cost
+profiles without changing stored trades:
+
+```bash
+python -m tinvest_trader.cli paper-tariff-comparison --days 30
+```
+
+The report and `Paper Tariff Comparison` Grafana dashboard separate broker
+commission, slippage, and monthly subscription cost. Paid and fee-waived
+Trader/Premium scenarios are shown independently. CLI assumptions are
+configurable with `TINVEST_PAPER_TARIFF_*`; the provisioned dashboard states
+its embedded assumptions explicitly. Update both when the broker's tariff
+terms change. Subscription cost is charged once per active Moscow calendar
+month in the combined account view.
 
 Signal outcomes use the first quote near the configured evaluation target.
 Keep the quote window bounded so a quote arriving days later cannot resolve an

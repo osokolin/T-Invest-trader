@@ -193,6 +193,18 @@ class PaperPortfolioConfig:
 
 
 @dataclass(frozen=True)
+class PaperTariffComparisonConfig:
+    """Cost assumptions for read-only paper tariff comparison."""
+
+    investor_commission_rate: float = 0.003
+    trader_commission_rate: float = 0.0005
+    trader_monthly_fee: float = 390.0
+    premium_commission_rate: float = 0.0004
+    premium_monthly_fee: float = 2_990.0
+    slippage_rate: float = 0.0005
+
+
+@dataclass(frozen=True)
 class QuoteSyncConfig:
     enabled: bool = False
     poll_interval_seconds: int = 60
@@ -423,6 +435,9 @@ class AppConfig:
     )
     paper_portfolio: PaperPortfolioConfig = field(
         default_factory=PaperPortfolioConfig,
+    )
+    paper_tariff_comparison: PaperTariffComparisonConfig = field(
+        default_factory=PaperTariffComparisonConfig,
     )
     alerting: AlertingConfig = field(default_factory=AlertingConfig)
     daily_digest: DailyDigestConfig = field(default_factory=DailyDigestConfig)
@@ -1168,6 +1183,26 @@ def load_config() -> AppConfig:
             )),
             entry_stages=_parse_csv(os.environ.get(
                 "TINVEST_PAPER_PORTFOLIO_ENTRY_STAGES", "delivered",
+            )),
+        ),
+        paper_tariff_comparison=PaperTariffComparisonConfig(
+            investor_commission_rate=float(os.environ.get(
+                "TINVEST_PAPER_TARIFF_INVESTOR_COMMISSION_RATE", "0.003",
+            )),
+            trader_commission_rate=float(os.environ.get(
+                "TINVEST_PAPER_TARIFF_TRADER_COMMISSION_RATE", "0.0005",
+            )),
+            trader_monthly_fee=float(os.environ.get(
+                "TINVEST_PAPER_TARIFF_TRADER_MONTHLY_FEE", "390",
+            )),
+            premium_commission_rate=float(os.environ.get(
+                "TINVEST_PAPER_TARIFF_PREMIUM_COMMISSION_RATE", "0.0004",
+            )),
+            premium_monthly_fee=float(os.environ.get(
+                "TINVEST_PAPER_TARIFF_PREMIUM_MONTHLY_FEE", "2990",
+            )),
+            slippage_rate=float(os.environ.get(
+                "TINVEST_PAPER_TARIFF_SLIPPAGE_RATE", "0.0005",
             )),
         ),
         alerting=AlertingConfig(

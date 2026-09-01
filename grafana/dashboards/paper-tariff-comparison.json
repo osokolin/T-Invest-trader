@@ -1,0 +1,162 @@
+{
+  "annotations": {"list": []},
+  "description": "Read-only counterfactual cost comparison for the same closed virtual positions. Monthly fees are charged once per active Moscow calendar month in the combined view.",
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {"asDropdown": true, "icon": "external link", "includeVars": true, "keepTime": true, "tags": ["tinvest"], "targetBlank": false, "title": "T-Invest dashboards", "type": "dashboards"}
+  ],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "id": 100,
+      "panels": [],
+      "title": "Cost-adjusted paper performance - no broker orders",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "postgres"},
+      "description": "Sum of entry and exit notional for closed virtual positions in the selected range.",
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "decimals": 0, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}, "unit": "currencyRUB"}, "overrides": []},
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 1},
+      "id": 1,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showPercentChange": false, "textMode": "auto", "wideLayout": true},
+      "targets": [{"editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "WITH positions AS (SELECT portfolio_name, notional, exit_time FROM paper_portfolio_positions WHERE status = 'closed' AND $__timeFilter(exit_time) UNION ALL SELECT portfolio_name, notional, exit_time FROM activity_paper_positions WHERE status = 'closed' AND $__timeFilter(exit_time)) SELECT COALESCE(sum(notional) * 2, 0)::double precision AS \"Executed Turnover\" FROM positions WHERE portfolio_name IN (${portfolio:sqlstring});", "refId": "A"}],
+      "title": "Executed Turnover",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "postgres"},
+      "description": "Strategy result before commission, slippage, and subscription costs.",
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "decimals": 0, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 0}]}, "unit": "currencyRUB"}, "overrides": []},
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 1},
+      "id": 2,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showPercentChange": false, "textMode": "auto", "wideLayout": true},
+      "targets": [{"editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "WITH positions AS (SELECT portfolio_name, gross_pnl, exit_time FROM paper_portfolio_positions WHERE status = 'closed' AND $__timeFilter(exit_time) UNION ALL SELECT portfolio_name, gross_pnl, exit_time FROM activity_paper_positions WHERE status = 'closed' AND $__timeFilter(exit_time)) SELECT COALESCE(sum(gross_pnl), 0)::double precision AS \"Gross PnL\" FROM positions WHERE portfolio_name IN (${portfolio:sqlstring});", "refId": "A"}],
+      "title": "Gross PnL Before Costs",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "postgres"},
+      "description": "Best counterfactual scenario for selected portfolios and range. Fee-waived profiles require the corresponding T-Bank eligibility conditions.",
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "decimals": 0, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 0}]}, "unit": "currencyRUB"}, "overrides": []},
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 1},
+      "id": 3,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showPercentChange": false, "textMode": "value_and_name", "wideLayout": true},
+      "targets": [{"editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "WITH positions AS (SELECT portfolio_name, notional, gross_pnl, exit_time FROM paper_portfolio_positions WHERE status = 'closed' AND $__timeFilter(exit_time) UNION ALL SELECT portfolio_name, notional, gross_pnl, exit_time FROM activity_paper_positions WHERE status = 'closed' AND $__timeFilter(exit_time)), filtered AS (SELECT * FROM positions WHERE portfolio_name IN (${portfolio:sqlstring})), tariffs(tariff, commission_rate, monthly_fee) AS (VALUES ('Investor', 0.003::numeric, 0::numeric), ('Trader paid', 0.0005::numeric, 390::numeric), ('Trader free', 0.0005::numeric, 0::numeric), ('Premium paid', 0.0004::numeric, 2990::numeric), ('Premium free', 0.0004::numeric, 0::numeric)), summary AS (SELECT COALESCE(sum(notional) * 2, 0) AS turnover, COALESCE(sum(gross_pnl), 0) AS gross_pnl, count(DISTINCT date_trunc('month', exit_time AT TIME ZONE 'Europe/Moscow')) AS active_months FROM filtered) SELECT tariff AS metric, (gross_pnl - turnover * (commission_rate + 0.0005) - active_months * monthly_fee)::double precision AS value FROM summary CROSS JOIN tariffs ORDER BY value DESC LIMIT 1;", "refId": "A"}],
+      "title": "Best Net PnL Scenario",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "postgres"},
+      "description": "Closed virtual positions included in the comparison.",
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "decimals": 0, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}, "overrides": []},
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 1},
+      "id": 4,
+      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showPercentChange": false, "textMode": "auto", "wideLayout": true},
+      "targets": [{"editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "WITH positions AS (SELECT portfolio_name, exit_time FROM paper_portfolio_positions WHERE status = 'closed' AND $__timeFilter(exit_time) UNION ALL SELECT portfolio_name, exit_time FROM activity_paper_positions WHERE status = 'closed' AND $__timeFilter(exit_time)) SELECT count(*) AS \"Closed Positions\" FROM positions WHERE portfolio_name IN (${portfolio:sqlstring});", "refId": "A"}],
+      "title": "Closed Positions",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "postgres"},
+      "description": "Combined account-level comparison. Subscription is charged once per active Moscow calendar month.",
+      "fieldConfig": {"defaults": {"custom": {"align": "auto", "cellOptions": {"type": "auto"}, "inspect": false}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}, "overrides": [{"matcher": {"id": "byName", "options": "net_pnl"}, "properties": [{"id": "unit", "value": "currencyRUB"}, {"id": "decimals", "value": 2}]}, {"matcher": {"id": "byRegexp", "options": "/.*cost|gross_pnl|turnover|commission/"}, "properties": [{"id": "unit", "value": "currencyRUB"}, {"id": "decimals", "value": 2}]}]},
+      "gridPos": {"h": 9, "w": 16, "x": 0, "y": 6},
+      "id": 5,
+      "options": {"cellHeight": "sm", "footer": {"countRows": false, "fields": "", "reducer": ["sum"], "show": false}, "showHeader": true, "sortBy": [{"desc": true, "displayName": "net_pnl"}]},
+      "targets": [{"editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "WITH positions AS (SELECT portfolio_name, notional, gross_pnl, exit_time FROM paper_portfolio_positions WHERE status = 'closed' AND $__timeFilter(exit_time) UNION ALL SELECT portfolio_name, notional, gross_pnl, exit_time FROM activity_paper_positions WHERE status = 'closed' AND $__timeFilter(exit_time)), filtered AS (SELECT * FROM positions WHERE portfolio_name IN (${portfolio:sqlstring})), tariffs(tariff, commission_rate, monthly_fee) AS (VALUES ('Investor', 0.003::numeric, 0::numeric), ('Trader paid', 0.0005::numeric, 390::numeric), ('Trader free', 0.0005::numeric, 0::numeric), ('Premium paid', 0.0004::numeric, 2990::numeric), ('Premium free', 0.0004::numeric, 0::numeric)), summary AS (SELECT count(*) AS closed_positions, COALESCE(sum(notional) * 2, 0) AS turnover, COALESCE(sum(gross_pnl), 0) AS gross_pnl, count(DISTINCT date_trunc('month', exit_time AT TIME ZONE 'Europe/Moscow')) AS active_months FROM filtered) SELECT tariff, closed_positions, round(turnover, 2) AS turnover, round(gross_pnl, 2) AS gross_pnl, round(turnover * commission_rate, 2) AS broker_commission, round(turnover * 0.0005, 2) AS slippage_cost, round(active_months * monthly_fee, 2) AS subscription_cost, round(gross_pnl - turnover * (commission_rate + 0.0005) - active_months * monthly_fee, 2) AS net_pnl FROM summary CROSS JOIN tariffs ORDER BY net_pnl DESC;", "refId": "A"}],
+      "title": "Combined Tariff Comparison",
+      "type": "table"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "postgres"},
+      "description": "Higher is better. Uses the same trades and prices for every scenario.",
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisCenteredZero": true, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "fillOpacity": 75, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "lineWidth": 1, "scaleDistribution": {"type": "linear"}}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}, "unit": "currencyRUB"}, "overrides": []},
+      "gridPos": {"h": 9, "w": 8, "x": 16, "y": 6},
+      "id": 6,
+      "options": {"barRadius": 0, "barWidth": 0.8, "fullHighlight": false, "groupWidth": 0.7, "legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": false}, "orientation": "horizontal", "showValue": "always", "stacking": "none", "tooltip": {"hideZeros": false, "mode": "single", "sort": "none"}, "xTickLabelRotation": 0, "xTickLabelSpacing": 0},
+      "targets": [{"editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "WITH positions AS (SELECT portfolio_name, notional, gross_pnl, exit_time FROM paper_portfolio_positions WHERE status = 'closed' AND $__timeFilter(exit_time) UNION ALL SELECT portfolio_name, notional, gross_pnl, exit_time FROM activity_paper_positions WHERE status = 'closed' AND $__timeFilter(exit_time)), filtered AS (SELECT * FROM positions WHERE portfolio_name IN (${portfolio:sqlstring})), tariffs(tariff, commission_rate, monthly_fee) AS (VALUES ('Investor', 0.003::numeric, 0::numeric), ('Trader paid', 0.0005::numeric, 390::numeric), ('Trader free', 0.0005::numeric, 0::numeric), ('Premium paid', 0.0004::numeric, 2990::numeric), ('Premium free', 0.0004::numeric, 0::numeric)), summary AS (SELECT COALESCE(sum(notional) * 2, 0) AS turnover, COALESCE(sum(gross_pnl), 0) AS gross_pnl, count(DISTINCT date_trunc('month', exit_time AT TIME ZONE 'Europe/Moscow')) AS active_months FROM filtered) SELECT tariff, (gross_pnl - turnover * (commission_rate + 0.0005) - active_months * monthly_fee)::double precision AS net_pnl FROM summary CROSS JOIN tariffs ORDER BY net_pnl DESC;", "refId": "A"}],
+      "title": "Net PnL by Tariff",
+      "type": "barchart"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "postgres"},
+      "description": "Monthly account-level PnL after commission, shared slippage assumption, and one subscription charge in months with trades.",
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisCenteredZero": true, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 12, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 5, "scaleDistribution": {"type": "linear"}, "showPoints": "auto", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}, "unit": "currencyRUB"}, "overrides": []},
+      "gridPos": {"h": 9, "w": 14, "x": 0, "y": 15},
+      "id": 7,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"hideZeros": false, "mode": "multi", "sort": "desc"}},
+      "targets": [{"editorMode": "code", "format": "time_series", "rawQuery": true, "rawSql": "WITH positions AS (SELECT portfolio_name, notional, gross_pnl, exit_time FROM paper_portfolio_positions WHERE status = 'closed' AND $__timeFilter(exit_time) UNION ALL SELECT portfolio_name, notional, gross_pnl, exit_time FROM activity_paper_positions WHERE status = 'closed' AND $__timeFilter(exit_time)), tariffs(tariff, commission_rate, monthly_fee) AS (VALUES ('Investor', 0.003::numeric, 0::numeric), ('Trader paid', 0.0005::numeric, 390::numeric), ('Trader free', 0.0005::numeric, 0::numeric), ('Premium paid', 0.0004::numeric, 2990::numeric), ('Premium free', 0.0004::numeric, 0::numeric)), monthly AS (SELECT date_trunc('month', exit_time) AS month, sum(notional) * 2 AS turnover, sum(gross_pnl) AS gross_pnl FROM positions WHERE portfolio_name IN (${portfolio:sqlstring}) GROUP BY 1) SELECT month AS time, tariff AS metric, (gross_pnl - turnover * (commission_rate + 0.0005) - monthly_fee)::double precision AS value FROM monthly CROSS JOIN tariffs ORDER BY time, metric;", "refId": "A"}],
+      "title": "Monthly Net PnL by Tariff",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "postgres"},
+      "description": "Each portfolio is treated as if it traded alone; subscription is therefore charged independently here.",
+      "fieldConfig": {"defaults": {"custom": {"align": "auto", "cellOptions": {"type": "auto"}, "inspect": false}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}, "overrides": [{"matcher": {"id": "byRegexp", "options": "/net_pnl|gross_pnl|turnover/"}, "properties": [{"id": "unit", "value": "currencyRUB"}, {"id": "decimals", "value": 2}]}]},
+      "gridPos": {"h": 9, "w": 10, "x": 14, "y": 15},
+      "id": 8,
+      "options": {"cellHeight": "sm", "footer": {"countRows": false, "fields": "", "reducer": ["sum"], "show": false}, "showHeader": true, "sortBy": [{"desc": false, "displayName": "portfolio_name"}]},
+      "targets": [{"editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "WITH positions AS (SELECT portfolio_name, notional, gross_pnl, exit_time FROM paper_portfolio_positions WHERE status = 'closed' AND $__timeFilter(exit_time) UNION ALL SELECT portfolio_name, notional, gross_pnl, exit_time FROM activity_paper_positions WHERE status = 'closed' AND $__timeFilter(exit_time)), tariffs(tariff, commission_rate, monthly_fee) AS (VALUES ('Investor', 0.003::numeric, 0::numeric), ('Trader paid', 0.0005::numeric, 390::numeric), ('Premium paid', 0.0004::numeric, 2990::numeric)), summary AS (SELECT portfolio_name, count(*) AS closed_positions, sum(notional) * 2 AS turnover, sum(gross_pnl) AS gross_pnl, count(DISTINCT date_trunc('month', exit_time AT TIME ZONE 'Europe/Moscow')) AS active_months FROM positions WHERE portfolio_name IN (${portfolio:sqlstring}) GROUP BY portfolio_name) SELECT portfolio_name, tariff, closed_positions, round(turnover, 2) AS turnover, round(gross_pnl, 2) AS gross_pnl, round(gross_pnl - turnover * (commission_rate + 0.0005) - active_months * monthly_fee, 2) AS net_pnl FROM summary CROSS JOIN tariffs ORDER BY portfolio_name, net_pnl DESC;", "refId": "A"}],
+      "title": "Standalone Portfolio Economics",
+      "type": "table"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "postgres"},
+      "description": "Approximate monthly executed turnover where the paid tariff on the right becomes cheaper than the paid tariff on the left. Slippage cancels out because it is shared.",
+      "fieldConfig": {"defaults": {"custom": {"align": "auto", "cellOptions": {"type": "auto"}, "inspect": false}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}, "overrides": [{"matcher": {"id": "byName", "options": "break_even_turnover"}, "properties": [{"id": "unit", "value": "currencyRUB"}, {"id": "decimals", "value": 0}]}]},
+      "gridPos": {"h": 5, "w": 12, "x": 0, "y": 24},
+      "id": 9,
+      "options": {"cellHeight": "sm", "footer": {"countRows": false, "fields": "", "reducer": ["sum"], "show": false}, "showHeader": true},
+      "targets": [{"editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "SELECT * FROM (VALUES ('Investor -> Trader paid', 156000::numeric), ('Trader paid -> Premium paid', 26000000::numeric)) AS thresholds(comparison, break_even_turnover);", "refId": "A"}],
+      "title": "Base Tariff Break-even Turnover",
+      "type": "table"
+    },
+    {
+      "description": "Default assumptions: Investor 0.30%, Trader 0.05% + 390 RUB/month, Premium 0.04% + 2,990 RUB/month, and slippage 0.05% per side. Premium 0.015% shown in some product cards applies to futures, not the stock scenarios modeled here. Fee-waived rows are counterfactuals for accounts meeting T-Bank eligibility conditions.",
+      "gridPos": {"h": 5, "w": 12, "x": 12, "y": 24},
+      "id": 10,
+      "options": {"code": {"language": "plaintext", "showLineNumbers": false, "showMiniMap": false}, "content": "## How to read this dashboard\n\n- Same virtual trades and prices in every row\n- Commission applies to both entry and exit turnover\n- Slippage is separate from broker commission\n- Subscription is charged once per active month\n- This dashboard never creates broker orders", "mode": "markdown"},
+      "pluginVersion": "12.0.0",
+      "title": "Assumptions and Safety",
+      "type": "text"
+    }
+  ],
+  "preload": false,
+  "refresh": "1m",
+  "schemaVersion": 41,
+  "tags": ["tinvest", "paper", "tariffs", "costs"],
+  "templating": {
+    "list": [
+      {
+        "allValue": null,
+        "current": {"selected": true, "text": ["All"], "value": ["$__all"]},
+        "datasource": {"type": "postgres", "uid": "postgres"},
+        "definition": "SELECT portfolio_name FROM (SELECT name AS portfolio_name FROM paper_portfolios UNION SELECT name FROM activity_paper_portfolios) portfolios ORDER BY portfolio_name",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Portfolio",
+        "multi": true,
+        "name": "portfolio",
+        "options": [],
+        "query": "SELECT portfolio_name FROM (SELECT name AS portfolio_name FROM paper_portfolios UNION SELECT name FROM activity_paper_portfolios) portfolios ORDER BY portfolio_name",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {"from": "now-30d", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Paper Tariff Comparison",
+  "uid": "paper-tariff-comparison",
+  "version": 1,
+  "weekStart": "monday"
+}

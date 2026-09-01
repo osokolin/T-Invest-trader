@@ -24,6 +24,7 @@ Supporting dashboards provide deeper views into individual data sources:
 | CBR Events | Central Bank macro event timeline |
 | MOEX Market History | Moscow Exchange price and volume data |
 | Combined Overview | Legacy high-level signal stats |
+| Paper Tariff Comparison | Same virtual trades repriced under Investor, Trader, and Premium costs |
 
 All dashboards query PostgreSQL directly using the provisioned Grafana datasource.
 
