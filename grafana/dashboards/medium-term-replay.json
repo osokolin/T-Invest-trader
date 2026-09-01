@@ -1,6 +1,6 @@
 {
   "annotations": { "list": [] },
-  "description": "Historical, virtual-only comparison of medium-term staircase, ATR, hybrid, and equal-weight buy-and-hold using stored MOEX daily bars.",
+  "description": "Historical, virtual-only comparison using split-adjusted MOEX bars, persisted T-Bank dividends, and an equal-weight total-return benchmark.",
   "editable": false,
   "links": [
     { "asDropdown": true, "includeTimeRange": true, "keepTimeRange": true, "tags": ["tinvest"], "title": "Open another T-Invest dashboard", "type": "dashboards" }
@@ -15,7 +15,7 @@
       "targets": [{
         "datasource": { "type": "postgres", "uid": "postgres" },
         "format": "table",
-        "rawSql": "WITH latest AS (SELECT DISTINCT ON (arm) arm, total_equity, drawdown_pct, open_positions FROM medium_term_replay_equity WHERE run_id = ${run} ORDER BY arm, trade_date DESC), drawdowns AS (SELECT arm, max(drawdown_pct) AS max_drawdown FROM medium_term_replay_equity WHERE run_id = ${run} GROUP BY arm), trades AS (SELECT arm, count(*) AS closed_trades, count(*) FILTER (WHERE net_pnl > 0)::numeric / NULLIF(count(*), 0) AS win_rate, avg(net_return_pct) AS avg_net_return, sum(net_pnl) AS realized_pnl FROM medium_term_replay_trades WHERE run_id = ${run} GROUP BY arm) SELECT latest.arm, latest.total_equity, latest.total_equity / NULLIF((run.config_json->>'initial_cash')::numeric, 0) - 1 AS total_return, drawdowns.max_drawdown, latest.open_positions, COALESCE(trades.closed_trades, 0) AS closed_trades, trades.win_rate, trades.avg_net_return, trades.realized_pnl FROM latest JOIN medium_term_replay_runs run ON run.id = ${run} JOIN drawdowns USING (arm) LEFT JOIN trades USING (arm) ORDER BY latest.arm",
+        "rawSql": "WITH latest AS (SELECT DISTINCT ON (arm) arm, total_equity, dividend_income, drawdown_pct, open_positions FROM medium_term_replay_equity WHERE run_id = ${run} ORDER BY arm, trade_date DESC), drawdowns AS (SELECT arm, max(drawdown_pct) AS max_drawdown FROM medium_term_replay_equity WHERE run_id = ${run} GROUP BY arm), trades AS (SELECT arm, count(*) AS closed_trades, count(*) FILTER (WHERE net_pnl > 0)::numeric / NULLIF(count(*), 0) AS win_rate, avg(net_return_pct) AS avg_net_return, sum(net_pnl) AS realized_pnl FROM medium_term_replay_trades WHERE run_id = ${run} GROUP BY arm) SELECT latest.arm, latest.total_equity, latest.total_equity / NULLIF((run.config_json->>'initial_cash')::numeric, 0) - 1 AS total_return, latest.dividend_income, drawdowns.max_drawdown, latest.open_positions, COALESCE(trades.closed_trades, 0) AS closed_trades, trades.win_rate, trades.avg_net_return, trades.realized_pnl FROM latest JOIN medium_term_replay_runs run ON run.id = ${run} JOIN drawdowns USING (arm) LEFT JOIN trades USING (arm) ORDER BY latest.arm",
         "refId": "A"
       }],
       "title": "Strategy vs Equal-Weight Benchmark",
@@ -60,7 +60,7 @@
       "targets": [{
         "datasource": { "type": "postgres", "uid": "postgres" },
         "format": "table",
-        "rawSql": "SELECT exit_date, arm, ticker, signal_date, entry_date, entry_price, exit_price, initial_stop, exit_reason, held_sessions, net_return_pct, costs, net_pnl FROM medium_term_replay_trades WHERE run_id = ${run} ORDER BY exit_date DESC, id DESC LIMIT 250",
+        "rawSql": "SELECT exit_date, arm, ticker, signal_date, entry_date, entry_price, exit_price, initial_stop, exit_reason, held_sessions, dividend_income, net_return_pct, costs, net_pnl FROM medium_term_replay_trades WHERE run_id = ${run} ORDER BY exit_date DESC, id DESC LIMIT 250",
         "refId": "A"
       }],
       "title": "Replay Virtual Trades",
@@ -133,5 +133,5 @@
   "timezone": "browser",
   "title": "Medium-Term Historical Replay",
   "uid": "medium-term-replay",
-  "version": 1
+  "version": 2
 }

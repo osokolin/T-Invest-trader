@@ -18,6 +18,10 @@ def test_moex_history_enabled_by_default():
     assert cfg.history_enabled is True
 
 
+def test_moex_corporate_actions_enabled_by_default():
+    assert MoexConfig().corporate_actions_enabled is True
+
+
 def test_moex_default_engine():
     cfg = MoexConfig()
     assert cfg.engine == "stock"
@@ -47,6 +51,7 @@ def test_moex_env_vars(monkeypatch):
     monkeypatch.setenv("TINVEST_MOEX_ENABLED", "true")
     monkeypatch.setenv("TINVEST_MOEX_METADATA_ENABLED", "false")
     monkeypatch.setenv("TINVEST_MOEX_HISTORY_ENABLED", "false")
+    monkeypatch.setenv("TINVEST_MOEX_CORPORATE_ACTIONS_ENABLED", "false")
     monkeypatch.setenv("TINVEST_MOEX_POLL_INTERVAL_SECONDS", "1800")
     monkeypatch.setenv("TINVEST_MOEX_HISTORY_LOOKBACK_DAYS", "30")
     monkeypatch.setenv("TINVEST_MOEX_TRACKED_TICKERS", "SBER,GAZP")
@@ -57,6 +62,7 @@ def test_moex_env_vars(monkeypatch):
     assert cfg.moex.enabled is True
     assert cfg.moex.metadata_enabled is False
     assert cfg.moex.history_enabled is False
+    assert cfg.moex.corporate_actions_enabled is False
     assert cfg.moex.poll_interval_seconds == 1800
     assert cfg.moex.history_lookback_days == 30
     assert cfg.moex.tracked_tickers_override == ("SBER", "GAZP")

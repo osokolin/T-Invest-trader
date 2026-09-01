@@ -442,6 +442,7 @@ class Container:
             history_lookback_days=cfg.history_lookback_days,
             metadata_enabled=cfg.metadata_enabled,
             history_enabled=cfg.history_enabled,
+            corporate_actions_enabled=cfg.corporate_actions_enabled,
         )
 
         self.logger.info(
@@ -450,6 +451,7 @@ class Container:
                 "component": "moex",
                 "metadata_enabled": cfg.metadata_enabled,
                 "history_enabled": cfg.history_enabled,
+                "corporate_actions_enabled": cfg.corporate_actions_enabled,
                 "tracked_tickers": len(tracked_tickers),
                 "history_lookback_days": cfg.history_lookback_days,
                 "engine": cfg.engine,

@@ -45,6 +45,7 @@ class ReplayPosition:
     current_stop: float
     highest_close: float
     held_sessions: int = 0
+    dividend_income: float = 0.0
 
 
 @dataclass
@@ -57,6 +58,7 @@ class ReplayArmState:
     trades: list[dict] = field(default_factory=list)
     equity: list[dict] = field(default_factory=list)
     peak_equity: float = 0.0
+    dividend_income: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -98,12 +100,19 @@ class MediumTermReplayService:
         if not normalized_tickers:
             raise ValueError("replay requires at least one ticker")
 
+        run_config = asdict(self._config)
+        run_config["corporate_action_adjustments"] = {
+            "splits": "moex_security_splits",
+            "dividends": "broker_event_features:GetDividends",
+            "dividend_currency": "RUB",
+            "benchmark_reinvests_dividends": True,
+        }
         run_id = self._repository.create_medium_term_replay_run(
             name=name,
             start_date=start_date,
             end_date=end_date,
             tickers=normalized_tickers,
-            config=asdict(self._config),
+            config=run_config,
         )
         try:
             bars_by_ticker = self._repository.list_moex_daily_history_range(
@@ -112,11 +121,22 @@ class MediumTermReplayService:
                 end_date=end_date,
                 warmup_bars=max(2, self._config.history_bars),
             )
+            splits = self._repository.list_moex_security_splits(
+                normalized_tickers,
+                end_date=end_date,
+            )
+            dividends = self._repository.list_broker_dividends_for_replay(
+                normalized_tickers,
+                start_date=start_date,
+                end_date=end_date,
+            )
             simulation = simulate_medium_term_replay(
                 bars_by_ticker=bars_by_ticker,
                 config=self._config,
                 start_date=start_date,
                 end_date=end_date,
+                splits=splits,
+                dividends=dividends,
             )
             self._repository.insert_medium_term_replay_results(
                 run_id=run_id,
@@ -157,13 +177,15 @@ def simulate_medium_term_replay(
     config: MediumTermPaperConfig,
     start_date: date,
     end_date: date,
+    splits: list[dict] | None = None,
+    dividends: list[dict] | None = None,
 ) -> dict[str, list[dict]]:
     """Replay all strategy arms and a benchmark without future information."""
-    bars_by_ticker = {
+    bars_by_ticker = adjust_bars_for_splits({
         ticker.upper(): sorted(items, key=lambda item: item["trade_date"])
         for ticker, items in bars_by_ticker.items()
         if items
-    }
+    }, splits or [])
     calendar = sorted({
         bar["trade_date"]
         for bars in bars_by_ticker.values()
@@ -172,6 +194,9 @@ def simulate_medium_term_replay(
     })
     if not calendar:
         raise ValueError("no MOEX daily bars available in replay range")
+    dividends_by_date = _prepare_dividends(
+        dividends or [], splits or [], calendar=calendar,
+    )
 
     bar_indexes = {
         ticker: {bar["trade_date"]: index for index, bar in enumerate(bars)}
@@ -194,6 +219,7 @@ def simulate_medium_term_replay(
             bars_by_ticker=bars_by_ticker,
             bar_indexes=bar_indexes,
             config=config,
+            dividends_by_date=dividends_by_date,
         )
         trades.extend(state.trades)
         equity_rows.extend(state.equity)
@@ -204,6 +230,7 @@ def simulate_medium_term_replay(
         bars_by_ticker=bars_by_ticker,
         bar_indexes=bar_indexes,
         config=config,
+        dividends_by_date=dividends_by_date,
     )
     equity_rows.extend(benchmark_equity)
     summaries.append(_summarize_benchmark(benchmark_equity, config.initial_cash))
@@ -249,6 +276,7 @@ def _simulate_strategy_arm(
     bars_by_ticker: dict[str, list[dict]],
     bar_indexes: dict[str, dict[date, int]],
     config: MediumTermPaperConfig,
+    dividends_by_date: dict[date, dict[str, float]],
 ) -> ReplayArmState:
     state = ReplayArmState(
         arm=arm,
@@ -312,6 +340,11 @@ def _simulate_strategy_arm(
                 latest_close=bar["close"],
             )
 
+        _credit_strategy_dividends(
+            state,
+            dividends_by_date.get(trade_date, {}),
+        )
+
         _record_strategy_equity(
             state, trade_date, latest_closes=latest_closes, config=config,
         )
@@ -367,13 +400,16 @@ def _close_replay_position(
     held_sessions: int,
     config: MediumTermPaperConfig,
 ) -> None:
-    gross_return = exit_price / position.entry_price - 1
+    price_return = exit_price / position.entry_price - 1
     total_cost_rate = _total_cost_rate(config)
-    gross_pnl = position.notional * gross_return
+    price_gross_pnl = position.notional * price_return
+    gross_pnl = price_gross_pnl + position.dividend_income
     costs = position.notional * total_cost_rate
     net_pnl = gross_pnl - costs
-    state.cash += position.notional + net_pnl
-    state.realized_pnl += net_pnl
+    # Dividends were credited when entitlement occurred, so only price PnL is
+    # added here. The trade record still reports the complete total return.
+    state.cash += position.notional + price_gross_pnl - costs
+    state.realized_pnl += price_gross_pnl - costs
     state.trades.append({
         "arm": state.arm,
         "ticker": position.ticker,
@@ -386,13 +422,31 @@ def _close_replay_position(
         "initial_stop": position.initial_stop,
         "exit_reason": exit_reason,
         "held_sessions": held_sessions,
-        "gross_return_pct": gross_return,
-        "net_return_pct": gross_return - total_cost_rate,
+        "gross_return_pct": gross_pnl / position.notional,
+        "net_return_pct": net_pnl / position.notional,
         "gross_pnl": gross_pnl,
+        "dividend_income": position.dividend_income,
         "costs": costs,
         "net_pnl": net_pnl,
     })
     del state.positions[position.ticker]
+
+
+def _credit_strategy_dividends(
+    state: ReplayArmState,
+    dividends: dict[str, float],
+) -> None:
+    """Credit dividends only to positions held through entitlement close."""
+    for ticker, amount_per_share in dividends.items():
+        position = state.positions.get(ticker)
+        if position is None or amount_per_share <= 0:
+            continue
+        shares = position.notional / position.entry_price
+        income = shares * amount_per_share
+        position.dividend_income += income
+        state.dividend_income += income
+        state.cash += income
+        state.realized_pnl += income
 
 
 def _record_strategy_equity(
@@ -421,6 +475,7 @@ def _record_strategy_equity(
         "cash": state.cash,
         "position_value": position_value,
         "total_equity": total_equity,
+        "dividend_income": state.dividend_income,
         "drawdown_pct": drawdown,
         "open_positions": len(state.positions),
     })
@@ -432,6 +487,7 @@ def _simulate_equal_weight_benchmark(
     bars_by_ticker: dict[str, list[dict]],
     bar_indexes: dict[str, dict[date, int]],
     config: MediumTermPaperConfig,
+    dividends_by_date: dict[date, dict[str, float]],
 ) -> list[dict]:
     first_entries = {
         ticker: next(
@@ -445,10 +501,11 @@ def _simulate_equal_weight_benchmark(
         return []
     allocation = config.initial_cash / len(first_entries)
     cash = config.initial_cash
-    positions: dict[str, tuple[float, float]] = {}
+    positions: dict[str, dict[str, float]] = {}
     latest_closes: dict[str, float] = {}
     peak = config.initial_cash
-    total_cost_rate = _total_cost_rate(config)
+    one_way_cost_rate = max(0.0, config.commission_rate + config.slippage_rate)
+    dividend_income = 0.0
     rows = []
     for trade_date in calendar:
         bars_today = _bars_for_date(
@@ -458,12 +515,23 @@ def _simulate_equal_weight_benchmark(
         for ticker, entry_bar in first_entries.items():
             if ticker in positions or entry_bar["trade_date"] != trade_date:
                 continue
-            positions[ticker] = (allocation, float(entry_bar["open"]))
+            entry_price = float(entry_bar["open"])
+            investable = allocation * (1 - one_way_cost_rate)
+            positions[ticker] = {"shares": investable / entry_price}
             cash -= allocation
+        for ticker, amount_per_share in dividends_by_date.get(trade_date, {}).items():
+            position = positions.get(ticker)
+            close = latest_closes.get(ticker)
+            if position is None or close is None or close <= 0:
+                continue
+            income = position["shares"] * amount_per_share
+            dividend_income += income
+            # A total-return benchmark reinvests distributions in the same asset.
+            position["shares"] += income / close
         position_value = sum(
-            notional * latest_closes.get(ticker, entry_price) / entry_price
-            - notional * total_cost_rate
-            for ticker, (notional, entry_price) in positions.items()
+            position["shares"] * latest_closes[ticker] * (1 - one_way_cost_rate)
+            for ticker, position in positions.items()
+            if ticker in latest_closes
         )
         total_equity = cash + position_value
         peak = max(peak, total_equity)
@@ -473,10 +541,96 @@ def _simulate_equal_weight_benchmark(
             "cash": cash,
             "position_value": position_value,
             "total_equity": total_equity,
+            "dividend_income": dividend_income,
             "drawdown_pct": (peak - total_equity) / peak if peak > 0 else 0.0,
             "open_positions": len(positions),
         })
     return rows
+
+
+def adjust_bars_for_splits(
+    bars_by_ticker: dict[str, list[dict]],
+    splits: list[dict],
+) -> dict[str, list[dict]]:
+    """Convert historical OHLCV bars to the latest share basis in the range."""
+    splits_by_ticker: dict[str, list[dict]] = {}
+    for split in splits:
+        ticker = str(split.get("ticker") or "").upper()
+        before = int(split.get("before") or 0)
+        after = int(split.get("after") or 0)
+        split_date = split.get("trade_date")
+        if ticker and isinstance(split_date, date) and before > 0 and after > 0:
+            splits_by_ticker.setdefault(ticker, []).append(split)
+
+    result: dict[str, list[dict]] = {}
+    for ticker, bars in bars_by_ticker.items():
+        adjusted = []
+        ticker_splits = splits_by_ticker.get(ticker, [])
+        for source in bars:
+            factor = _future_split_price_factor(
+                ticker_splits, source["trade_date"],
+            )
+            row = dict(source)
+            for field_name in ("open", "high", "low", "close"):
+                row[field_name] = float(row[field_name]) * factor
+            row["volume"] = int(round(float(row["volume"]) / factor))
+            adjusted.append(row)
+        result[ticker] = adjusted
+    return result
+
+
+def _prepare_dividends(
+    dividends: list[dict],
+    splits: list[dict],
+    *,
+    calendar: list[date],
+) -> dict[date, dict[str, float]]:
+    """Align RUB dividends to entitlement sessions and adjusted share units."""
+    splits_by_ticker: dict[str, list[dict]] = {}
+    for split in splits:
+        ticker = str(split.get("ticker") or "").upper()
+        if ticker:
+            splits_by_ticker.setdefault(ticker, []).append(split)
+
+    result: dict[date, dict[str, float]] = {}
+    for item in dividends:
+        ticker = str(item.get("ticker") or "").upper()
+        entitlement_date = item.get("entitlement_date")
+        currency = str(item.get("currency") or "").upper()
+        amount = float(item.get("amount") or 0.0)
+        if (
+            not ticker
+            or not isinstance(entitlement_date, date)
+            or currency not in {"RUB", "SUR"}
+            or amount <= 0
+        ):
+            continue
+        eligible_sessions = [day for day in calendar if day <= entitlement_date]
+        if not eligible_sessions:
+            continue
+        session_date = eligible_sessions[-1]
+        adjusted_amount = amount * _future_split_price_factor(
+            splits_by_ticker.get(ticker, []), entitlement_date,
+        )
+        by_ticker = result.setdefault(session_date, {})
+        by_ticker[ticker] = by_ticker.get(ticker, 0.0) + adjusted_amount
+    return result
+
+
+def _future_split_price_factor(splits: list[dict], value_date: date) -> float:
+    factor = 1.0
+    for split in splits:
+        split_date = split.get("trade_date")
+        before = int(split.get("before") or 0)
+        after = int(split.get("after") or 0)
+        if (
+            isinstance(split_date, date)
+            and split_date > value_date
+            and before > 0
+            and after > 0
+        ):
+            factor *= before / after
+    return factor
 
 
 def _bars_for_date(
@@ -511,6 +665,7 @@ def _summarize_arm(state: ReplayArmState) -> dict:
             sum(item["net_return_pct"] for item in state.trades) / closed
             if closed else None
         ),
+        "dividend_income": state.dividend_income,
     }
 
 
@@ -527,6 +682,7 @@ def _summarize_benchmark(rows: list[dict], initial_cash: float) -> dict:
         "open_positions": rows[-1]["open_positions"] if rows else 0,
         "win_rate": None,
         "avg_net_return_pct": None,
+        "dividend_income": rows[-1].get("dividend_income", 0.0) if rows else 0.0,
     }
 
 
@@ -543,7 +699,8 @@ def format_medium_term_replay_result(result: MediumTermReplayResult) -> str:
             f"  {summary['arm']}: equity={summary['final_equity']:.2f} "
             f"return={summary['total_return_pct']:.2%} "
             f"max_dd={summary['max_drawdown_pct']:.2%} "
-            f"closed={summary['closed_trades']} win_rate={win_text}",
+            f"closed={summary['closed_trades']} win_rate={win_text} "
+            f"dividends={summary['dividend_income']:.2f}",
         )
     return "\n".join(lines)
 

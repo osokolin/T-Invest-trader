@@ -110,7 +110,9 @@ maximum holding period are simulated locally. These records cannot reach the
 execution engine or represent broker positions or stop orders.
 Historical replay uses the same pure signal and stop-policy functions, persists
 immutable research runs separately, and compares daily net-liquidation equity
-against an equal-weight buy-and-hold benchmark.
+against an equal-weight total-return benchmark. Persisted MOEX split ratios
+normalize historical OHLCV, while persisted T-Bank RUB dividends are credited
+only to positions held on the entitlement session. Replay remains network-free.
 
 ---
 
