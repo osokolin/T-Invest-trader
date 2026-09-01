@@ -19,6 +19,7 @@ def test_dashboard_json_files_are_present_and_valid() -> None:
         "paper-tariff-comparison.json": "Paper Tariff Comparison",
         "activity-paper-strategy.json": "Activity Paper Strategy",
         "medium-term-paper-strategy.json": "Medium-Term Paper Strategy",
+        "medium-term-replay.json": "Medium-Term Historical Replay",
         "market-activity.json": "Market Activity Monitor",
         "data-infra-health.json": "Data Freshness & Pipeline Health",
         "raw-data-flow.json": "Pipeline Debugging · Raw Data Flow",
@@ -170,6 +171,27 @@ def test_medium_term_paper_dashboard_is_virtual_and_explainable() -> None:
     assert query_text.count("IN (${portfolio:sqlstring})") == len(
         dashboard["panels"],
     )
+    assert "order_intents" not in query_text
+    assert "execution_events" not in query_text
+
+
+def test_medium_term_replay_dashboard_compares_benchmark_without_execution() -> None:
+    dashboard = json.loads(
+        (GRAFANA_ROOT / "dashboards" / "medium-term-replay.json").read_text(),
+    )
+    titles = {panel["title"] for panel in dashboard["panels"]}
+    query_text = "\n".join(
+        target.get("rawSql", "")
+        for panel in dashboard["panels"]
+        for target in panel.get("targets", [])
+    )
+
+    assert "Strategy vs Equal-Weight Benchmark" in titles
+    assert "Daily Net-Liquidation Equity" in titles
+    assert "Mark-to-Market Drawdown" in titles
+    assert "medium_term_replay_runs" in query_text
+    assert "medium_term_replay_trades" in query_text
+    assert "medium_term_replay_equity" in query_text
     assert "order_intents" not in query_text
     assert "execution_events" not in query_text
 

@@ -108,6 +108,7 @@ Start with these operational dashboards:
 - `Paper Trading` -- virtual positions, realized PnL, and source/ticker attribution
 - `Paper Tariff Comparison` -- counterfactual net PnL under T-Bank cost profiles
 - `Medium-Term Paper Strategy` -- staircase, ATR, and hybrid virtual portfolios
+- `Medium-Term Historical Replay` -- stored-history strategy/benchmark comparison
 - `Market Activity Monitor` -- T-Bank candle volume and price spikes; observational only
 - `Data Freshness & Pipeline Health` -- ingestion freshness and source errors
 - `Signal Lifecycle` -- generation, filtering, delivery, and outcomes
@@ -298,6 +299,24 @@ Inspect the three arms in the `Medium-Term Paper Strategy` Grafana dashboard or:
 ```bash
 docker compose exec -T app python -m tinvest_trader.cli medium-term-paper-stats
 ```
+
+Run a named historical replay only after the required MOEX range is present:
+
+```bash
+docker compose exec -T app python -m tinvest_trader.cli medium-term-replay \
+  --start 2021-01-01 \
+  --end 2026-01-01 \
+  --tickers SBER,GAZP,LKOH \
+  --name medium-term-five-year-v1
+```
+
+Replay names are immutable. Use a new name when changing dates, tickers, costs,
+or strategy settings. The replay performs no network calls and writes only
+`medium_term_replay_*` research tables. Grafana compares daily net-liquidation
+equity and mark-to-market drawdown with an equal-weight buy-and-hold benchmark.
+The initial version does not credit dividends or adjust corporate actions, and
+a replay over today's tracked ticker set has survivorship bias. Treat it as a
+screening experiment rather than evidence for real-money execution.
 
 To confirm the datasource is connected:
 1. Log in to Grafana

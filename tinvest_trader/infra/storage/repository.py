@@ -3291,6 +3291,154 @@ class TradingRepository:
             "avg_net_return_pct": float(row[10]) if row[10] is not None else None,
         }
 
+    # -- Medium-term historical replay --
+
+    def list_moex_daily_history_range(
+        self,
+        tickers: tuple[str, ...],
+        *,
+        start_date: date,
+        end_date: date,
+        warmup_bars: int,
+    ) -> dict[str, list[dict]]:
+        """Return replay bars plus bounded pre-range warmup per ticker."""
+        sql = """
+            WITH requested AS (
+                SELECT unnest(%s::text[]) AS secid
+            ), selected AS (
+                SELECT history.secid, history.trade_date, history.open,
+                       history.high, history.low, history.close, history.volume
+                FROM moex_market_history history
+                WHERE history.secid = ANY(%s::text[])
+                  AND history.trade_date BETWEEN %s AND %s
+                  AND history.open IS NOT NULL AND history.high IS NOT NULL
+                  AND history.low IS NOT NULL AND history.close IS NOT NULL
+                  AND history.volume IS NOT NULL
+                UNION ALL
+                SELECT warmup.secid, warmup.trade_date, warmup.open,
+                       warmup.high, warmup.low, warmup.close, warmup.volume
+                FROM requested
+                CROSS JOIN LATERAL (
+                    SELECT history.secid, history.trade_date, history.open,
+                           history.high, history.low, history.close, history.volume
+                    FROM moex_market_history history
+                    WHERE history.secid = requested.secid
+                      AND history.trade_date < %s
+                      AND history.open IS NOT NULL AND history.high IS NOT NULL
+                      AND history.low IS NOT NULL AND history.close IS NOT NULL
+                      AND history.volume IS NOT NULL
+                    ORDER BY history.trade_date DESC
+                    LIMIT %s
+                ) warmup
+            )
+            SELECT DISTINCT secid, trade_date, open, high, low, close, volume
+            FROM selected
+            ORDER BY secid, trade_date
+        """
+        normalized = tuple(sorted({item.upper() for item in tickers}))
+        params = (
+            list(normalized), list(normalized), start_date, end_date,
+            start_date, max(1, warmup_bars),
+        )
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        result = {ticker: [] for ticker in normalized}
+        for row in rows:
+            result.setdefault(row[0], []).append({
+                "trade_date": row[1],
+                "open": float(row[2]),
+                "high": float(row[3]),
+                "low": float(row[4]),
+                "close": float(row[5]),
+                "volume": int(row[6]),
+            })
+        return result
+
+    def create_medium_term_replay_run(
+        self,
+        *,
+        name: str,
+        start_date: date,
+        end_date: date,
+        tickers: tuple[str, ...],
+        config: dict,
+    ) -> int:
+        """Create one immutable replay run and reject duplicate names."""
+        sql = """
+            INSERT INTO medium_term_replay_runs
+                (name, start_date, end_date, tickers_json, config_json)
+            VALUES (%s, %s, %s, %s::jsonb, %s::jsonb)
+            ON CONFLICT (name) DO NOTHING
+            RETURNING id
+        """
+        with self._pool.get_connection() as conn:
+            row = conn.execute(sql, (
+                name, start_date, end_date, json.dumps(tickers), json.dumps(config),
+            )).fetchone()
+        if row is None:
+            raise ValueError(f"medium-term replay name already exists: {name}")
+        return row[0]
+
+    def insert_medium_term_replay_results(
+        self,
+        *,
+        run_id: int,
+        trades: list[dict],
+        equity_rows: list[dict],
+    ) -> None:
+        """Persist replay trades and daily equity atomically."""
+        trade_sql = """
+            INSERT INTO medium_term_replay_trades
+                (run_id, arm, ticker, signal_date, entry_date, exit_date,
+                 entry_price, exit_price, notional, initial_stop, exit_reason,
+                 held_sessions, gross_return_pct, net_return_pct, gross_pnl,
+                 costs, net_pnl)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s)
+        """
+        equity_sql = """
+            INSERT INTO medium_term_replay_equity
+                (run_id, arm, trade_date, cash, position_value, total_equity,
+                 drawdown_pct, open_positions)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        trade_values = [(
+            run_id, item["arm"], item["ticker"], item["signal_date"],
+            item["entry_date"], item["exit_date"], item["entry_price"],
+            item["exit_price"], item["notional"], item["initial_stop"],
+            item["exit_reason"], item["held_sessions"],
+            item["gross_return_pct"], item["net_return_pct"],
+            item["gross_pnl"], item["costs"], item["net_pnl"],
+        ) for item in trades]
+        equity_values = [(
+            run_id, item["arm"], item["trade_date"], item["cash"],
+            item["position_value"], item["total_equity"],
+            item["drawdown_pct"], item["open_positions"],
+        ) for item in equity_rows]
+        with self._pool.get_connection() as conn:
+            if trade_values:
+                conn.executemany(trade_sql, trade_values)
+            if equity_values:
+                conn.executemany(equity_sql, equity_values)
+
+    def complete_medium_term_replay_run(self, run_id: int) -> None:
+        sql = """
+            UPDATE medium_term_replay_runs
+            SET status = 'completed', completed_at = now(), error_message = NULL
+            WHERE id = %s AND status = 'running'
+        """
+        with self._pool.get_connection() as conn:
+            conn.execute(sql, (run_id,))
+
+    def fail_medium_term_replay_run(self, run_id: int, error: str) -> None:
+        sql = """
+            UPDATE medium_term_replay_runs
+            SET status = 'failed', completed_at = now(), error_message = %s
+            WHERE id = %s AND status = 'running'
+        """
+        with self._pool.get_connection() as conn:
+            conn.execute(sql, (error[:2000], run_id))
+
     def get_latest_quote_by_ticker(self, ticker: str) -> dict | None:
         """Return the most recent quote for a ticker."""
         sql = """

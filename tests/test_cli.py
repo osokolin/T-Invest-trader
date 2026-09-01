@@ -264,6 +264,49 @@ def test_cli_medium_term_paper_stats_prints_three_arm_comparison(monkeypatch, ca
     assert "50.0%" in output
 
 
+def test_cli_medium_term_replay_dispatches_explicit_range(monkeypatch, capsys):
+    config = _make_config()
+    config.medium_term_paper = SimpleNamespace(tracked_tickers_override=("SBER",))
+    container = _make_container()
+    container.logger = MagicMock()
+    replay_result = SimpleNamespace(
+        run_id=9,
+        run_name="five-year-research",
+        start_date="2021-01-01",
+        end_date="2026-01-01",
+        tickers=("SBER",),
+        summaries=(),
+    )
+    service = MagicMock()
+    service.run.return_value = replay_result
+    service_class = MagicMock(return_value=service)
+    monkeypatch.setattr("tinvest_trader.cli.load_config", lambda: config)
+    monkeypatch.setattr("tinvest_trader.cli.build_container", lambda cfg: container)
+    monkeypatch.setattr(
+        "tinvest_trader.services.medium_term_replay_service.MediumTermReplayService",
+        service_class,
+    )
+    monkeypatch.setattr(
+        "tinvest_trader.services.medium_term_replay_service.format_medium_term_replay_result",
+        lambda result: f"replay={result.run_name}",
+    )
+
+    exit_code = main([
+        "medium-term-replay",
+        "--start", "2021-01-01",
+        "--end", "2026-01-01",
+        "--name", "five-year-research",
+    ])
+
+    assert exit_code == 0
+    service.run.assert_called_once()
+    call = service.run.call_args.kwargs
+    assert str(call["start_date"]) == "2021-01-01"
+    assert str(call["end_date"]) == "2026-01-01"
+    assert call["tickers"] == ("SBER",)
+    assert "replay=five-year-research" in capsys.readouterr().out
+
+
 def test_cli_db_summary_handles_missing_database(monkeypatch, capsys):
     config = _make_config()
     container = _make_container()

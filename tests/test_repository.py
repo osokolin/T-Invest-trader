@@ -702,3 +702,87 @@ def test_close_medium_term_position_is_guarded_by_open_status() -> None:
     sql = conn.execute.call_args.args[0]
     assert "medium_term_paper_positions" in sql
     assert "WHERE id = %s AND status = 'open'" in sql
+
+
+def test_list_moex_replay_range_includes_bounded_warmup() -> None:
+    repo, conn = _make_repo()
+    warmup_date = datetime(2020, 12, 30, tzinfo=UTC).date()
+    replay_date = datetime(2021, 1, 4, tzinfo=UTC).date()
+    conn.execute.return_value.fetchall.return_value = [
+        ("SBER", warmup_date, 99, 101, 98, 100, 900),
+        ("SBER", replay_date, 100, 103, 99, 102, 1200),
+    ]
+
+    result = repo.list_moex_daily_history_range(
+        ("sber",),
+        start_date=datetime(2021, 1, 1, tzinfo=UTC).date(),
+        end_date=datetime(2021, 12, 31, tzinfo=UTC).date(),
+        warmup_bars=60,
+    )
+
+    sql, params = conn.execute.call_args.args
+    assert "CROSS JOIN LATERAL" in sql
+    assert "history.trade_date < %s" in sql
+    assert params[-1] == 60
+    assert result["SBER"][0]["trade_date"] == warmup_date
+    assert result["SBER"][1]["close"] == 102.0
+
+
+def test_create_medium_term_replay_run_is_immutable_by_name() -> None:
+    repo, conn = _make_repo()
+    conn.execute.return_value.fetchone.return_value = (91,)
+
+    run_id = repo.create_medium_term_replay_run(
+        name="five-year-research",
+        start_date=datetime(2021, 1, 1, tzinfo=UTC).date(),
+        end_date=datetime(2026, 1, 1, tzinfo=UTC).date(),
+        tickers=("SBER", "GAZP"),
+        config={"initial_stop_pct": 0.02},
+    )
+
+    assert run_id == 91
+    sql = conn.execute.call_args.args[0]
+    assert "medium_term_replay_runs" in sql
+    assert "ON CONFLICT (name) DO NOTHING" in sql
+
+
+def test_insert_medium_term_replay_results_is_virtual_only() -> None:
+    repo, conn = _make_repo()
+    trade_date = datetime(2026, 1, 5, tzinfo=UTC).date()
+    repo.insert_medium_term_replay_results(
+        run_id=91,
+        trades=[{
+            "arm": "staircase",
+            "ticker": "SBER",
+            "signal_date": trade_date - timedelta(days=1),
+            "entry_date": trade_date,
+            "exit_date": trade_date + timedelta(days=10),
+            "entry_price": 100.0,
+            "exit_price": 105.0,
+            "notional": 100_000.0,
+            "initial_stop": 98.0,
+            "exit_reason": "max_holding",
+            "held_sessions": 10,
+            "gross_return_pct": 0.05,
+            "net_return_pct": 0.048,
+            "gross_pnl": 5000.0,
+            "costs": 200.0,
+            "net_pnl": 4800.0,
+        }],
+        equity_rows=[{
+            "arm": "staircase",
+            "trade_date": trade_date,
+            "cash": 900_000.0,
+            "position_value": 99_800.0,
+            "total_equity": 999_800.0,
+            "drawdown_pct": 0.0002,
+            "open_positions": 1,
+        }],
+    )
+
+    assert conn.executemany.call_count == 2
+    sql_text = "\n".join(call.args[0] for call in conn.executemany.call_args_list)
+    assert "medium_term_replay_trades" in sql_text
+    assert "medium_term_replay_equity" in sql_text
+    assert "order_intents" not in sql_text
+    assert "execution_events" not in sql_text

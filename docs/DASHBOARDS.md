@@ -1,6 +1,6 @@
 # Grafana Dashboards
 
-Guide to the 11 Grafana dashboards that provide observability into the T-Invest-trader platform.
+Guide to the 19 Grafana dashboards that provide observability into the T-Invest-trader platform.
 
 ## Overview
 
@@ -25,6 +25,8 @@ Supporting dashboards provide deeper views into individual data sources:
 | MOEX Market History | Moscow Exchange price and volume data |
 | Combined Overview | Legacy high-level signal stats |
 | Paper Tariff Comparison | Same virtual trades repriced under Investor, Trader, and Premium costs |
+| Medium-Term Paper Strategy | Forward staircase, ATR, and hybrid virtual portfolios |
+| Medium-Term Historical Replay | Daily equity, drawdown, trades, and equal-weight benchmark |
 
 All dashboards query PostgreSQL directly using the provisioned Grafana datasource.
 

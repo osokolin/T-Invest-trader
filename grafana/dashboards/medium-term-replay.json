@@ -1,0 +1,137 @@
+{
+  "annotations": { "list": [] },
+  "description": "Historical, virtual-only comparison of medium-term staircase, ATR, hybrid, and equal-weight buy-and-hold using stored MOEX daily bars.",
+  "editable": false,
+  "links": [
+    { "asDropdown": true, "includeTimeRange": true, "keepTimeRange": true, "tags": ["tinvest"], "title": "Open another T-Invest dashboard", "type": "dashboards" }
+  ],
+  "panels": [
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "table",
+        "rawSql": "WITH latest AS (SELECT DISTINCT ON (arm) arm, total_equity, drawdown_pct, open_positions FROM medium_term_replay_equity WHERE run_id = ${run} ORDER BY arm, trade_date DESC), drawdowns AS (SELECT arm, max(drawdown_pct) AS max_drawdown FROM medium_term_replay_equity WHERE run_id = ${run} GROUP BY arm), trades AS (SELECT arm, count(*) AS closed_trades, count(*) FILTER (WHERE net_pnl > 0)::numeric / NULLIF(count(*), 0) AS win_rate, avg(net_return_pct) AS avg_net_return, sum(net_pnl) AS realized_pnl FROM medium_term_replay_trades WHERE run_id = ${run} GROUP BY arm) SELECT latest.arm, latest.total_equity, latest.total_equity / NULLIF((run.config_json->>'initial_cash')::numeric, 0) - 1 AS total_return, drawdowns.max_drawdown, latest.open_positions, COALESCE(trades.closed_trades, 0) AS closed_trades, trades.win_rate, trades.avg_net_return, trades.realized_pnl FROM latest JOIN medium_term_replay_runs run ON run.id = ${run} JOIN drawdowns USING (arm) LEFT JOIN trades USING (arm) ORDER BY latest.arm",
+        "refId": "A"
+      }],
+      "title": "Strategy vs Equal-Weight Benchmark",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": { "unit": "currencyRUB" }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 15, "x": 0, "y": 7 },
+      "id": 2,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "time_series",
+        "rawSql": "SELECT trade_date::timestamp AS time, total_equity::double precision AS value, arm AS metric FROM medium_term_replay_equity WHERE run_id = ${run} AND $__timeFilter(trade_date::timestamp) ORDER BY trade_date ASC, arm",
+        "refId": "A"
+      }],
+      "title": "Daily Net-Liquidation Equity",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 9, "x": 15, "y": 7 },
+      "id": 3,
+      "options": { "legend": { "calcs": ["max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "time_series",
+        "rawSql": "SELECT trade_date::timestamp AS time, drawdown_pct::double precision AS value, arm AS metric FROM medium_term_replay_equity WHERE run_id = ${run} AND $__timeFilter(trade_date::timestamp) ORDER BY trade_date ASC, arm",
+        "refId": "A"
+      }],
+      "title": "Mark-to-Market Drawdown",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 10, "w": 15, "x": 0, "y": 16 },
+      "id": 4,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "table",
+        "rawSql": "SELECT exit_date, arm, ticker, signal_date, entry_date, entry_price, exit_price, initial_stop, exit_reason, held_sessions, net_return_pct, costs, net_pnl FROM medium_term_replay_trades WHERE run_id = ${run} ORDER BY exit_date DESC, id DESC LIMIT 250",
+        "refId": "A"
+      }],
+      "title": "Replay Virtual Trades",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 10, "w": 9, "x": 15, "y": 16 },
+      "id": 5,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "table",
+        "rawSql": "SELECT arm, exit_reason, count(*) AS trades, count(*) FILTER (WHERE net_pnl > 0)::numeric / NULLIF(count(*), 0) AS win_rate, avg(net_return_pct) AS avg_net_return, sum(net_pnl) AS net_pnl FROM medium_term_replay_trades WHERE run_id = ${run} GROUP BY arm, exit_reason ORDER BY arm, trades DESC",
+        "refId": "A"
+      }],
+      "title": "Performance by Exit Reason",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 9, "w": 14, "x": 0, "y": 26 },
+      "id": 6,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "table",
+        "rawSql": "SELECT arm, ticker, count(*) AS trades, count(*) FILTER (WHERE net_pnl > 0)::numeric / NULLIF(count(*), 0) AS win_rate, avg(net_return_pct) AS avg_net_return, sum(net_pnl) AS net_pnl FROM medium_term_replay_trades WHERE run_id = ${run} GROUP BY arm, ticker ORDER BY net_pnl DESC",
+        "refId": "A"
+      }],
+      "title": "Performance by Ticker",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 9, "w": 10, "x": 14, "y": 26 },
+      "id": 7,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "table",
+        "rawSql": "SELECT id, name, start_date, end_date, status, tickers_json, created_at, completed_at, error_message FROM medium_term_replay_runs WHERE id = ${run}",
+        "refId": "A"
+      }],
+      "title": "Immutable Replay Run",
+      "type": "table"
+    }
+  ],
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": ["tinvest", "paper", "medium-term", "replay", "observability"],
+  "templating": {
+    "list": [{
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "definition": "SELECT id AS __value, name || ' · ' || status AS __text FROM medium_term_replay_runs ORDER BY created_at DESC",
+      "includeAll": false,
+      "label": "Replay run",
+      "multi": false,
+      "name": "run",
+      "options": [],
+      "query": "SELECT id AS __value, name || ' · ' || status AS __text FROM medium_term_replay_runs ORDER BY created_at DESC",
+      "refresh": 1,
+      "type": "query"
+    }]
+  },
+  "time": { "from": "now-5y", "to": "now" },
+  "timezone": "browser",
+  "title": "Medium-Term Historical Replay",
+  "uid": "medium-term-replay",
+  "version": 1
+}

@@ -12,6 +12,7 @@ from tinvest_trader.services.medium_term_paper_strategy_service import (
     evaluate_medium_term_signal,
     format_medium_term_paper_summary,
 )
+from tinvest_trader.strategy.medium_term import next_medium_term_stop
 
 
 def _bars(count: int = 56, *, signal_volume: int = 200) -> list[dict]:
@@ -143,7 +144,8 @@ def test_entry_day_volume_is_not_used_to_create_signal() -> None:
 def test_staircase_and_trailing_stops_never_move_down() -> None:
     service = _service(FakeRepository())
 
-    staircase, staircase_reason = service._next_stop(
+    staircase, staircase_reason = next_medium_term_stop(
+        service._config,
         strategy="staircase",
         entry_price=100,
         current_stop=98,
@@ -151,7 +153,8 @@ def test_staircase_and_trailing_stops_never_move_down() -> None:
         atr=1,
         latest_close=104,
     )
-    atr, atr_reason = service._next_stop(
+    atr, atr_reason = next_medium_term_stop(
+        service._config,
         strategy="atr",
         entry_price=100,
         current_stop=98,
@@ -159,7 +162,8 @@ def test_staircase_and_trailing_stops_never_move_down() -> None:
         atr=1,
         latest_close=103,
     )
-    hybrid, hybrid_reason = service._next_stop(
+    hybrid, hybrid_reason = next_medium_term_stop(
+        service._config,
         strategy="hybrid",
         entry_price=100,
         current_stop=98,
