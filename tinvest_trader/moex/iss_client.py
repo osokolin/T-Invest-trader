@@ -66,3 +66,12 @@ def fetch_market_history(
     if date_till:
         params["till"] = date_till
     return fetch_iss_json(path, logger, params)
+
+
+def fetch_stock_splits(logger: logging.Logger) -> dict | None:
+    """Fetch the complete stock split registry from MOEX ISS."""
+    return fetch_iss_json(
+        "/iss/statistics/engines/stock/splits.json",
+        logger,
+        {"iss.meta": "off"},
+    )

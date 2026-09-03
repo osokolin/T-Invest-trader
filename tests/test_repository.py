@@ -16,6 +16,7 @@ from tinvest_trader.domain.models import (
     OrderIntent,
 )
 from tinvest_trader.infra.storage.repository import TradingRepository
+from tinvest_trader.moex.models import MoexSecuritySplit
 
 
 def _make_repo():
@@ -787,5 +788,48 @@ def test_insert_medium_term_replay_results_is_virtual_only() -> None:
     sql_text = "\n".join(call.args[0] for call in cursor.executemany.call_args_list)
     assert "medium_term_replay_trades" in sql_text
     assert "medium_term_replay_equity" in sql_text
+    assert "dividend_income" in sql_text
     assert "order_intents" not in sql_text
     assert "execution_events" not in sql_text
+
+
+def test_insert_moex_security_split_is_idempotent() -> None:
+    repo, conn = _make_repo()
+    conn.execute.return_value.fetchone.return_value = (1,)
+
+    inserted = repo.insert_moex_security_split(MoexSecuritySplit(
+        trade_date=datetime(2024, 4, 8, tzinfo=UTC).date(),
+        secid="GMKN",
+        before=1,
+        after=100,
+    ))
+
+    assert inserted is True
+    sql, params = conn.execute.call_args.args
+    assert "moex_security_splits" in sql
+    assert "ON CONFLICT (secid, trade_date) DO NOTHING" in sql
+    assert params[0] == "GMKN"
+
+
+def test_list_broker_dividends_for_replay_uses_last_buy_date() -> None:
+    repo, conn = _make_repo()
+    event_time = datetime(2025, 7, 10, tzinfo=UTC)
+    conn.execute.return_value.fetchall.return_value = [(
+        "SBER",
+        event_time,
+        34.84,
+        "RUB",
+        "dividend-1",
+        {"last_buy_date": "2025-07-07T00:00:00Z"},
+    )]
+
+    rows = repo.list_broker_dividends_for_replay(
+        ("SBER",),
+        start_date=datetime(2025, 1, 1, tzinfo=UTC).date(),
+        end_date=datetime(2025, 12, 31, tzinfo=UTC).date(),
+    )
+
+    assert rows[0]["entitlement_date"] == datetime(
+        2025, 7, 7, tzinfo=UTC,
+    ).date()
+    assert rows[0]["amount"] == 34.84

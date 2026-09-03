@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from datetime import date
 
-from tinvest_trader.moex.models import MoexHistoryRow, MoexSecurityInfo
+from tinvest_trader.moex.models import (
+    MoexHistoryRow,
+    MoexSecurityInfo,
+    MoexSecuritySplit,
+)
 
 
 def _iss_table_to_dicts(section: dict) -> list[dict]:
@@ -111,6 +115,35 @@ def parse_history_cursor(data: dict) -> tuple[int, int, int]:
         int(c.get("TOTAL", 0)),
         int(c.get("PAGESIZE", 0)),
     )
+
+
+def parse_security_splits(data: dict) -> list[MoexSecuritySplit]:
+    """Parse the MOEX stock split statistics response."""
+    section = data.get("splits")
+    if not section:
+        return []
+
+    result: list[MoexSecuritySplit] = []
+    for row in _iss_table_to_dicts(section):
+        trade_date_raw = row.get("tradedate") or row.get("TRADEDATE")
+        secid = row.get("secid") or row.get("SECID")
+        before = _to_int(row.get("before") or row.get("BEFORE"))
+        after = _to_int(row.get("after") or row.get("AFTER"))
+        if not trade_date_raw or not secid or not before or not after:
+            continue
+        try:
+            split_date = date.fromisoformat(str(trade_date_raw))
+        except ValueError:
+            continue
+        if before <= 0 or after <= 0:
+            continue
+        result.append(MoexSecuritySplit(
+            trade_date=split_date,
+            secid=str(secid).upper(),
+            before=before,
+            after=after,
+        ))
+    return result
 
 
 def _to_float(val: object) -> float | None:

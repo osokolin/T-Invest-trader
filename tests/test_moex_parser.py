@@ -2,6 +2,7 @@
 
 from datetime import date
 
+from tinvest_trader.moex.models import MoexSecuritySplit
 from tinvest_trader.moex.parser import (
     _iss_table_to_dicts,
     _to_float,
@@ -9,6 +10,7 @@ from tinvest_trader.moex.parser import (
     parse_history_cursor,
     parse_history_rows,
     parse_security_info,
+    parse_security_splits,
 )
 
 SAMPLE_SECURITY_JSON = {
@@ -200,3 +202,23 @@ def test_parse_history_rows_null_prices():
     assert rows[0].open is None
     assert rows[0].high is None
     assert rows[0].volume is None
+
+
+def test_parse_security_splits_filters_invalid_rows():
+    data = {
+        "splits": {
+            "columns": ["tradedate", "secid", "before", "after"],
+            "data": [
+                ["2024-04-08", "GMKN", 1, 100],
+                ["bad-date", "SBER", 1, 10],
+                ["2024-01-01", "", 1, 10],
+                ["2024-01-01", "ZERO", 0, 10],
+            ],
+        },
+    }
+
+    assert parse_security_splits(data) == [
+        MoexSecuritySplit(
+            trade_date=date(2024, 4, 8), secid="GMKN", before=1, after=100,
+        ),
+    ]

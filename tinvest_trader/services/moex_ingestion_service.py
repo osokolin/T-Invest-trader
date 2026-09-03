@@ -6,12 +6,17 @@ import logging
 from datetime import date, timedelta
 from typing import TYPE_CHECKING
 
-from tinvest_trader.moex.iss_client import fetch_market_history, fetch_security_info
+from tinvest_trader.moex.iss_client import (
+    fetch_market_history,
+    fetch_security_info,
+    fetch_stock_splits,
+)
 from tinvest_trader.moex.models import MoexMarketHistoryNormalized
 from tinvest_trader.moex.parser import (
     parse_history_cursor,
     parse_history_rows,
     parse_security_info,
+    parse_security_splits,
 )
 
 if TYPE_CHECKING:
@@ -32,6 +37,7 @@ class MoexIngestionService:
         history_lookback_days: int = 90,
         metadata_enabled: bool = True,
         history_enabled: bool = True,
+        corporate_actions_enabled: bool = True,
     ) -> None:
         self._repository = repository
         self._logger = logger
@@ -42,6 +48,7 @@ class MoexIngestionService:
         self._history_lookback_days = history_lookback_days
         self._metadata_enabled = metadata_enabled
         self._history_enabled = history_enabled
+        self._corporate_actions_enabled = corporate_actions_enabled
 
     def ingest_all(self) -> int:
         """Ingest metadata and history for all tracked tickers.
@@ -62,7 +69,7 @@ class MoexIngestionService:
             )
             return 0
 
-        total = 0
+        total = self._ingest_security_splits() if self._corporate_actions_enabled else 0
         for ticker in self._tracked_tickers:
             try:
                 count = self._ingest_ticker(ticker)
@@ -82,6 +89,31 @@ class MoexIngestionService:
             },
         )
         return total
+
+    def _ingest_security_splits(self) -> int:
+        """Persist MOEX stock splits for the tracked ticker set."""
+        data = fetch_stock_splits(self._logger)
+        if data is None:
+            return 0
+
+        tracked = {ticker.upper() for ticker in self._tracked_tickers}
+        inserted = 0
+        for split in parse_security_splits(data):
+            if split.secid not in tracked:
+                continue
+            try:
+                if self._repository.insert_moex_security_split(split):
+                    inserted += 1
+            except Exception:
+                self._logger.exception(
+                    "moex split persist failed",
+                    extra={
+                        "component": "moex",
+                        "ticker": split.secid,
+                        "trade_date": str(split.trade_date),
+                    },
+                )
+        return inserted
 
     def _ingest_ticker(self, ticker: str) -> int:
         """Ingest metadata + history for a single ticker. Returns new row count."""

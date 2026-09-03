@@ -66,6 +66,7 @@ def _make_service(**kwargs):
         "history_lookback_days": 90,
         "metadata_enabled": True,
         "history_enabled": True,
+        "corporate_actions_enabled": False,
     }
     defaults.update(kwargs)
     svc = MoexIngestionService(**defaults)
@@ -283,3 +284,29 @@ def test_ingest_pagination(mock_history, mock_security):
     # 1 metadata + 2 history rows across 2 pages
     assert count == 3
     assert mock_history.call_count == 2
+
+
+@patch("tinvest_trader.services.moex_ingestion_service.fetch_stock_splits")
+def test_ingest_tracked_security_splits(mock_splits):
+    mock_splits.return_value = {
+        "splits": {
+            "columns": ["tradedate", "secid", "before", "after"],
+            "data": [
+                ["2024-04-08", "GMKN", 1, 100],
+                ["2024-07-15", "VTBR", 5000, 1],
+            ],
+        },
+    }
+    svc, repo = _make_service(
+        tracked_tickers=("GMKN",),
+        metadata_enabled=False,
+        history_enabled=False,
+        corporate_actions_enabled=True,
+    )
+    repo.insert_moex_security_split.return_value = True
+
+    assert svc.ingest_all() == 1
+    split = repo.insert_moex_security_split.call_args.args[0]
+    assert split.secid == "GMKN"
+    assert split.before == 1
+    assert split.after == 100

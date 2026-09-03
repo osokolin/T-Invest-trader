@@ -57,3 +57,13 @@ class MoexMarketHistoryNormalized:
     value: float | None
     num_trades: int | None
     recorded_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class MoexSecuritySplit:
+    """Stock split ratio published by MOEX ISS."""
+
+    trade_date: date
+    secid: str
+    before: int
+    after: int

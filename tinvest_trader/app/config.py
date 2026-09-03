@@ -131,6 +131,7 @@ class MoexConfig:
     enabled: bool = False
     metadata_enabled: bool = True
     history_enabled: bool = True
+    corporate_actions_enabled: bool = True
     poll_interval_seconds: int = 3600
     history_lookback_days: int = 90
     tracked_tickers_override: tuple[str, ...] = ()
@@ -1283,6 +1284,9 @@ def load_config() -> AppConfig:
             ).lower() == "true",
             history_enabled=os.environ.get(
                 "TINVEST_MOEX_HISTORY_ENABLED", "true",
+            ).lower() == "true",
+            corporate_actions_enabled=os.environ.get(
+                "TINVEST_MOEX_CORPORATE_ACTIONS_ENABLED", "true",
             ).lower() == "true",
             poll_interval_seconds=int(
                 os.environ.get("TINVEST_MOEX_POLL_INTERVAL_SECONDS", "3600"),

@@ -27,7 +27,7 @@ Fetches and normalizes raw data from external sources into dedicated tables. Eac
 
 - Telegram sentiment (MarketTwits, other channels via Telethon)
 - Broker events (dividends, reports, insider deals via T-Bank API)
-- MOEX ISS (security metadata, daily market history)
+- MOEX ISS (security metadata, daily market history, stock split registry)
 - CBR (Central Bank RSS feeds for macro events)
 - Global context (financialjuice, oilprice, cointelegraph via Telegram)
 - Global market data (S&P 500, NASDAQ, VIX, Brent, DXY via Yahoo Finance)

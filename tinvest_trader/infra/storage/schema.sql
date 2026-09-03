@@ -377,6 +377,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_moex_security_ref_secid
 CREATE INDEX IF NOT EXISTS idx_moex_security_ref_isin
     ON moex_security_reference (isin);
 
+-- Immutable split ratios from ISS /statistics/engines/stock/splits.
+CREATE TABLE IF NOT EXISTS moex_security_splits (
+    id              BIGSERIAL PRIMARY KEY,
+    secid           TEXT NOT NULL,
+    trade_date      DATE NOT NULL,
+    before_shares   INTEGER NOT NULL CHECK (before_shares > 0),
+    after_shares    INTEGER NOT NULL CHECK (after_shares > 0),
+    recorded_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_moex_security_splits_unique
+    ON moex_security_splits (secid, trade_date);
+CREATE INDEX IF NOT EXISTS idx_moex_security_splits_date
+    ON moex_security_splits (trade_date DESC);
+
 -- Raw daily market history rows from ISS history endpoint
 CREATE TABLE IF NOT EXISTS moex_market_history_raw (
     id              BIGSERIAL PRIMARY KEY,
@@ -813,11 +827,14 @@ CREATE TABLE IF NOT EXISTS medium_term_replay_trades (
     gross_return_pct    NUMERIC(12, 8) NOT NULL,
     net_return_pct      NUMERIC(12, 8) NOT NULL,
     gross_pnl           NUMERIC(20, 2) NOT NULL,
+    dividend_income     NUMERIC(20, 2) NOT NULL DEFAULT 0,
     costs               NUMERIC(20, 2) NOT NULL,
     net_pnl             NUMERIC(20, 2) NOT NULL,
     recorded_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (run_id, arm, ticker, signal_date)
 );
+ALTER TABLE medium_term_replay_trades
+    ADD COLUMN IF NOT EXISTS dividend_income NUMERIC(20, 2) NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS idx_medium_term_replay_trade_arm_date
     ON medium_term_replay_trades (run_id, arm, exit_date DESC);
 
@@ -829,11 +846,14 @@ CREATE TABLE IF NOT EXISTS medium_term_replay_equity (
     cash                NUMERIC(20, 2) NOT NULL,
     position_value      NUMERIC(20, 2) NOT NULL,
     total_equity        NUMERIC(20, 2) NOT NULL,
+    dividend_income     NUMERIC(20, 2) NOT NULL DEFAULT 0,
     drawdown_pct        NUMERIC(12, 8) NOT NULL,
     open_positions      INTEGER NOT NULL,
     recorded_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (run_id, arm, trade_date)
 );
+ALTER TABLE medium_term_replay_equity
+    ADD COLUMN IF NOT EXISTS dividend_income NUMERIC(20, 2) NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS idx_medium_term_replay_equity_arm_date
     ON medium_term_replay_equity (run_id, arm, trade_date DESC);
 

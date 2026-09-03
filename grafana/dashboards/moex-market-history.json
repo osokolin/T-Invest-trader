@@ -15,7 +15,7 @@
       }
     ]
   },
-  "description": "Historical MOEX prices, volume, trade count, and security reference data for tracked securities.",
+  "description": "Historical MOEX prices, volume, trade count, security reference data, and persisted stock split ratios.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
@@ -254,6 +254,23 @@
       ],
       "title": "Security Reference",
       "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 28 },
+      "id": 6,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "editorMode": "code",
+        "format": "table",
+        "rawQuery": true,
+        "rawSql": "SELECT trade_date, secid, before_shares, after_shares, after_shares::numeric / before_shares AS share_multiplier, recorded_at FROM moex_security_splits ORDER BY trade_date DESC, secid LIMIT 100;",
+        "refId": "A"
+      }],
+      "title": "Persisted Stock Splits",
+      "type": "table"
     }
   ],
   "refresh": "30s",
@@ -274,6 +291,6 @@
   "timezone": "",
   "title": "MOEX Market History",
   "uid": "moex-market-history",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

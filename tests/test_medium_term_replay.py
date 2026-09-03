@@ -9,6 +9,7 @@ from tinvest_trader.app.config import MediumTermPaperConfig
 from tinvest_trader.services.medium_term_replay_service import (
     BENCHMARK_ARM,
     MediumTermReplayService,
+    adjust_bars_for_splits,
     format_medium_term_replay_result,
     simulate_medium_term_replay,
 )
@@ -116,6 +117,12 @@ class FakeReplayRepository:
     def list_moex_daily_history_range(self, *args, **kwargs) -> dict[str, list[dict]]:
         return {"SBER": self.bars}
 
+    def list_moex_security_splits(self, *args, **kwargs) -> list[dict]:
+        return []
+
+    def list_broker_dividends_for_replay(self, *args, **kwargs) -> list[dict]:
+        return []
+
     def insert_medium_term_replay_results(self, **kwargs) -> None:
         self.persisted = kwargs
 
@@ -200,3 +207,92 @@ def test_format_replay_result_includes_benchmark() -> None:
     assert "medium-term replay: format-test" in output
     assert BENCHMARK_ARM in output
     assert "max_dd=" in output
+    assert "dividends=" in output
+
+
+def test_split_adjustment_removes_price_discontinuity() -> None:
+    bars = {
+        "GMKN": [
+            {
+                "trade_date": date(2024, 4, 5),
+                "open": 15_000.0,
+                "high": 15_100.0,
+                "low": 14_900.0,
+                "close": 15_000.0,
+                "volume": 1_000,
+            },
+            {
+                "trade_date": date(2024, 4, 8),
+                "open": 150.0,
+                "high": 151.0,
+                "low": 149.0,
+                "close": 150.0,
+                "volume": 100_000,
+            },
+        ],
+    }
+    adjusted = adjust_bars_for_splits(bars, [{
+        "ticker": "GMKN",
+        "trade_date": date(2024, 4, 8),
+        "before": 1,
+        "after": 100,
+    }])
+
+    assert adjusted["GMKN"][0]["close"] == 150.0
+    assert adjusted["GMKN"][0]["volume"] == 100_000
+    assert adjusted["GMKN"][1]["close"] == 150.0
+
+
+def test_benchmark_reinvests_dividends_as_total_return() -> None:
+    start = date(2026, 1, 1)
+    bars = [{
+        "trade_date": start + timedelta(days=index),
+        "open": 100.0,
+        "high": 101.0,
+        "low": 99.0,
+        "close": 100.0,
+        "volume": 100,
+    } for index in range(3)]
+
+    result = simulate_medium_term_replay(
+        bars_by_ticker={"SBER": bars},
+        config=_config(commission_rate=0.0, slippage_rate=0.0),
+        start_date=start,
+        end_date=start + timedelta(days=2),
+        dividends=[{
+            "ticker": "SBER",
+            "entitlement_date": start,
+            "amount": 10.0,
+            "currency": "RUB",
+        }],
+    )
+
+    benchmark = next(
+        item for item in result["summaries"] if item["arm"] == BENCHMARK_ARM
+    )
+    assert benchmark["final_equity"] == pytest.approx(1_100_000.0)
+    assert benchmark["dividend_income"] == pytest.approx(100_000.0)
+
+
+def test_strategy_dividend_requires_open_position_on_entitlement_date() -> None:
+    bars = _bars()
+    entitlement_date = bars[4]["trade_date"]
+    result = simulate_medium_term_replay(
+        bars_by_ticker={"SBER": bars},
+        config=_config(commission_rate=0.0, slippage_rate=0.0),
+        start_date=entitlement_date,
+        end_date=bars[-1]["trade_date"],
+        dividends=[{
+            "ticker": "SBER",
+            "entitlement_date": entitlement_date,
+            "amount": 10.0,
+            "currency": "RUB",
+        }],
+    )
+
+    assert all(item["dividend_income"] > 0 for item in result["trades"])
+    assert all(
+        item["dividend_income"] > 0
+        for item in result["summaries"]
+        if item["arm"] != BENCHMARK_ARM
+    )

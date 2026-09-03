@@ -21,6 +21,7 @@ from tinvest_trader.moex.models import (
     MoexHistoryRow,
     MoexMarketHistoryNormalized,
     MoexSecurityInfo,
+    MoexSecuritySplit,
 )
 from tinvest_trader.observation.models import SignalObservation
 from tinvest_trader.sentiment.models import SentimentResult, TelegramMessage, TickerMention
@@ -3354,6 +3355,79 @@ class TradingRepository:
             })
         return result
 
+    def list_moex_security_splits(
+        self,
+        tickers: tuple[str, ...],
+        *,
+        end_date: date,
+    ) -> list[dict]:
+        """Return persisted split ratios that can affect a replay range."""
+        normalized = tuple(sorted({item.upper() for item in tickers}))
+        sql = """
+            SELECT secid, trade_date, before_shares, after_shares
+            FROM moex_security_splits
+            WHERE secid = ANY(%s::text[])
+              AND trade_date <= %s
+            ORDER BY secid, trade_date
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql, (list(normalized), end_date)).fetchall()
+        return [
+            {
+                "ticker": row[0],
+                "trade_date": row[1],
+                "before": int(row[2]),
+                "after": int(row[3]),
+            }
+            for row in rows
+        ]
+
+    def list_broker_dividends_for_replay(
+        self,
+        tickers: tuple[str, ...],
+        *,
+        start_date: date,
+        end_date: date,
+    ) -> list[dict]:
+        """Return deduplicated RUB dividends with entitlement metadata."""
+        normalized = tuple(sorted({item.upper() for item in tickers}))
+        sql = """
+            SELECT DISTINCT ON (feature.ticker, feature.event_uid)
+                   feature.ticker, feature.event_time, feature.event_value,
+                   feature.currency, feature.event_uid, raw.payload
+            FROM broker_event_features feature
+            LEFT JOIN broker_event_raw raw
+              ON raw.account_id = feature.account_id
+             AND raw.source_method = feature.source_method
+             AND raw.event_uid = feature.event_uid
+            WHERE feature.source_method = 'GetDividends'
+              AND feature.ticker = ANY(%s::text[])
+              AND feature.event_time::date BETWEEN %s AND %s
+              AND feature.event_value IS NOT NULL
+            ORDER BY feature.ticker, feature.event_uid, raw.recorded_at DESC NULLS LAST
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(
+                sql, (list(normalized), start_date, end_date),
+            ).fetchall()
+
+        result = []
+        for row in rows:
+            payload = row[5] if isinstance(row[5], dict) else {}
+            dividend_type = str(payload.get("dividend_type") or "").lower()
+            if dividend_type == "cancelled":
+                continue
+            entitlement_date = _payload_date(payload.get("last_buy_date"))
+            entitlement_date = entitlement_date or row[1].date()
+            result.append({
+                "ticker": row[0],
+                "entitlement_date": entitlement_date,
+                "amount": float(row[2]),
+                "currency": str(row[3] or "").upper(),
+                "event_uid": row[4],
+            })
+        return result
+
     def create_medium_term_replay_run(
         self,
         *,
@@ -3392,15 +3466,15 @@ class TradingRepository:
                 (run_id, arm, ticker, signal_date, entry_date, exit_date,
                  entry_price, exit_price, notional, initial_stop, exit_reason,
                  held_sessions, gross_return_pct, net_return_pct, gross_pnl,
-                 costs, net_pnl)
+                 dividend_income, costs, net_pnl)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s)
+                    %s, %s, %s, %s, %s, %s)
         """
         equity_sql = """
             INSERT INTO medium_term_replay_equity
                 (run_id, arm, trade_date, cash, position_value, total_equity,
-                 drawdown_pct, open_positions)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                 dividend_income, drawdown_pct, open_positions)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         trade_values = [(
             run_id, item["arm"], item["ticker"], item["signal_date"],
@@ -3408,12 +3482,14 @@ class TradingRepository:
             item["exit_price"], item["notional"], item["initial_stop"],
             item["exit_reason"], item["held_sessions"],
             item["gross_return_pct"], item["net_return_pct"],
-            item["gross_pnl"], item["costs"], item["net_pnl"],
+            item["gross_pnl"], item.get("dividend_income", 0.0),
+            item["costs"], item["net_pnl"],
         ) for item in trades]
         equity_values = [(
             run_id, item["arm"], item["trade_date"], item["cash"],
             item["position_value"], item["total_equity"],
-            item["drawdown_pct"], item["open_positions"],
+            item.get("dividend_income", 0.0), item["drawdown_pct"],
+            item["open_positions"],
         ) for item in equity_rows]
         with (
             self._pool.get_connection() as conn,
@@ -4356,6 +4432,24 @@ class TradingRepository:
             conn.commit()
         return row is not None
 
+    def insert_moex_security_split(self, split: MoexSecuritySplit) -> bool:
+        """Insert one immutable MOEX split ratio, ignoring duplicates."""
+        sql = """
+            INSERT INTO moex_security_splits
+                (secid, trade_date, before_shares, after_shares)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (secid, trade_date) DO NOTHING
+            RETURNING id
+        """
+        with self._pool.get_connection() as conn:
+            row = conn.execute(sql, (
+                split.secid,
+                split.trade_date,
+                split.before,
+                split.after,
+            )).fetchone()
+        return row is not None
+
     def insert_moex_market_history_raw(self, row: MoexHistoryRow) -> bool:
         """Insert raw MOEX history row. Returns True if inserted, False if duplicate."""
         sql = """
@@ -5126,3 +5220,16 @@ class TradingRepository:
                 extra={"component": "repository"},
             )
             return []
+
+
+def _payload_date(value: object) -> date | None:
+    """Parse an ISO date/timestamp stored in a broker raw payload."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None

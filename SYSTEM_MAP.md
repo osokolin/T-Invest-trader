@@ -80,11 +80,12 @@ resolved expire as virtual-only records without synthetic returns.
 
 Optional historical research path:
 
-7. Stored MOEX range + warmup bars → `MediumTermReplayService`
-8. Shared signal/stop policies → staircase, ATR, and hybrid replay arms
-9. Daily mark-to-market state → `medium_term_replay_equity`
-10. Virtual closed trades → `medium_term_replay_trades`
-11. Equal-weight buy-and-hold comparison → replay Grafana dashboard
+7. MOEX split registry + T-Bank dividends → persisted corporate-action inputs
+8. Stored MOEX range + warmup bars → `MediumTermReplayService`
+9. Split-adjusted shared signal/stop policies → three replay arms
+10. Dividend-aware daily mark-to-market state → `medium_term_replay_equity`
+11. Virtual closed trades with dividend income → `medium_term_replay_trades`
+12. Equal-weight total-return comparison → replay Grafana dashboard
 
 This flow reads persisted market data and writes dedicated virtual research
 records only. It has no broker client, execution engine, order-intent, or

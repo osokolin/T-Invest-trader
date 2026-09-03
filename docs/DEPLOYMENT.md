@@ -275,6 +275,7 @@ Enable sufficient MOEX history before enabling the experiment:
 ```dotenv
 TINVEST_MOEX_ENABLED=true
 TINVEST_MOEX_HISTORY_ENABLED=true
+TINVEST_MOEX_CORPORATE_ACTIONS_ENABLED=true
 TINVEST_MOEX_HISTORY_LOOKBACK_DAYS=1825
 TINVEST_BACKGROUND_RUN_MOEX=true
 
@@ -292,7 +293,8 @@ TINVEST_BACKGROUND_RUN_MEDIUM_TERM_PAPER_STRATEGY=true
 An empty `TINVEST_MEDIUM_TERM_PAPER_TRACKED_TICKERS` falls back to the tracked
 instrument catalog. The initial MOEX backfill may take multiple cycles; verify
 at least 51 complete daily bars per ticker before judging signal frequency.
-Dividends are not credited to virtual PnL in this first research version.
+Forward paper positions remain price-return experiments and do not credit
+dividends. Historical replay separately includes persisted dividend income.
 
 Inspect the three arms in the `Medium-Term Paper Strategy` Grafana dashboard or:
 
@@ -301,6 +303,14 @@ docker compose exec -T app python -m tinvest_trader.cli medium-term-paper-stats
 ```
 
 Run a named historical replay only after the required MOEX range is present:
+
+```dotenv
+TINVEST_BROKER_EVENTS_DIVIDENDS_LOOKBACK_DAYS=3650
+```
+
+The broker-event tracked FIGI set must cover every replay ticker. Run a
+broker-event ingestion pass after increasing the lookback so historical
+`GetDividends` rows exist before the immutable replay is created.
 
 ```bash
 docker compose exec -T app python -m tinvest_trader.cli medium-term-replay \
@@ -313,10 +323,14 @@ docker compose exec -T app python -m tinvest_trader.cli medium-term-replay \
 Replay names are immutable. Use a new name when changing dates, tickers, costs,
 or strategy settings. The replay performs no network calls and writes only
 `medium_term_replay_*` research tables. Grafana compares daily net-liquidation
-equity and mark-to-market drawdown with an equal-weight buy-and-hold benchmark.
-The initial version does not credit dividends or adjust corporate actions, and
-a replay over today's tracked ticker set has survivorship bias. Treat it as a
-screening experiment rather than evidence for real-money execution.
+equity and mark-to-market drawdown with an equal-weight total-return benchmark.
+Replay adjusts OHLCV history with persisted MOEX split ratios, credits persisted
+RUB `GetDividends` events to eligible strategy positions, and reinvests those
+dividends in the equal-weight total-return benchmark. It performs no network
+calls, so run MOEX and broker-event ingestion before creating an immutable run.
+Other corporate actions, taxes, delistings, ticker migrations, and currency
+conversion are not modeled. A replay over today's tracked ticker set still has
+survivorship bias; treat it as screening, not evidence for real-money execution.
 
 To confirm the datasource is connected:
 1. Log in to Grafana
