@@ -267,6 +267,18 @@ class ActivityPaperConfig:
     volume_confirmed_v2_max_delay_minutes: int = 2
     volume_confirmed_v2_cooldown_minutes: int = 120
     volume_confirmed_v2_max_entries_per_day: int = 20
+    # Optional stricter entries for momentum and confirmed-volume v2 only.
+    strict_entries_enabled: bool = False
+    strict_min_score: float = 80.0
+    strict_min_volume_ratio: float = 10.0
+    strict_max_spike_move_pct: float = 0.02
+    strict_min_confirmation_move_pct: float = 0.004
+    strict_max_confirmation_move_pct: float = 0.01
+    strict_min_cost_multiple: float = 2.0
+    strict_confirmation_max_delay_minutes: int = 2
+    strict_max_entry_age_minutes: int = 2
+    strict_cooldown_minutes: int = 180
+    strict_max_entries_per_day: int = 5
     horizon: str = "15m"
     initial_cash: float = 1_000_000.0
     position_fraction: float = 0.02
@@ -925,6 +937,39 @@ def load_config() -> AppConfig:
             volume_confirmed_v2_max_entries_per_day=int(os.environ.get(
                 "TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_V2_MAX_ENTRIES_PER_DAY",
                 "20",
+            )),
+            strict_entries_enabled=os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_STRICT_ENTRIES_ENABLED", "false",
+            ).lower() == "true",
+            strict_min_score=float(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_STRICT_MIN_SCORE", "80",
+            )),
+            strict_min_volume_ratio=float(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_STRICT_MIN_VOLUME_RATIO", "10",
+            )),
+            strict_max_spike_move_pct=float(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_STRICT_MAX_SPIKE_MOVE_PCT", "0.02",
+            )),
+            strict_min_confirmation_move_pct=float(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_STRICT_MIN_CONFIRMATION_MOVE_PCT", "0.004",
+            )),
+            strict_max_confirmation_move_pct=float(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_STRICT_MAX_CONFIRMATION_MOVE_PCT", "0.01",
+            )),
+            strict_min_cost_multiple=float(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_STRICT_MIN_COST_MULTIPLE", "2",
+            )),
+            strict_confirmation_max_delay_minutes=int(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_STRICT_CONFIRMATION_MAX_DELAY_MINUTES", "2",
+            )),
+            strict_max_entry_age_minutes=int(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_STRICT_MAX_ENTRY_AGE_MINUTES", "2",
+            )),
+            strict_cooldown_minutes=int(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_STRICT_COOLDOWN_MINUTES", "180",
+            )),
+            strict_max_entries_per_day=int(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_STRICT_MAX_ENTRIES_PER_DAY", "5",
             )),
             horizon=os.environ.get("TINVEST_ACTIVITY_PAPER_HORIZON", "15m"),
             initial_cash=float(os.environ.get(

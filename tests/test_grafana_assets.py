@@ -137,6 +137,14 @@ def test_activity_paper_dashboard_is_virtual_and_explainable() -> None:
     assert "Realized Drawdown" in titles
     assert "Why Candidates Were Skipped" in titles
     assert "Candidate Funnel · Selected Range" in titles
+    direction_panel = next(
+        p for p in dashboard["panels"] if p["title"] == "Long / Short by Entry Policy"
+    )
+    direction_sql = direction_panel["targets"][0]["rawSql"]
+    assert "strict_eligible" in direction_sql
+    assert "ELSE 'unknown'" in direction_sql
+    assert "'long' ELSE 'short'" in direction_sql
+    assert "$__timeFilter(p.entry_time)" in direction_sql
     assert "activity_paper_positions" in query_text
     assert "activity_paper_decisions" in query_text
     assert "'${portfolio}' = 'All'" not in query_text

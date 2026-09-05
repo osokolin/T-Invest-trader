@@ -479,7 +479,7 @@ def test_activity_paper_candidate_maps_following_confirmation_candle():
     confirmation_time = spike_time + timedelta(minutes=1)
     conn.execute.return_value.fetchall.return_value = [(
         7, "SBER", "BBG004730N88", spike_time, "volume", "high", 80,
-        100, 0.0, 6.0, confirmation_time, 100.2, 0.002, None,
+        100, 0.0, 6.0, confirmation_time, 100.2, 0.002, None, "CANDLE_INTERVAL_1_MIN",
     )]
 
     result = repo.list_activity_paper_entry_candidates(
@@ -501,6 +501,7 @@ def test_activity_paper_candidate_maps_following_confirmation_candle():
         "confirmation_price": 100.2,
         "confirmation_move_pct": 0.002,
         "latest_entry_time": None,
+        "candle_interval": "CANDLE_INTERVAL_1_MIN",
     }]
 
 
@@ -519,6 +520,26 @@ def test_count_activity_paper_entries_since_uses_entry_time_boundary():
     assert "activity_paper_positions" in sql
     assert "entry_time >= %s" in sql
     assert params == ("activity-volume-confirmed-v2", since)
+
+
+def test_activity_paper_direction_summary_separates_entry_policies():
+    repo, conn = _make_repo()
+    conn.execute.return_value.fetchall.return_value = [
+        ("activity-momentum-v1", "strict", "short", 2, 1, 80, -20),
+    ]
+
+    result = repo.get_activity_paper_direction_summary("activity-momentum-v1")
+
+    assert result == [{
+        "portfolio_name": "activity-momentum-v1", "entry_policy": "strict",
+        "side": "short", "closed_positions": 2, "wins": 1,
+        "costs": 80.0, "net_pnl": -20.0,
+    }]
+    sql, params = conn.execute.call_args.args
+    assert "d.reason = 'strict_eligible'" in sql
+    assert "p.direction = 'up'" in sql
+    assert "GROUP BY p.portfolio_name, entry_policy, side" in sql
+    assert params == ("activity-momentum-v1",)
 
 
 def test_resolved_activity_positions_use_virtual_entry_price():

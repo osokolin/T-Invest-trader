@@ -221,6 +221,11 @@ def test_cli_activity_paper_stats_prints_enabled_arm_comparison(monkeypatch, cap
     monkeypatch.setattr("tinvest_trader.cli.load_config", lambda: config)
     monkeypatch.setattr("tinvest_trader.cli.build_container", lambda cfg: container)
 
+    container.repository.get_activity_paper_direction_summary.side_effect = [
+        [{"portfolio_name": "activity-momentum-v1", "entry_policy": "strict",
+          "side": "short", "closed_positions": 2, "wins": 1, "costs": 40, "net_pnl": 20}],
+        [], [], [],
+    ]
     exit_code = main(["activity-paper-stats"])
 
     assert exit_code == 0
@@ -229,6 +234,9 @@ def test_cli_activity_paper_stats_prints_enabled_arm_comparison(monkeypatch, cap
     assert "activity-volume-confirmed-v1" in output
     assert "activity-volume-confirmed-v2" in output
     assert "60.0%" in output
+    assert "strict" in output
+    assert "short" in output
+    assert "50.0%" in output
 
 
 def test_cli_medium_term_paper_stats_prints_three_arm_comparison(monkeypatch, capsys):

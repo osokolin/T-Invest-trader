@@ -2900,7 +2900,8 @@ class TradingRepository:
                        FROM activity_paper_positions previous
                        WHERE previous.portfolio_name = portfolio.name
                          AND previous.ticker = s.ticker
-                   ) AS latest_entry_time
+                   ) AS latest_entry_time,
+                   s.candle_interval
             FROM market_activity_spikes s
             JOIN market_activity_observations o
               ON o.figi = s.figi
@@ -2935,6 +2936,7 @@ class TradingRepository:
             "confirmation_time", "confirmation_price",
             "confirmation_move_pct",
             "latest_entry_time",
+            "candle_interval",
         )
         with self._pool.get_connection() as conn:
             rows = conn.execute(sql, (portfolio_name,)).fetchall()
@@ -3063,6 +3065,36 @@ class TradingRepository:
             "wins": row[11],
             "avg_net_return_pct": float(row[12]) if row[12] is not None else None,
         }
+
+    def get_activity_paper_direction_summary(self, portfolio_name: str) -> list[dict]:
+        """Compare virtual long/short results and legacy/strict entry cohorts."""
+        sql = """
+            SELECT p.portfolio_name,
+                   CASE WHEN d.reason = 'strict_eligible' THEN 'strict'
+                        WHEN d.reason = 'eligible' THEN 'legacy'
+                        ELSE 'unknown' END AS entry_policy,
+                   CASE WHEN p.direction = 'up' THEN 'long' ELSE 'short' END AS side,
+                   count(*) FILTER (WHERE p.status = 'closed'),
+                   count(*) FILTER (WHERE p.status = 'closed' AND p.net_pnl > 0),
+                   coalesce(sum(p.costs) FILTER (WHERE p.status = 'closed'), 0),
+                   coalesce(sum(p.net_pnl) FILTER (WHERE p.status = 'closed'), 0)
+            FROM activity_paper_positions p
+            LEFT JOIN activity_paper_decisions d
+              ON d.portfolio_name = p.portfolio_name AND d.spike_id = p.spike_id
+            WHERE p.portfolio_name = %s
+            GROUP BY p.portfolio_name, entry_policy, side
+            ORDER BY entry_policy, side
+        """
+        with self._pool.get_connection() as conn:
+            rows = conn.execute(sql, (portfolio_name,)).fetchall()
+        return [
+            {
+                "portfolio_name": row[0], "entry_policy": row[1], "side": row[2],
+                "closed_positions": row[3], "wins": row[4],
+                "costs": float(row[5]), "net_pnl": float(row[6]),
+            }
+            for row in rows
+        ]
 
     # -- Medium-term daily paper strategy --
 

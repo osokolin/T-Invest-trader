@@ -6,6 +6,7 @@ This service has no broker client, execution engine, order, or signal dependency
 from __future__ import annotations
 
 import logging
+import math
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -46,6 +47,33 @@ class ActivityPaperStrategyService:
         self._config = config
         self._logger = logger
         self._now_fn = now_fn or (lambda: datetime.now(UTC))
+        if config.strict_entries_enabled:
+            self._validate_strict_config()
+
+    def _validate_strict_config(self) -> None:
+        horizon = self._config.horizon
+        if not (horizon.endswith("m") and horizon[:-1].isdigit() and int(horizon[:-1]) > 0):
+            raise ValueError("activity paper strict entries require a positive minute horizon")
+        for name, value in vars(self._config).items():
+            if (
+                name.startswith("strict_") and not isinstance(value, bool)
+                and (not math.isfinite(value) or value < 0)
+            ):
+                raise ValueError(f"activity paper {name} must be finite and nonnegative")
+        if not 0 < self._config.strict_min_confirmation_move_pct <= (
+            self._config.strict_max_confirmation_move_pct
+        ):
+            raise ValueError("activity paper strict confirmation range is invalid")
+        if self._config.strict_min_cost_multiple < 1:
+            raise ValueError("activity paper strict cost multiple must be at least 1")
+        for rate in (self._config.commission_rate, self._config.slippage_rate):
+            if not math.isfinite(rate) or rate < 0:
+                raise ValueError("activity paper costs must be finite and nonnegative")
+
+    def _strict_entries(self, strategy: str) -> bool:
+        return self._config.strict_entries_enabled and strategy in {
+            "momentum", "volume_confirmed_v2",
+        }
 
     def run_cycle(self) -> ActivityPaperCycleResult:
         """Close resolved positions, then evaluate fresh spikes for every arm."""
@@ -193,7 +221,7 @@ class ActivityPaperStrategyService:
         )
         latest_by_ticker: dict[str, datetime] = {}
         entries_today = 0
-        if strategy == "volume_confirmed_v2":
+        if strategy == "volume_confirmed_v2" or self._strict_entries(strategy):
             entries_today = self._repository.count_activity_paper_entries_since(
                 portfolio["name"],
                 self._moscow_day_start(now),
@@ -271,7 +299,8 @@ class ActivityPaperStrategyService:
             })
             if position_id is None:
                 continue
-            self._record_decision(portfolio["name"], candidate, "enter", "eligible", now)
+            entry_reason = "strict_eligible" if self._strict_entries(strategy) else "eligible"
+            self._record_decision(portfolio["name"], candidate, "enter", entry_reason, now)
             opened += 1
             open_count += 1
             open_by_ticker[ticker] += 1
@@ -281,6 +310,10 @@ class ActivityPaperStrategyService:
         return opened, skipped, deferred
 
     def _quality_skip_reason(self, candidate: dict, strategy: str) -> str | None:
+        if self._strict_entries(strategy):
+            reason = self._strict_quality_skip_reason(candidate, strategy)
+            if reason is not None:
+                return reason
         if candidate["score"] < self._config.min_score:
             return "score_below_minimum"
         if candidate["severity"] not in self._config.allowed_severities:
@@ -308,6 +341,30 @@ class ActivityPaperStrategyService:
             return "spike_type_not_allowed"
         return None
 
+    def _strict_quality_skip_reason(self, candidate: dict, strategy: str) -> str | None:
+        for name in ("score", "entry_price", "price_change_pct", "volume_ratio"):
+            value = candidate.get(name)
+            if value is None or not math.isfinite(value):
+                return "strict_market_data_unavailable"
+        if candidate["entry_price"] <= 0:
+            return "strict_market_data_unavailable"
+        if candidate.get("candle_interval") != "CANDLE_INTERVAL_1_MIN":
+            return "strict_requires_minute_candles"
+        expected_type = "volume_price" if strategy == "momentum" else "volume"
+        if candidate["spike_type"] != expected_type:
+            return "strict_spike_type_not_allowed"
+        if candidate["severity"] != "high":
+            return "strict_severity_below_high"
+        if candidate["score"] < self._config.strict_min_score:
+            return "strict_score_below_minimum"
+        if candidate["volume_ratio"] < self._config.strict_min_volume_ratio:
+            return "strict_volume_ratio_below_minimum"
+        if candidate["price_change_pct"] == 0:
+            return "strict_flat_spike"
+        if abs(candidate["price_change_pct"]) > self._config.strict_max_spike_move_pct:
+            return "strict_spike_overextended"
+        return None
+
     def _prepare_candidate(
         self,
         *,
@@ -315,6 +372,8 @@ class ActivityPaperStrategyService:
         strategy: str,
         now: datetime,
     ) -> tuple[dict | None, str | None]:
+        if self._strict_entries(strategy):
+            return self._prepare_strict_candidate(candidate, strategy, now)
         if strategy not in {"volume_confirmed", "volume_confirmed_v2"}:
             return candidate, None
 
@@ -355,6 +414,58 @@ class ActivityPaperStrategyService:
             "price_change_pct": confirmation_move,
         }, None
 
+    def _prepare_strict_candidate(
+        self, candidate: dict, strategy: str, now: datetime,
+    ) -> tuple[dict | None, str | None]:
+        spike_time = self._as_aware(candidate["entry_time"])
+        max_delay = self._config.strict_confirmation_max_delay_minutes
+        if strategy == "volume_confirmed_v2":
+            max_delay = min(max_delay, self._config.volume_confirmed_v2_max_delay_minutes)
+        confirmation_time = candidate.get("confirmation_time")
+        if confirmation_time is None:
+            deadline = spike_time + timedelta(minutes=max_delay + 1)
+            reason = "strict_confirmation_missing" if now > deadline else "confirmation_pending"
+            return None, reason
+        confirmation_time = self._as_aware(confirmation_time)
+        if not spike_time < confirmation_time <= spike_time + timedelta(minutes=max_delay):
+            return None, "strict_confirmation_too_late"
+
+        # T-Bank candle timestamps denote the open; a close is usable one minute later.
+        entry_time = confirmation_time + timedelta(minutes=1)
+        if entry_time > now:
+            return None, "confirmation_pending"
+        horizon = self._config.horizon
+        if horizon.endswith("m") and entry_time >= spike_time + timedelta(
+            minutes=int(horizon[:-1]),
+        ):
+            return None, "strict_confirmation_after_horizon"
+        price = candidate.get("confirmation_price")
+        if price is None or not math.isfinite(price) or price <= 0:
+            return None, "strict_confirmation_unavailable"
+        move = price / candidate["entry_price"] - 1
+        if not math.isfinite(move):
+            return None, "strict_confirmation_unavailable"
+        if move * candidate["price_change_pct"] <= 0:
+            return None, "strict_confirmation_direction_mismatch"
+        minimum = self._config.strict_min_confirmation_move_pct
+        if strategy == "volume_confirmed_v2":
+            minimum = max(minimum, self._config.volume_confirmed_v2_min_move_pct)
+        if abs(move) + 1e-12 < minimum:
+            return None, "strict_confirmation_move_below_minimum"
+        if abs(move) > self._config.strict_max_confirmation_move_pct + 1e-12:
+            return None, "strict_confirmation_overextended"
+        cost_floor = 2 * (
+            self._config.commission_rate + self._config.slippage_rate
+        ) * self._config.strict_min_cost_multiple
+        if not math.isfinite(cost_floor) or abs(move) + 1e-12 < cost_floor:
+            return None, "strict_confirmation_below_cost_floor"
+        return {
+            **candidate,
+            "entry_time": entry_time,
+            "entry_price": price,
+            "price_change_pct": move,
+        }, None
+
     def _risk_skip_reason(
         self,
         *,
@@ -367,7 +478,20 @@ class ActivityPaperStrategyService:
         latest_entry_time: datetime | None,
         entries_today: int,
     ) -> str | None:
-        max_age = timedelta(minutes=max(0, self._config.max_candidate_age_minutes))
+        age_minutes = self._config.max_candidate_age_minutes
+        if self._strict_entries(strategy):
+            age_minutes = min(age_minutes, self._config.strict_max_entry_age_minutes)
+            entry_time = self._as_aware(candidate["entry_time"])
+            if entry_time.astimezone(_MOSCOW).date() != now.astimezone(_MOSCOW).date():
+                return "strict_entry_day_mismatch"
+            daily_limit = self._config.strict_max_entries_per_day
+            if strategy == "volume_confirmed_v2":
+                daily_limit = min(
+                    daily_limit, self._config.volume_confirmed_v2_max_entries_per_day,
+                )
+            if entries_today >= daily_limit:
+                return "strict_daily_entry_limit"
+        max_age = timedelta(minutes=max(0, age_minutes))
         if now - self._as_aware(candidate["entry_time"]) > max_age:
             return "candidate_stale"
         if strategy == "volume_confirmed_v2" and entries_today >= max(
@@ -387,6 +511,8 @@ class ActivityPaperStrategyService:
                 if strategy == "volume_confirmed_v2"
                 else self._config.cooldown_minutes
             )
+            if self._strict_entries(strategy):
+                cooldown_minutes = max(cooldown_minutes, self._config.strict_cooldown_minutes)
             cooldown = timedelta(minutes=max(0, cooldown_minutes))
             if self._as_aware(candidate["entry_time"]) - latest_entry_time < cooldown:
                 return "ticker_cooldown"
@@ -454,5 +580,21 @@ def format_activity_paper_summary(rows: list[dict | None]) -> str:
             f"{int(row['open_positions']):>4}  {closed:>6}  "
             f"{int(row.get('expired_positions', 0)):>7}  {win_text}  "
             f"{row['realized_pnl']:>8.2f}"
+        )
+    return "\n".join(lines)
+
+
+def format_activity_paper_direction_summary(rows: list[dict]) -> str:
+    """Show separate cohorts so tightening entries does not hide old results."""
+    lines = [
+        "By entry policy and direction (all time, virtual only):",
+        "portfolio                       policy  side   closed  win rate     costs   net pnl",
+    ]
+    for row in rows:
+        closed = row["closed_positions"]
+        win_text = f"{row['wins'] / closed:>7.1%}" if closed else "    n/a"
+        lines.append(
+            f"{row['portfolio_name']:<30}  {row['entry_policy']:<6}  {row['side']:<5}  "
+            f"{closed:>6}  {win_text}  {row['costs']:>8.2f}  {row['net_pnl']:>8.2f}"
         )
     return "\n".join(lines)

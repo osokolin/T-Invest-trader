@@ -105,7 +105,7 @@
       "targets": [{
         "datasource": { "type": "postgres", "uid": "postgres" },
         "format": "table",
-        "rawSql": "SELECT portfolio_name, reason, count(*) AS decisions, max(recorded_at) AS latest_at FROM activity_paper_decisions WHERE decision = 'skip' AND portfolio_name IN (${portfolio:sqlstring}) GROUP BY portfolio_name, reason ORDER BY decisions DESC",
+        "rawSql": "SELECT portfolio_name, reason, count(*) AS decisions, max(recorded_at) AS latest_at FROM activity_paper_decisions WHERE decision = 'skip' AND $__timeFilter(recorded_at) AND portfolio_name IN (${portfolio:sqlstring}) GROUP BY portfolio_name, reason ORDER BY decisions DESC",
         "refId": "A"
       }],
       "title": "Why Candidates Were Skipped",
@@ -139,6 +139,28 @@
         "refId": "A"
       }],
       "title": "Candidate Funnel · Selected Range",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "description": "Virtual positions entered during the selected range, split by entry policy and direction. Strict entries use the opt-in confirmation filters; legacy entries use the original rules. Unknown means the entry decision is missing. Results use current outcomes, including exits after the selected range. Costs include modeled commission and slippage, but not borrowing fees or borrow availability.",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "win_rate" }, "properties": [{ "id": "unit", "value": "percentunit" }] },
+          { "matcher": { "id": "byRegexp", "options": "^(gross_pnl|costs|net_pnl)$" }, "properties": [{ "id": "unit", "value": "currencyRUB" }] }
+        ]
+      },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 46 },
+      "id": 10,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{
+        "datasource": { "type": "postgres", "uid": "postgres" },
+        "format": "table",
+        "rawSql": "SELECT p.portfolio_name, CASE WHEN d.reason = 'strict_eligible' THEN 'strict' WHEN d.reason = 'eligible' THEN 'legacy' ELSE 'unknown' END AS entry_policy, CASE WHEN p.direction = 'up' THEN 'long' ELSE 'short' END AS side, count(*) AS entries, count(*) FILTER (WHERE p.status = 'open') AS open_positions, count(*) FILTER (WHERE p.status = 'expired') AS expired_positions, count(*) FILTER (WHERE p.status = 'closed') AS closed_positions, count(*) FILTER (WHERE p.status = 'closed' AND p.net_pnl > 0)::numeric / NULLIF(count(*) FILTER (WHERE p.status = 'closed'), 0) AS win_rate, COALESCE(sum(p.gross_pnl) FILTER (WHERE p.status = 'closed'), 0) AS gross_pnl, COALESCE(sum(p.costs) FILTER (WHERE p.status = 'closed'), 0) AS costs, COALESCE(sum(p.net_pnl) FILTER (WHERE p.status = 'closed'), 0) AS net_pnl FROM activity_paper_positions p LEFT JOIN activity_paper_decisions d ON d.portfolio_name = p.portfolio_name AND d.spike_id = p.spike_id WHERE p.portfolio_name IN (${portfolio:sqlstring}) AND $__timeFilter(p.entry_time) GROUP BY p.portfolio_name, entry_policy, side ORDER BY p.portfolio_name, entry_policy, side",
+        "refId": "A"
+      }],
+      "title": "Long / Short by Entry Policy",
       "type": "table"
     }
   ],
