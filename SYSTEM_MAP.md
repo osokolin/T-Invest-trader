@@ -61,6 +61,11 @@ Optional shadow experiment after step 5:
 9. Virtual positions and net PnL → `activity_paper_positions`
 10. A/B/C/D comparison → CLI and Grafana
 
+The optional strict-entry profile gates momentum and confirmed-volume v2 only.
+It uses stored minute confirmations and persists explainable skip reasons or
+`strict_eligible` for entry-policy and long/short comparisons. All positions
+continue to use the existing outcome resolver and virtual accounting.
+
 The shadow activity flow is isolated from signal generation, paper portfolio,
 execution, and order placement.
 

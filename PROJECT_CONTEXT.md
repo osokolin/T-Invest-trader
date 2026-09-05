@@ -100,6 +100,11 @@ Unresolvable virtual positions expire without fabricated prices or PnL so that
 missing candle windows cannot permanently consume paper capacity.
 A stricter v2 arm adds score, volume-ratio, confirmation-move, cooldown, and
 daily-entry gates without changing the original v1 control group.
+An optional strict-entry profile for momentum and confirmed-volume v2 requires
+same-direction closed-minute confirmation, limits overextended moves and entry
+age, and caps daily turnover. CLI and Grafana separate legacy/strict entries and
+virtual long/short outcomes; original confirmed-volume v1 and reversion remain
+unchanged.
 
 ### 11. Medium-Term Paper Strategy
 Stored MOEX daily bars drive three isolated long-only virtual portfolios:

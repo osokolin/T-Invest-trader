@@ -252,6 +252,63 @@ Inspect all enabled arms with the `Activity Paper Strategy` Grafana dashboard or
 python -m tinvest_trader.cli activity-paper-stats
 ```
 
+### Stricter Momentum and Confirmed-Volume Entries
+
+After deploying the code, opt in using
+`TINVEST_ACTIVITY_PAPER_STRICT_ENTRIES_ENABLED=true` and recreate the app
+container. Default is `false`, preserving existing entry rules. This flag only
+affects new momentum and volume-confirmed-v2 entries; reversion, original
+confirmed-volume v1, and the resolution of existing positions retain their rules.
+The v2 arm must still be enabled separately. Do not re-enable a disabled v1 arm.
+
+The strict profile uses the following initial research parameters:
+
+```
+TINVEST_ACTIVITY_PAPER_STRICT_ENTRIES_ENABLED=true
+TINVEST_ACTIVITY_PAPER_STRICT_MIN_SCORE=80
+TINVEST_ACTIVITY_PAPER_STRICT_MIN_VOLUME_RATIO=10
+TINVEST_ACTIVITY_PAPER_STRICT_MAX_SPIKE_MOVE_PCT=0.02
+TINVEST_ACTIVITY_PAPER_STRICT_MIN_CONFIRMATION_MOVE_PCT=0.004
+TINVEST_ACTIVITY_PAPER_STRICT_MAX_CONFIRMATION_MOVE_PCT=0.01
+TINVEST_ACTIVITY_PAPER_STRICT_MIN_COST_MULTIPLE=2
+TINVEST_ACTIVITY_PAPER_STRICT_CONFIRMATION_MAX_DELAY_MINUTES=2
+TINVEST_ACTIVITY_PAPER_STRICT_MAX_ENTRY_AGE_MINUTES=2
+TINVEST_ACTIVITY_PAPER_STRICT_COOLDOWN_MINUTES=180
+TINVEST_ACTIVITY_PAPER_STRICT_MAX_ENTRIES_PER_DAY=5
+```
+
+Both arms require high severity and a non-flat spike with volume ratio >= 10.
+Momentum also requires a `volume_price` spike. Spikes larger than 2% are skipped.
+The first subsequent stored minute candle must continue the spike direction by
+0.4%-1%, and that observed move must cover twice the modeled round-trip commission
+and slippage. This is a filter on an already observed move, not a forecast of
+remaining profit. Confirmation must arrive within two candle minutes; entries
+use its close price and close time, only once that minute is complete. Entries
+older than two minutes, from a previous Moscow date, or at/after the existing
+outcome horizon are skipped. Non-minute intervals are rejected in this profile.
+Use a minute-based outcome horizon such as `15m`; `eod` is not supported by the
+strict-entry profile because confirmation must precede a known exit deadline.
+The existing v2 thresholds remain binding when they are more restrictive.
+
+Each targeted portfolio gets at most five entries per Moscow calendar day and
+a three-hour cooldown per ticker, including entries before a same-day restart.
+Disabling the flag restores the original entry rules. Skipped candidates are
+terminal decisions and are not replayed by toggling the flag.
+
+Strict entries record `strict_eligible` in `activity_paper_decisions`. The CLI and
+the Grafana **Long / Short by Entry Policy** panel separate them from legacy
+entries; rows missing an entry decision are shown as `unknown`. Grafana uses the
+selected entry-time range for this comparison; CLI shows all-time cohorts.
+Changing thresholds later within the strict profile requires a separate
+portfolio name (or a recorded rollout date) for a clean comparison.
+
+The existing activity arms already simulate both directions: `up` is long and
+`down` is short. Momentum/confirmed-volume follow the observed direction;
+reversion opposes it. These are virtual directional experiments, with modeled
+commission/slippage but no borrow availability check or overnight borrowing fee.
+Use the directional breakdown to evaluate a short-only hypothesis before adding
+another portfolio. Neither thresholds nor one profitable day establish an edge.
+
 ## Medium-Term Paper Strategy
 
 The medium-term experiment is a daily, long-only A/B/C comparison built only

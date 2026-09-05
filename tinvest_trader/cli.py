@@ -1142,6 +1142,7 @@ def _run_activity_paper_stats(config: AppConfig, container: Container) -> int:
         return 1
 
     from tinvest_trader.services.activity_paper_strategy_service import (
+        format_activity_paper_direction_summary,
         format_activity_paper_summary,
     )
 
@@ -1155,6 +1156,11 @@ def _run_activity_paper_stats(config: AppConfig, container: Container) -> int:
         names.append(config.activity_paper.volume_confirmed_v2_portfolio_name)
     summaries = [repository.get_activity_paper_summary(name) for name in names]
     print(format_activity_paper_summary(summaries))
+    directions = [
+        row for name in names
+        for row in repository.get_activity_paper_direction_summary(name)
+    ]
+    print(format_activity_paper_direction_summary(directions))
     return 0
 
 

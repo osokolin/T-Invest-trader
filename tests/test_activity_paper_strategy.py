@@ -99,6 +99,7 @@ def _candidate(**overrides) -> dict:
         "confirmation_price": None,
         "confirmation_move_pct": None,
         "latest_entry_time": None,
+        "candle_interval": "CANDLE_INTERVAL_1_MIN",
     }
     candidate.update(overrides)
     return candidate
@@ -528,3 +529,266 @@ def test_format_activity_paper_summary_compares_arms() -> None:
     assert "activity-momentum-v1" in rendered
     assert "60.0%" in rendered
     assert "125.00" in rendered
+
+
+def _strict_candidate(**overrides) -> dict:
+    values = {
+        "volume_ratio": 12.0,
+        "entry_time": NOW - timedelta(minutes=3),
+        "confirmation_time": NOW - timedelta(minutes=2),
+        "confirmation_price": 100.5,
+        "confirmation_move_pct": 0.005,
+    }
+    values.update(overrides)
+    return _candidate(**values)
+
+
+@pytest.mark.parametrize("strategy,spike_type", [
+    ("momentum", "volume_price"), ("volume_confirmed_v2", "volume"),
+])
+@pytest.mark.parametrize("direction", ["up", "down"])
+def test_strict_entries_confirm_both_long_and_short_at_closed_price(
+    strategy, spike_type, direction,
+):
+    repo = FakeRepository()
+    sign = 1 if direction == "up" else -1
+    repo.candidates = [_strict_candidate(
+        spike_type=spike_type, price_change_pct=sign * 0.01,
+        confirmation_price=100 + sign * 0.5,
+    )]
+
+    _service(repo, strict_entries_enabled=True, volume_confirmed_v2_enabled=True).run_cycle()
+
+    position = next(p for p in repo.inserted_positions if p["strategy"] == strategy)
+    assert position["direction"] == direction
+    assert position["entry_price"] == 100 + sign * 0.5
+    assert position["entry_time"] == NOW - timedelta(minutes=1)
+    assert any(d["reason"] == "strict_eligible" for d in repo.decisions)
+
+
+@pytest.mark.parametrize("strategy,spike_type", [
+    ("momentum", "volume_price"), ("volume_confirmed_v2", "volume"),
+])
+@pytest.mark.parametrize("overrides,reason", [
+    ({"severity": "medium"}, "strict_severity_below_high"),
+    ({"score": 79}, "strict_score_below_minimum"),
+    ({"volume_ratio": 9.9}, "strict_volume_ratio_below_minimum"),
+    ({"volume_ratio": None}, "strict_market_data_unavailable"),
+    ({"score": float("nan")}, "strict_market_data_unavailable"),
+    ({"price_change_pct": float("inf")}, "strict_market_data_unavailable"),
+    ({"entry_price": 0}, "strict_market_data_unavailable"),
+    ({"price_change_pct": 0}, "strict_flat_spike"),
+    ({"price_change_pct": 0.021}, "strict_spike_overextended"),
+    ({"spike_type": "price_momentum"}, "strict_spike_type_not_allowed"),
+    ({"candle_interval": "CANDLE_INTERVAL_5_MIN"}, "strict_requires_minute_candles"),
+    ({"confirmation_price": 99.5}, "strict_confirmation_direction_mismatch"),
+    ({"confirmation_price": 100.1}, "strict_confirmation_move_below_minimum"),
+    ({"confirmation_price": 101.1}, "strict_confirmation_overextended"),
+    ({"confirmation_price": float("nan")}, "strict_confirmation_unavailable"),
+    ({"confirmation_price": None}, "strict_confirmation_unavailable"),
+    ({"confirmation_price": 0}, "strict_confirmation_unavailable"),
+    ({"confirmation_time": NOW - timedelta(minutes=3)}, "strict_confirmation_too_late"),
+    ({"confirmation_time": NOW}, "strict_confirmation_too_late"),
+    ({"entry_time": NOW - timedelta(minutes=10), "confirmation_time": None},
+     "strict_confirmation_missing"),
+    ({"entry_time": NOW - timedelta(minutes=6),
+      "confirmation_time": NOW - timedelta(minutes=5)}, "candidate_stale"),
+])
+def test_strict_rejections_are_explainable_and_isolated(strategy, spike_type, overrides, reason):
+    repo = FakeRepository()
+    values = {"spike_type": spike_type, **overrides}
+    repo.candidates = [_strict_candidate(**values)]
+
+    result = _service(
+        repo, strict_entries_enabled=True, volume_confirmed_v2_enabled=True,
+    ).run_cycle()
+
+    assert result.failed_portfolios == 0
+    assert not any(p["strategy"] == strategy for p in repo.inserted_positions)
+    name = "activity-momentum-v1" if strategy == "momentum" else "activity-volume-confirmed-v2"
+    assert [d["reason"] for d in repo.decisions if d["portfolio_name"] == name] == [reason]
+
+
+@pytest.mark.parametrize("confirmation_time", [None, NOW - timedelta(seconds=30)])
+def test_strict_pending_or_unclosed_candle_is_retried(confirmation_time):
+    repo = FakeRepository()
+    repo.candidates = [_strict_candidate(
+        entry_time=NOW - timedelta(minutes=2), confirmation_time=confirmation_time,
+    )]
+    service = _service(repo, strict_entries_enabled=True)
+
+    result = service.run_cycle()
+
+    assert result.deferred == 1
+    assert not any(d["portfolio_name"] == "activity-momentum-v1" for d in repo.decisions)
+    repo.candidates[0]["confirmation_time"] = NOW - timedelta(minutes=1)
+    service.run_cycle()
+    assert any(p["strategy"] == "momentum" for p in repo.inserted_positions)
+
+
+def test_strict_entry_must_precede_existing_outcome_horizon():
+    repo = FakeRepository()
+    repo.candidates = [_strict_candidate()]
+
+    _service(repo, strict_entries_enabled=True, horizon="2m").run_cycle()
+
+    assert "strict_confirmation_after_horizon" in {d["reason"] for d in repo.decisions}
+
+
+def test_strict_cost_floor_uses_configured_round_trip_costs():
+    repo = FakeRepository()
+    repo.candidates = [_strict_candidate()]
+
+    _service(repo, strict_entries_enabled=True, commission_rate=0.001).run_cycle()
+
+    assert "strict_confirmation_below_cost_floor" in {d["reason"] for d in repo.decisions}
+
+
+@pytest.mark.parametrize("price", [100.4, 101.0, 99.6, 99.0])
+def test_strict_confirmation_accepts_exact_percentage_boundaries(price):
+    repo = FakeRepository()
+    repo.candidates = [_strict_candidate(
+        confirmation_price=price, price_change_pct=0.01 if price > 100 else -0.01,
+    )]
+
+    _service(repo, strict_entries_enabled=True).run_cycle()
+
+    assert any(p["strategy"] == "momentum" for p in repo.inserted_positions)
+
+
+def test_strict_toggle_off_restores_original_momentum_entry():
+    repo = FakeRepository()
+    repo.candidates = [_candidate(volume_ratio=1, confirmation_time=None)]
+
+    _service(repo, strict_entries_enabled=False, strict_min_score=100).run_cycle()
+
+    assert [p["strategy"] for p in repo.inserted_positions] == ["momentum", "reversion"]
+    assert {d["reason"] for d in repo.decisions} == {"eligible"}
+
+
+def test_strict_entry_cannot_leak_previous_day_into_daily_budget():
+    midnight = datetime(2026, 8, 24, 21, 0, tzinfo=UTC)
+    repo = FakeRepository()
+    repo.candidates = [_strict_candidate(
+        entry_time=midnight - timedelta(minutes=3),
+        confirmation_time=midnight - timedelta(minutes=2),
+    )]
+    service = ActivityPaperStrategyService(
+        repo, ActivityPaperConfig(strict_entries_enabled=True),
+        logging.getLogger("test_activity_paper"), now_fn=lambda: midnight,
+    )
+
+    service.run_cycle()
+
+    assert "strict_entry_day_mismatch" in {d["reason"] for d in repo.decisions}
+    assert ("activity-momentum-v1", midnight) in repo.entry_count_calls
+
+
+@pytest.mark.parametrize("config,reason", [
+    ({"volume_confirmed_v2_min_move_pct": 0.006}, "strict_confirmation_move_below_minimum"),
+    ({"volume_confirmed_v2_min_volume_ratio": 15}, "v2_volume_ratio_below_minimum"),
+    ({"volume_confirmed_v2_min_score": 90}, "v2_score_below_minimum"),
+    ({"volume_confirmed_v2_max_entries_per_day": 0}, "strict_daily_entry_limit"),
+])
+def test_strict_profile_never_relaxes_existing_v2_thresholds(config, reason):
+    repo = FakeRepository()
+    repo.candidates = [_strict_candidate(spike_type="volume")]
+
+    _service(
+        repo, strict_entries_enabled=True, volume_confirmed_v2_enabled=True, **config,
+    ).run_cycle()
+
+    assert not any(p["strategy"] == "volume_confirmed_v2" for p in repo.inserted_positions)
+    assert reason in {d["reason"] for d in repo.decisions}
+
+
+@pytest.mark.parametrize("strategy,spike_type,name", [
+    ("momentum", "volume_price", "activity-momentum-v1"),
+    ("volume_confirmed_v2", "volume", "activity-volume-confirmed-v2"),
+])
+def test_strict_daily_limit_counts_persisted_and_same_cycle_entries(strategy, spike_type, name):
+    repo = FakeRepository()
+    repo.entries_since[name] = 4
+    repo.candidates = [
+        _strict_candidate(spike_id=i, ticker=f"T{i}", spike_type=spike_type)
+        for i in range(3)
+    ]
+
+    _service(repo, strict_entries_enabled=True, volume_confirmed_v2_enabled=True).run_cycle()
+
+    assert len([p for p in repo.inserted_positions if p["strategy"] == strategy]) == 1
+    reasons = [d["reason"] for d in repo.decisions if d["portfolio_name"] == name]
+    assert reasons == ["strict_eligible", "strict_daily_entry_limit", "strict_daily_entry_limit"]
+    assert (name, datetime(2026, 8, 23, 21, tzinfo=UTC)) in repo.entry_count_calls
+
+
+def test_strict_cooldown_leaves_reversion_unaffected():
+    repo = FakeRepository()
+    repo.candidates = [_strict_candidate(latest_entry_time=NOW - timedelta(minutes=150))]
+
+    _service(repo, strict_entries_enabled=True).run_cycle()
+
+    assert [p["strategy"] for p in repo.inserted_positions] == ["reversion"]
+    assert "ticker_cooldown" in {d["reason"] for d in repo.decisions}
+
+
+def test_strict_flag_does_not_change_original_volume_arm():
+    repo = FakeRepository()
+    repo.candidates = [_candidate(
+        spike_type="volume", volume_ratio=2, price_change_pct=0,
+        confirmation_time=NOW - timedelta(seconds=15),
+        confirmation_price=99.8, confirmation_move_pct=-0.002,
+    )]
+
+    _service(repo, strict_entries_enabled=True, volume_confirmed_enabled=True).run_cycle()
+
+    assert [p["strategy"] for p in repo.inserted_positions] == ["volume_confirmed"]
+    assert repo.inserted_positions[0]["direction"] == "down"
+
+
+@pytest.mark.parametrize("raw_return,gross,net", [(-0.01, 100, 80), (0.01, -100, -120)])
+def test_short_pnl_sign_and_round_trip_costs(raw_return, gross, net):
+    repo = FakeRepository()
+    repo.resolved_positions["activity-momentum-v1"] = [{
+        "id": 1, "direction": "down", "notional": 10_000,
+        "raw_return_pct": raw_return, "exit_price": 100 * (1 + raw_return),
+        "exit_time": NOW,
+    }]
+
+    _service(repo, strict_entries_enabled=True).run_cycle()
+
+    assert repo.closed_positions[0]["gross_pnl"] == pytest.approx(gross)
+    assert repo.closed_positions[0]["costs"] == 20
+    assert repo.closed_positions[0]["net_pnl"] == pytest.approx(net)
+
+
+@pytest.mark.parametrize("overrides", [
+    {"strict_min_volume_ratio": -1}, {"strict_min_score": float("nan")},
+    {"strict_min_confirmation_move_pct": 0}, {"strict_max_confirmation_move_pct": 0.001},
+    {"strict_min_cost_multiple": 0.5}, {"commission_rate": -0.01},
+    {"horizon": "eod"}, {"horizon": "0m"}, {"horizon": "invalid"},
+])
+def test_invalid_strict_config_fails_before_portfolio_work(overrides):
+    repo = FakeRepository()
+    with pytest.raises(ValueError):
+        _service(repo, strict_entries_enabled=True, **overrides)
+    assert repo.portfolios == {}
+
+
+def test_strict_config_parses_environment(monkeypatch):
+    values = {
+        "STRICT_ENTRIES_ENABLED": "true", "STRICT_MIN_SCORE": "85",
+        "STRICT_MIN_VOLUME_RATIO": "12", "STRICT_MAX_SPIKE_MOVE_PCT": "0.025",
+        "STRICT_MIN_CONFIRMATION_MOVE_PCT": "0.003",
+        "STRICT_MAX_CONFIRMATION_MOVE_PCT": "0.008", "STRICT_MIN_COST_MULTIPLE": "3",
+        "STRICT_CONFIRMATION_MAX_DELAY_MINUTES": "1", "STRICT_MAX_ENTRY_AGE_MINUTES": "1",
+        "STRICT_COOLDOWN_MINUTES": "240", "STRICT_MAX_ENTRIES_PER_DAY": "3",
+    }
+    for key, value in values.items():
+        monkeypatch.setenv(f"TINVEST_ACTIVITY_PAPER_{key}", value)
+
+    config = load_config().activity_paper
+
+    for key, value in values.items():
+        expected = True if value == "true" else float(value)
+        assert getattr(config, key.lower()) == expected
