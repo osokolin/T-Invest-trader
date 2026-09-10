@@ -588,6 +588,13 @@ CREATE TABLE IF NOT EXISTS storage_health_snapshot (
     report      JSONB NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS storage_retention_state (
+    table_name          TEXT PRIMARY KEY,
+    cutoff              TIMESTAMPTZ NOT NULL,
+    checked_at          TIMESTAMPTZ NOT NULL,
+    deleted_rows_total  BIGINT NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS market_quotes (
     id              BIGSERIAL PRIMARY KEY,
     ticker          TEXT NOT NULL,

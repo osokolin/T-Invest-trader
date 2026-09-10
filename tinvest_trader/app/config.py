@@ -53,6 +53,23 @@ class StorageHealthConfig:
 
 
 @dataclass(frozen=True)
+class StorageRetentionConfig:
+    enabled: bool = False
+    months: int = 3
+    poll_interval_seconds: int = 3600
+    batch_size: int = 10000
+    batches_per_cycle: int = 5
+
+    def __post_init__(self) -> None:
+        if self.months < 3:
+            raise ValueError("storage retention must keep at least three calendar months")
+        if self.poll_interval_seconds < 60:
+            raise ValueError("storage retention interval must be at least 60 seconds")
+        if not 1 <= self.batch_size <= 50000 or not 1 <= self.batches_per_cycle <= 10:
+            raise ValueError("storage retention batch limits are out of range")
+
+
+@dataclass(frozen=True)
 class SentimentConfig:
     enabled: bool = False
     channels: tuple[str, ...] = ()
@@ -427,6 +444,7 @@ class AppConfig:
     market_data: MarketDataConfig = field(default_factory=MarketDataConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     storage_health: StorageHealthConfig = field(default_factory=StorageHealthConfig)
+    storage_retention: StorageRetentionConfig = field(default_factory=StorageRetentionConfig)
     sentiment: SentimentConfig = field(default_factory=SentimentConfig)
     observation: ObservationConfig = field(default_factory=ObservationConfig)
     background: BackgroundConfig = field(default_factory=BackgroundConfig)
@@ -541,6 +559,17 @@ def load_config() -> AppConfig:
             )),
             recent_error_seconds=int(os.environ.get(
                 "TINVEST_STORAGE_HEALTH_RECENT_ERROR_SECONDS", "300",
+            )),
+        ),
+        storage_retention=StorageRetentionConfig(
+            enabled=os.environ.get("TINVEST_STORAGE_RETENTION_ENABLED", "false").lower() == "true",
+            months=int(os.environ.get("TINVEST_STORAGE_RETENTION_MONTHS", "3")),
+            poll_interval_seconds=int(os.environ.get(
+                "TINVEST_STORAGE_RETENTION_INTERVAL_SECONDS", "3600",
+            )),
+            batch_size=int(os.environ.get("TINVEST_STORAGE_RETENTION_BATCH_SIZE", "10000")),
+            batches_per_cycle=int(os.environ.get(
+                "TINVEST_STORAGE_RETENTION_BATCHES_PER_CYCLE", "5",
             )),
         ),
         observation=ObservationConfig(

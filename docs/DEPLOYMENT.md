@@ -635,6 +635,65 @@ window. Ordinary VACUUM reuses space internally but usually does not shrink
 files. Fusion polling frequency controls future growth, but changing it also
 changes sampling and must be a separately recorded experiment/config decision.
 
+### Three-Month Dense History Retention
+
+Retention applies **only** to `fused_signal_features.recorded_at` and
+`market_quotes.fetched_at`, using three calendar months rather than 90 days.
+Fusion rows referenced by saved signals survive. Entry-binding and outcome-window
+quotes for all stored predictions survive, as do latest catalog FIGI quotes.
+Protected records can therefore be older than the cutoff.
+
+Trades, signals, outcomes, raw source events, activity candles/spikes, MOEX daily
+history, corporate actions and replay data are not deleted. Three months of
+daily prices is insufficient for medium-term warmup and historical replay.
+Do not run new historical signal jobs during the initial cleanup.
+
+First take and validate an external backup, preferably with a test restore.
+Transferring a full DB dump off the VPS requires the owner's explicit consent:
+it may contain private messages and account data. `.local-backups/` is gitignored;
+use restrictive permissions. Build the small retention indexes explicitly:
+
+```bash
+docker compose exec -T postgres psql -U tinvest -d tinvest -v ON_ERROR_STOP=1 \
+  < deploy/storage-retention-indexes.sql
+docker compose exec -T app python -m tinvest_trader.cli storage-retention
+```
+
+The index script uses CONCURRENTLY and must not run inside a transaction.
+Interrupted invalid indexes need inspection/repair before retrying: IF NOT EXISTS
+does not repair them. Retention refuses to delete without valid, ready indexes.
+The CLI previews a bounded batch by default, without starting any pipelines.
+
+After backup and initial maintenance, enable and recreate app:
+
+```dotenv
+TINVEST_STORAGE_RETENTION_ENABLED=true
+TINVEST_STORAGE_RETENTION_MONTHS=3
+TINVEST_STORAGE_RETENTION_INTERVAL_SECONDS=3600
+TINVEST_STORAGE_RETENTION_BATCH_SIZE=10000
+TINVEST_STORAGE_RETENTION_BATCHES_PER_CYCLE=5
+```
+
+Default is off. With background execution enabled, the first run waits one
+interval after startup. Each cycle deletes at most five 10,000-row batches per
+table, stopping further batches after a 20-second soft budget; each statement
+has a 5-second timeout. A session advisory lock prevents overlapping CLI/runner
+maintenance. Each batch commits its deletion and counters atomically. Failures
+are logged and other pipelines continue. Missing indexes and exhausted budgets
+are warnings, not successful deletion. Disabling the flag stops future deletion,
+but cannot restore data already removed.
+
+`storage-retention --apply` runs one explicit bounded cycle and also requires
+the flag. Grafana shows `storage_retention_state` cutoff, last run and cumulative
+deletion counts. Missing last_run means no cycle has committed. Monitor backlog
+rather than increasing limits until maintenance stalls ingestion.
+
+The initial multi-million-row backlog needs a separate controlled maintenance
+window. Ordinary DELETE frees reusable database pages, not necessarily filesystem
+space. Compact smaller tables first and verify headroom for the surviving Fusion
+heap, rebuilt indexes, temporary files, WAL and a safety reserve before any
+`VACUUM FULL`. Never truncate tables or change stored financial outcomes.
+
 ### App behavior
 The app starts, runs health checks, and then blocks waiting for SIGINT/SIGTERM.
 It stays alive as a long-running process suitable for `restart: unless-stopped`.

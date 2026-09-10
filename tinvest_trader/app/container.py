@@ -925,6 +925,13 @@ class Container:
 
     def _wire_background_runner(self) -> None:
         """Wire background runner when enabled."""
+        retention_fn = None
+        if self.config.storage_retention.enabled and self.repository is not None:
+            from tinvest_trader.infra.storage.retention import run_retention
+
+            def retention_fn():
+                return run_retention(self.config, self.logger)
+
         self.background_runner = BackgroundRunner(
             config=self.config.background,
             logger=self.logger,
@@ -971,6 +978,8 @@ class Container:
             alerting_interval_seconds=self.config.alerting.check_interval_seconds,
             daily_digest_fn=self._daily_digest_fn,
             daily_digest_config=self.config.daily_digest,
+            storage_retention_fn=retention_fn,
+            storage_retention_interval_seconds=self.config.storage_retention.poll_interval_seconds,
         )
 
         self.logger.info(
