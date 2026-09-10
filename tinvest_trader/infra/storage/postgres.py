@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
 from pathlib import Path
 
 from psycopg_pool import ConnectionPool
 
 from tinvest_trader.app.config import DatabaseConfig
+from tinvest_trader.infra.storage.health import record_storage_error
 
 SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
@@ -23,9 +25,15 @@ class PostgresPool:
             max_size=config.pool_max_size,
         )
 
+    @contextmanager
     def get_connection(self):
         """Return a context-managed connection from the pool."""
-        return self._pool.connection()
+        try:
+            with self._pool.connection() as conn:
+                yield conn
+        except Exception as exc:
+            record_storage_error(exc)
+            raise
 
     def initialize_schema(self) -> None:
         """Run schema.sql to create tables if they don't exist."""

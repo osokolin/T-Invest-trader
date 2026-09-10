@@ -8,6 +8,7 @@ GUARDRAIL: CLI commands are for reporting and one-shot operations only.
 from __future__ import annotations
 
 import argparse
+import json
 from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
 
@@ -44,6 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers.add_parser("observe", help="Run observation aggregation once")
     subparsers.add_parser("db-summary", help="Show operational database counts")
+    subparsers.add_parser("storage-health", help="Read-only disk, DB size and freshness checks")
     subparsers.add_parser("list-instruments", help="List all instruments in DB")
     subparsers.add_parser("list-tracked", help="List tracked instruments")
 
@@ -457,6 +459,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     config = load_config()
+    if args.command == "storage-health":
+        from tinvest_trader.infra.storage.health import inspect_storage
+
+        report = inspect_storage(config)
+        print(json.dumps(report, indent=2))
+        return int(report["status"] == "critical")
     container = build_container(config)
     try:
         if args.command == "status":

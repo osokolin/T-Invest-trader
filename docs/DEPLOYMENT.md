@@ -559,6 +559,82 @@ UNION ALL SELECT 'execution_events', count(*) FROM execution_events;
 
 ## Troubleshooting
 
+### Disk Capacity and Persistence Health
+
+Docker logs are rotated at 20 MB per file, three files per service (approximately
+60 MB each). The setting applies to recreated containers, not existing ones.
+Before rollout, export any incident logs that must be preserved to external
+storage. `docker compose up -d --build` recreates services whose logging settings
+changed, including Postgres; plan for a brief interruption. Named volumes remain
+intact. Never use `down -v`, volume pruning, or log-file truncation to recover space.
+
+Enable the independent storage check after deploying the schema and code:
+
+```dotenv
+TINVEST_STORAGE_HEALTH_ENABLED=true
+TINVEST_STORAGE_HEALTH_DISK_PATH=/var/lib/tinvest-postgres
+TINVEST_STORAGE_HEALTH_WARNING_FREE_PERCENT=20
+TINVEST_STORAGE_HEALTH_CRITICAL_FREE_PERCENT=10
+TINVEST_STORAGE_HEALTH_MIN_FREE_BYTES=2147483648
+TINVEST_STORAGE_HEALTH_FRESHNESS_SECONDS=900
+TINVEST_STORAGE_HEALTH_RECENT_ERROR_SECONDS=300
+```
+
+Default is off; disabling the flag restores the heartbeat-only Docker check.
+The app receives a **read-only** mount of `pgdata` to measure the actual database
+filesystem, including when Docker volumes live on a different disk. No database
+files are read or modified through this mount. A missing mount is an error, not
+a silent fallback to the app filesystem.
+
+Every 60 seconds Docker starts a separate short-lived probe. It uses a separate
+Postgres connection with connect/statement/lock timeouts, so a stuck runner or
+exhausted application pool cannot stop the probe. It checks disk headroom,
+recent application DB errors, enabled pipeline freshness, and commits an upsert
+to the single-row `storage_health_snapshot` table. No market API calls or trading
+operations are performed. A successful SELECT does not clear a recent application
+DB failure. Error markers keep only a timestamp and exception class, not secrets.
+
+Warnings start at 20% free. At 10% free, less than 2 GiB available, failed probes,
+recent DB errors, or stale expected pipelines, the check fails. Docker reports
+`unhealthy` after three failed checks; **restart: unless-stopped does not restart
+an unhealthy running process**. This adds visibility, not automated recovery or
+Telegram notifications, and it does not pause or change trading decisions.
+
+Fusion freshness is checked whenever its persistent background task is enabled.
+Quotes/activity use configured Moscow weekday session hours plus a grace period;
+the check is not a holiday calendar. Quiet/no-tracked-instrument configurations
+may report missing data intentionally. Quotes measure successful fetching, not
+broker price freshness; activity checks candle time from the last 1000 inserts.
+Thresholds are at least three configured polling intervals. A caught batch error
+now reports zero inserted quotes because the entire transaction rolled back.
+
+Inspect without initializing the application container or making any writes:
+
+```bash
+docker compose exec -T app python -m tinvest_trader.cli storage-health
+docker inspect --format '{{json .State.Health}}' "$(docker compose ps -q app)"
+```
+
+`storage-health` runs even when the periodic flag is off; exit code 1 means
+critical, 0 means OK or warning. Missing DB configuration is reported explicitly.
+The `Data Freshness & Pipeline Health` dashboard includes live storage status,
+largest tables, and last persisted-data freshness. A snapshot older than three
+minutes is shown as stale, never as a previous green result. If Postgres is
+unreachable, inspect Docker health output; Grafana cannot query a failed database.
+
+The report uses physical relation sizes and **planner row estimates**, not
+expensive full-table counts or resettable activity counters. A post-restart
+`n_live_tup` counter is not sufficient evidence of bloat. Tables and indexes
+continue growing with retained history: the monitor does not delete or compact
+anything. Trade history, outcomes, raw inputs, and replay data remain unchanged.
+
+When headroom falls, first take and verify a backup on another disk, then choose
+an explicit archival/retention policy or expand storage. Do not run `VACUUM FULL`
+on a large live table without adequate temporary disk space and a maintenance
+window. Ordinary VACUUM reuses space internally but usually does not shrink
+files. Fusion polling frequency controls future growth, but changing it also
+changes sampling and must be a separately recorded experiment/config decision.
+
 ### App behavior
 The app starts, runs health checks, and then blocks waiting for SIGINT/SIGTERM.
 It stays alive as a long-running process suitable for `restart: unless-stopped`.

@@ -2505,6 +2505,9 @@ class TradingRepository:
                 "failed to bulk insert market quotes",
                 extra={"component": "postgres", "attempted": len(quotes)},
             )
+            # The connection context rolls the whole batch back, including
+            # statements that succeeded before a later statement/commit failed.
+            return 0
         return inserted
 
     # -- Market activity monitor (observational only) --
