@@ -361,6 +361,18 @@ def test_storage_panels_do_not_present_stale_snapshots_as_healthy() -> None:
         assert "count(*)" not in panels[panel_id]["targets"][0]["rawSql"]
 
 
+def test_retention_panel_shows_missing_state_without_fabricated_counts() -> None:
+    dashboard = json.loads(
+        (GRAFANA_ROOT / "dashboards" / "data-infra-health.json").read_text(),
+    )
+    panel = next(p for p in dashboard["panels"] if p["id"] == 64)
+    query = panel["targets"][0]["rawSql"]
+    assert "LEFT JOIN storage_retention_state" in query
+    assert "deleted_rows_total" in query
+    assert "COALESCE" not in query
+    assert panel["datasource"]["uid"] == "postgres"
+
+
 def test_compose_limits_logs_and_checks_actual_database_volume() -> None:
     compose = (REPO_ROOT / "docker-compose.yml").read_text()
     assert 'max-size: "20m"' in compose

@@ -100,6 +100,8 @@ class BackgroundRunner:
         daily_digest_fn: Callable[[], object] | None = None,
         daily_digest_config: DailyDigestConfig | None = None,
         time_fn: Callable[[], float] | None = None,
+        storage_retention_fn: Callable[[], object] | None = None,
+        storage_retention_interval_seconds: int = 3600,
     ) -> None:
         self._config = config
         self._logger = logger
@@ -144,6 +146,8 @@ class BackgroundRunner:
         self._daily_digest_config = daily_digest_config
         self._daily_digest_sent_today: str = ""
         self._time_fn = time_fn or time.monotonic
+        self._storage_retention_fn = storage_retention_fn
+        self._storage_retention_interval_seconds = storage_retention_interval_seconds
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
@@ -292,6 +296,7 @@ class BackgroundRunner:
             or self._callback_handler_is_runnable()
             or self._alerting_is_runnable()
             or self._daily_digest_is_runnable()
+            or self._storage_retention_fn is not None
         )
 
     def _sentiment_is_runnable(self) -> bool:
@@ -807,6 +812,7 @@ class BackgroundRunner:
         next_callback_handler_run = self._time_fn()
         next_alerting_run = self._time_fn()
         next_daily_digest_run = self._time_fn()
+        next_retention_run = self._time_fn() + self._storage_retention_interval_seconds
 
         while not self._stop_event.is_set():
             now = self._time_fn()
@@ -1091,6 +1097,20 @@ class BackgroundRunner:
                     digest_wait
                     if next_wait is None
                     else min(next_wait, digest_wait)
+                )
+
+            if self._storage_retention_fn is not None:
+                if self._time_fn() >= next_retention_run:
+                    try:
+                        self._storage_retention_fn()
+                    except Exception:
+                        self._logger.exception("background storage retention cycle failed")
+                    next_retention_run = self._time_fn() + max(
+                        60, self._storage_retention_interval_seconds,
+                    )
+                retention_wait = max(0.0, next_retention_run - self._time_fn())
+                next_wait = (
+                    retention_wait if next_wait is None else min(next_wait, retention_wait)
                 )
 
             if next_wait is None:

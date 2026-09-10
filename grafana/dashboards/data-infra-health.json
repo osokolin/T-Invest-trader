@@ -510,6 +510,21 @@
         "editorMode": "code", "format": "table", "rawQuery": true,
         "rawSql": "SELECT s.checked_at, f.key AS pipeline, (f.value->>'latest')::timestamptz AS latest, (f.value->>'age_seconds')::numeric AS age_seconds, (f.value->>'threshold_seconds')::integer AS threshold_seconds, (f.value->>'expected')::boolean AS freshness_expected FROM storage_health_snapshot s CROSS JOIN LATERAL jsonb_each(s.report->'sources') f ORDER BY pipeline;"
       }]
+    },
+    {
+      "id": 64,
+      "type": "table",
+      "title": "Three-Month Dense History Retention",
+      "description": "Only Fusion and quote buffers are pruned. Protected signal references and resolution prices survive. Missing last_run means no cycle has committed. Deleted rows free reusable DB pages, not necessarily filesystem space.",
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "gridPos": { "h": 5, "w": 24, "x": 0, "y": 56 },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "options": { "showHeader": true },
+      "targets": [{
+        "refId": "A", "datasource": { "type": "postgres", "uid": "postgres" },
+        "editorMode": "code", "format": "table", "rawQuery": true,
+        "rawSql": "SELECT t.table_name, s.cutoff AS last_cutoff, s.checked_at AS last_run, s.deleted_rows_total FROM (VALUES ('fused_signal_features'), ('market_quotes')) t(table_name) LEFT JOIN storage_retention_state s USING (table_name) ORDER BY t.table_name;"
+      }]
     }
   ],
   "refresh": "5m",

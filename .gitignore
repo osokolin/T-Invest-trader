@@ -9,3 +9,4 @@ dist/
 build/
 .env
 .ruff_cache/
+.local-backups/

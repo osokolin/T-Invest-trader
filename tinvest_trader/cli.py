@@ -1,7 +1,8 @@
-"""CLI entry point -- ANALYTICS layer (read-only).
+"""Operational CLI -- read-only reports and explicit one-shot operations.
 
 GUARDRAIL: CLI commands are for reporting and one-shot operations only.
 - No side effects on signal pipeline or delivery.
+- Retention requires explicit --apply and config opt-in; it is storage maintenance.
 - See SYSTEM_GUARDRAILS.md section 7.
 """
 
@@ -46,6 +47,10 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("observe", help="Run observation aggregation once")
     subparsers.add_parser("db-summary", help="Show operational database counts")
     subparsers.add_parser("storage-health", help="Read-only disk, DB size and freshness checks")
+    retention_parser = subparsers.add_parser(
+        "storage-retention", help="Preview bounded three-month retention (no deletion by default)",
+    )
+    retention_parser.add_argument("--apply", action="store_true", help="Apply one bounded cycle")
     subparsers.add_parser("list-instruments", help="List all instruments in DB")
     subparsers.add_parser("list-tracked", help="List tracked instruments")
 
@@ -459,6 +464,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     config = load_config()
+    if args.command == "storage-retention":
+        from tinvest_trader.infra.storage.retention import retention_cycle
+
+        report = retention_cycle(config, apply=args.apply)
+        print(json.dumps(report, indent=2))
+        return int(any(not item["index_ready"] for item in report["tables"].values()))
     if args.command == "storage-health":
         from tinvest_trader.infra.storage.health import inspect_storage
 
