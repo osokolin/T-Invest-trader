@@ -581,6 +581,13 @@ CREATE INDEX IF NOT EXISTS idx_signal_ai_divergence_bucket
 
 -- Stores periodic last-price snapshots from T-Bank GetLastPrices bulk API.
 -- One row per (figi, fetched_at) -- append-only for time-series analysis.
+-- One bounded operational snapshot; not a growing per-probe audit table.
+CREATE TABLE IF NOT EXISTS storage_health_snapshot (
+    id          INTEGER PRIMARY KEY CHECK (id = 1),
+    checked_at  TIMESTAMPTZ NOT NULL,
+    report      JSONB NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS market_quotes (
     id              BIGSERIAL PRIMARY KEY,
     ticker          TEXT NOT NULL,

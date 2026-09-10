@@ -458,6 +458,58 @@
       ],
       "title": "Signals Pending Resolution",
       "type": "stat"
+    },
+    {
+      "id": 60,
+      "type": "row",
+      "title": "Storage Capacity & Write Health (Live)",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 42 }
+    },
+    {
+      "id": 61,
+      "type": "table",
+      "title": "Storage Status (Live, Not Selected Range)",
+      "description": "Independent Docker storage probe. Missing/stale snapshots are not healthy. Warning means low disk headroom; critical includes failed writes or stale enabled pipelines. Docker does not restart unhealthy containers automatically.",
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "gridPos": { "h": 5, "w": 24, "x": 0, "y": 43 },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "options": { "showHeader": true },
+      "targets": [{
+        "refId": "A", "datasource": { "type": "postgres", "uid": "postgres" },
+        "editorMode": "code", "format": "table", "rawQuery": true,
+        "rawSql": "SELECT s.checked_at, CASE WHEN s.checked_at IS NULL THEN 'monitor disabled or not started' WHEN s.checked_at < now() - interval '3 minutes' THEN 'STALE MONITOR - check app / DB' ELSE s.report->>'status' END AS status, CASE WHEN s.checked_at >= now() - interval '3 minutes' THEN round((s.report->'disk'->>'free_bytes')::numeric / 1073741824, 2) END AS free_gib, CASE WHEN s.checked_at >= now() - interval '3 minutes' THEN (s.report->'disk'->>'free_percent')::numeric END AS free_percent, round((s.report->>'database_bytes')::numeric / 1073741824, 2) AS last_database_gib, s.report->'issues' AS issues FROM (VALUES (1)) AS expected(id) LEFT JOIN storage_health_snapshot s USING (id);"
+      }]
+    },
+    {
+      "id": 62,
+      "type": "table",
+      "title": "Largest Tables (Last Storage Probe)",
+      "description": "Physical size includes indexes. Row counts are planner estimates, not exact counts. No full table scans. History is not deleted by this monitor.",
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "gridPos": { "h": 8, "w": 14, "x": 0, "y": 48 },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "options": { "showHeader": true },
+      "targets": [{
+        "refId": "A", "datasource": { "type": "postgres", "uid": "postgres" },
+        "editorMode": "code", "format": "table", "rawQuery": true,
+        "rawSql": "SELECT s.checked_at, t->>'table' AS table_name, round((t->>'total_bytes')::numeric / 1048576, 1) AS total_mib, round((t->>'index_bytes')::numeric / 1048576, 1) AS indexes_mib, (t->>'estimated_rows')::bigint AS estimated_rows FROM storage_health_snapshot s CROSS JOIN LATERAL jsonb_array_elements(s.report->'tables') t ORDER BY (t->>'total_bytes')::bigint DESC;"
+      }]
+    },
+    {
+      "id": 63,
+      "type": "table",
+      "title": "Persisted Data Freshness (Last Storage Probe)",
+      "description": "Fusion and quotes measure latest stored rows; activity measures the newest candle in the last 1000 inserts. Only enabled background pipelines appear. Market checks use configured Moscow weekday hours with startup grace, not a holiday calendar.",
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "gridPos": { "h": 8, "w": 10, "x": 14, "y": 48 },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "options": { "showHeader": true },
+      "targets": [{
+        "refId": "A", "datasource": { "type": "postgres", "uid": "postgres" },
+        "editorMode": "code", "format": "table", "rawQuery": true,
+        "rawSql": "SELECT s.checked_at, f.key AS pipeline, (f.value->>'latest')::timestamptz AS latest, (f.value->>'age_seconds')::numeric AS age_seconds, (f.value->>'threshold_seconds')::integer AS threshold_seconds, (f.value->>'expected')::boolean AS freshness_expected FROM storage_health_snapshot s CROSS JOIN LATERAL jsonb_each(s.report->'sources') f ORDER BY pipeline;"
+      }]
     }
   ],
   "refresh": "5m",

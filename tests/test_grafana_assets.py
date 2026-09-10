@@ -344,3 +344,27 @@ def test_grafana_custom_entrypoint_syncs_password_from_env() -> None:
     assert "grafana cli" in entrypoint_text
     assert "reset-admin-password" in entrypoint_text
     assert "/api/users/1" in entrypoint_text
+
+
+def test_storage_panels_do_not_present_stale_snapshots_as_healthy() -> None:
+    dashboard = json.loads(
+        (GRAFANA_ROOT / "dashboards" / "data-infra-health.json").read_text(),
+    )
+    panels = {p["id"]: p for p in dashboard["panels"]}
+    query = panels[61]["targets"][0]["rawSql"]
+    assert "STALE MONITOR" in query
+    assert "LEFT JOIN storage_health_snapshot" in query
+    assert "interval '3 minutes'" in query
+    assert "estimated_rows" in panels[62]["targets"][0]["rawSql"]
+    for panel_id in (61, 62, 63):
+        assert panels[panel_id]["datasource"]["uid"] == "postgres"
+        assert "count(*)" not in panels[panel_id]["targets"][0]["rawSql"]
+
+
+def test_compose_limits_logs_and_checks_actual_database_volume() -> None:
+    compose = (REPO_ROOT / "docker-compose.yml").read_text()
+    assert 'max-size: "20m"' in compose
+    assert 'max-file: "3"' in compose
+    assert compose.count("logging: *bounded-logging") == 3
+    assert "pgdata:/var/lib/tinvest-postgres:ro" in compose
+    assert '"tinvest_trader.healthcheck"' in compose

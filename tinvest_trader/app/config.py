@@ -34,6 +34,25 @@ class DatabaseConfig:
 
 
 @dataclass(frozen=True)
+class StorageHealthConfig:
+    enabled: bool = False
+    disk_path: str = "/var/lib/tinvest-postgres"
+    warning_free_percent: float = 20.0
+    critical_free_percent: float = 10.0
+    min_free_bytes: int = 2 * 1024**3
+    freshness_seconds: int = 900
+    recent_error_seconds: int = 300
+
+    def __post_init__(self) -> None:
+        if not 0 < self.critical_free_percent < self.warning_free_percent < 100:
+            raise ValueError(
+                "storage health free-space thresholds must satisfy 0 < critical < warning < 100",
+            )
+        if self.min_free_bytes < 0 or min(self.freshness_seconds, self.recent_error_seconds) <= 0:
+            raise ValueError("storage health byte/age thresholds must be non-negative/positive")
+
+
+@dataclass(frozen=True)
 class SentimentConfig:
     enabled: bool = False
     channels: tuple[str, ...] = ()
@@ -407,6 +426,7 @@ class AppConfig:
     trading: TradingConfig = field(default_factory=TradingConfig)
     market_data: MarketDataConfig = field(default_factory=MarketDataConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
+    storage_health: StorageHealthConfig = field(default_factory=StorageHealthConfig)
     sentiment: SentimentConfig = field(default_factory=SentimentConfig)
     observation: ObservationConfig = field(default_factory=ObservationConfig)
     background: BackgroundConfig = field(default_factory=BackgroundConfig)
@@ -501,6 +521,27 @@ def load_config() -> AppConfig:
             postgres_dsn=os.environ.get("TINVEST_POSTGRES_DSN", ""),
             pool_min_size=int(os.environ.get("TINVEST_DB_POOL_MIN", "2")),
             pool_max_size=int(os.environ.get("TINVEST_DB_POOL_MAX", "5")),
+        ),
+        storage_health=StorageHealthConfig(
+            enabled=os.environ.get("TINVEST_STORAGE_HEALTH_ENABLED", "false").lower() == "true",
+            disk_path=os.environ.get(
+                "TINVEST_STORAGE_HEALTH_DISK_PATH", "/var/lib/tinvest-postgres",
+            ),
+            warning_free_percent=float(os.environ.get(
+                "TINVEST_STORAGE_HEALTH_WARNING_FREE_PERCENT", "20",
+            )),
+            critical_free_percent=float(os.environ.get(
+                "TINVEST_STORAGE_HEALTH_CRITICAL_FREE_PERCENT", "10",
+            )),
+            min_free_bytes=int(os.environ.get(
+                "TINVEST_STORAGE_HEALTH_MIN_FREE_BYTES", str(2 * 1024**3),
+            )),
+            freshness_seconds=int(os.environ.get(
+                "TINVEST_STORAGE_HEALTH_FRESHNESS_SECONDS", "900",
+            )),
+            recent_error_seconds=int(os.environ.get(
+                "TINVEST_STORAGE_HEALTH_RECENT_ERROR_SECONDS", "300",
+            )),
         ),
         observation=ObservationConfig(
             enabled=os.environ.get(
