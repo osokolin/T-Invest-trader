@@ -106,6 +106,12 @@ age, and caps daily turnover. CLI and Grafana separate legacy/strict entries and
 virtual long/short outcomes; original confirmed-volume v1 and reversion remain
 unchanged.
 
+An optional causal reversion-v2 execution experiment preserves v1 signal gates
+but first reserves a virtual request, then fills from a fresh post-decision quote.
+Its exit horizon starts at quote reception, not at the spike. Durable requests,
+timeouts and copied quote evidence support restart-safe CLI/Grafana comparisons;
+this arm does not use the legacy spike-outcome resolver or submit broker orders.
+
 ### 11. Medium-Term Paper Strategy
 Stored MOEX daily bars drive three isolated long-only virtual portfolios:
 staircase trailing stops, ATR trailing stops, and a hybrid breakeven/ATR arm.

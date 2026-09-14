@@ -309,6 +309,65 @@ commission/slippage but no borrow availability check or overnight borrowing fee.
 Use the directional breakdown to evaluate a short-only hypothesis before adding
 another portfolio. Neither thresholds nor one profitable day establish an edge.
 
+### Causal Reversion v2 (Virtual Only)
+
+`reversion-v2` is an opt-in execution experiment, not a new signal strategy.
+It reuses the reversion-v1 direction, quality gates, sizing, cooldown and exposure
+limits. It has a separate portfolio and never rewrites v1 positions or PnL.
+The strict-entry flag still applies only to momentum and confirmed-volume v2.
+
+After deploying the code and initializing the additive schema, configure:
+
+```dotenv
+TINVEST_ACTIVITY_PAPER_REVERSION_V2_ENABLED=true
+TINVEST_ACTIVITY_PAPER_REVERSION_V2_NAME=activity-reversion-v2
+TINVEST_ACTIVITY_PAPER_REVERSION_V2_QUOTE_WAIT_SECONDS=120
+TINVEST_ACTIVITY_PAPER_REVERSION_V2_MAX_QUOTE_AGE_SECONDS=30
+```
+
+The default is disabled. Existing activity-paper/background prerequisites still
+apply, and quote ingestion must be running (`TINVEST_QUOTE_SYNC_ENABLED=true`
+and `TINVEST_BACKGROUND_RUN_QUOTE_SYNC=true`, or an equivalent quote producer).
+This milestone does not increase quote polling frequency or modify live trading.
+Use a minute horizon such as `TINVEST_ACTIVITY_PAPER_HORIZON=15m`; v2 rejects `eod`.
+Recreate the app container after changing its environment.
+
+The execution contract is:
+
+1. A qualified spike from a closed one-minute candle creates a durable request in
+   `activity_paper_execution`, reserving virtual cash and position slots. The
+   database timestamps the decision; incomplete or non-minute candles are rejected.
+2. Entry uses the first stored quote whose source time is after the decision and
+   whose reception time is within the request deadline. Quote age at reception
+   must not exceed the configured maximum. Future/invalid prices cannot fill.
+3. The quote reception timestamp becomes `entry_time`. The older source timestamp
+   and eventual worker-processing timestamp are stored separately for diagnosis.
+4. Exit is scheduled from this entry time plus the portfolio horizon. It uses the
+   same bounded fresh-quote rule after that target, not the spike outcome table.
+5. Missing entry quotes cancel the request without a position; missing exit quotes
+   mark the virtual position expired with unknown PnL. There is no candle fallback.
+
+Pending requests survive restart. Quotes received inside the stored window can be
+processed later; quotes outside that window cannot rescue a timed-out request.
+Disabling v2 pauses its processing, including existing requests/positions, without
+touching the other portfolios. Re-enabling resumes persisted requests. Timeouts,
+cost rates and exit deadlines are snapshotted, so config changes do not rewrite
+existing requests. A new experiment name is recommended when changing parameters.
+
+Inspect `python -m tinvest_trader.cli activity-paper-stats`: when enabled, it includes
+v2 plus an all-time v1/v2 report of reservations, cancellations, fill latency, entry
+and exit turnover, costs, gross PnL and net PnL. Grafana's existing **Activity Paper
+Strategy** dashboard includes **Execution Audit**, **Entry Cohort / Turnover and
+Costs**, and **Causal Requests / Reservations and Timeouts** panels. Filter both
+portfolios over the same observation period; their accepted trades need not match.
+Entry-cohort results include eventual outcomes, not only exits inside the range.
+
+These are last-price simulations, not guaranteed bid/ask executions. Costs remain
+the configured commission and slippage model; lot rounding, borrow availability,
+borrowing fees and market depth are not modeled. Do not interpret simulated PnL
+as achievable live returns. Audit prices and timestamps are copied into permanent
+paper records and do not depend on retained quote rows or a broker connection.
+
 ## Medium-Term Paper Strategy
 
 The medium-term experiment is a daily, long-only A/B/C comparison built only

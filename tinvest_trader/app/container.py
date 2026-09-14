@@ -644,6 +644,7 @@ class Container:
                     self.config.activity_paper.momentum_portfolio_name
                 ),
                 "strict_entries_enabled": self.config.activity_paper.strict_entries_enabled,
+                "reversion_v2_enabled": self.config.activity_paper.reversion_v2_enabled,
                 "reversion_portfolio": (
                     self.config.activity_paper.reversion_portfolio_name
                 ),
