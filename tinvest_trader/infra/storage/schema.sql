@@ -735,6 +735,41 @@ CREATE TABLE IF NOT EXISTS activity_paper_decisions (
 CREATE INDEX IF NOT EXISTS idx_activity_paper_decision_reason
     ON activity_paper_decisions (portfolio_name, reason, recorded_at DESC);
 
+-- Durable virtual requests: reserve capacity before a post-decision quote exists.
+-- Prices/timestamps are copied into this audit and positions; quote IDs are not FKs.
+CREATE TABLE IF NOT EXISTS activity_paper_execution (
+    portfolio_name TEXT NOT NULL REFERENCES activity_paper_portfolios(name),
+    spike_id BIGINT NOT NULL REFERENCES market_activity_spikes(id),
+    ticker TEXT NOT NULL,
+    figi TEXT NOT NULL,
+    direction TEXT NOT NULL CHECK (direction IN ('up', 'down')),
+    horizon TEXT NOT NULL,
+    notional NUMERIC(20, 2) NOT NULL CHECK (notional > 0),
+    signal_time TIMESTAMPTZ NOT NULL,
+    signal_price NUMERIC(20, 9) NOT NULL,
+    decision_at TIMESTAMPTZ NOT NULL,
+    entry_deadline TIMESTAMPTZ NOT NULL,
+    quote_wait_seconds INTEGER NOT NULL CHECK (quote_wait_seconds > 0),
+    max_quote_age_seconds INTEGER NOT NULL CHECK (max_quote_age_seconds > 0),
+    cost_rate NUMERIC(12, 8) NOT NULL CHECK (cost_rate >= 0),
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'open', 'closed', 'cancelled', 'expired')),
+    reason TEXT NOT NULL DEFAULT 'awaiting_quote',
+    position_id BIGINT UNIQUE REFERENCES activity_paper_positions(id),
+    entry_quote_id BIGINT,
+    entry_source_time TIMESTAMPTZ,
+    entry_received_at TIMESTAMPTZ,
+    entry_processed_at TIMESTAMPTZ,
+    exit_due_at TIMESTAMPTZ,
+    exit_quote_id BIGINT,
+    exit_source_time TIMESTAMPTZ,
+    exit_received_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    PRIMARY KEY (portfolio_name, spike_id)
+);
+CREATE INDEX IF NOT EXISTS idx_activity_paper_execution_active
+    ON activity_paper_execution (portfolio_name, status, decision_at);
+
 -- Daily, long-only medium-term shadow experiments. These records are virtual
 -- and cannot represent broker positions, stop orders, or execution requests.
 CREATE TABLE IF NOT EXISTS medium_term_paper_portfolios (

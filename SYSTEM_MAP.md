@@ -63,11 +63,18 @@ Optional shadow experiment after step 5:
 
 The optional strict-entry profile gates momentum and confirmed-volume v2 only.
 It uses stored minute confirmations and persists explainable skip reasons or
-`strict_eligible` for entry-policy and long/short comparisons. All positions
+`strict_eligible` for entry-policy and long/short comparisons. These legacy arms
 continue to use the existing outcome resolver and virtual accounting.
 
 The shadow activity flow is isolated from signal generation, paper portfolio,
 execution, and order placement.
+
+Optional causal reversion-v2 uses the same reversion signal gates but a different
+virtual execution path: durable request/reservation in `activity_paper_execution`
+-> first fresh post-decision stored quote -> `activity_paper_positions` -> timed
+quote exit measured from reception. Missing quotes cancel entries or expire exits
+without fabricated PnL. `services/activity_paper_execution.py` owns this lifecycle;
+it has no broker dependency and never rewrites v1 history. Its flag defaults off.
 
 Outcome horizons are scheduled independently so a future long or session-close
 target cannot starve already elapsed short horizons.

@@ -14,6 +14,12 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
+from tinvest_trader.services.activity_paper_execution import (
+    causal_signal_error,
+    process_causal_execution,
+    validate_causal_config,
+)
+
 if TYPE_CHECKING:
     from tinvest_trader.app.config import ActivityPaperConfig
     from tinvest_trader.infra.storage.repository import TradingRepository
@@ -31,6 +37,7 @@ class ActivityPaperCycleResult:
     skipped: int = 0
     deferred: int = 0
     failed_portfolios: int = 0
+    cancelled: int = 0
 
 
 class ActivityPaperStrategyService:
@@ -49,6 +56,8 @@ class ActivityPaperStrategyService:
         self._now_fn = now_fn or (lambda: datetime.now(UTC))
         if config.strict_entries_enabled:
             self._validate_strict_config()
+        if config.reversion_v2_enabled:
+            validate_causal_config(config)
 
     def _validate_strict_config(self) -> None:
         horizon = self._config.horizon
@@ -78,12 +87,19 @@ class ActivityPaperStrategyService:
     def run_cycle(self) -> ActivityPaperCycleResult:
         """Close resolved positions, then evaluate fresh spikes for every arm."""
         now = self._normalized_now()
-        opened = closed = expired = skipped = deferred = failed = 0
+        opened = closed = expired = skipped = deferred = failed = cancelled = 0
         for name, strategy in self._experiments():
             try:
                 portfolio = self._ensure_portfolio(name, strategy, now)
-                closed += self._close_resolved(name)
-                expired += self._expire_unresolved(name, now)
+                if self._causal_portfolio(name):
+                    progress = process_causal_execution(self._repository, name, now)
+                    opened += progress.opened
+                    closed += progress.closed
+                    expired += progress.expired
+                    cancelled += progress.cancelled
+                else:
+                    closed += self._close_resolved(name)
+                    expired += self._expire_unresolved(name, now)
                 arm_opened, arm_skipped, arm_deferred = self._open_candidates(
                     portfolio=portfolio,
                     strategy=strategy,
@@ -110,6 +126,7 @@ class ActivityPaperStrategyService:
             skipped=skipped,
             deferred=deferred,
             failed_portfolios=failed,
+            cancelled=cancelled,
         )
         self._logger.info(
             "activity paper strategy cycle complete",
@@ -132,7 +149,13 @@ class ActivityPaperStrategyService:
                 self._config.volume_confirmed_v2_portfolio_name,
                 "volume_confirmed_v2",
             ))
+        if self._config.reversion_v2_enabled:
+            experiments.append((self._config.reversion_v2_portfolio_name, "reversion"))
         return tuple(experiments)
+
+    def _causal_portfolio(self, name: str) -> bool:
+        return (self._config.reversion_v2_enabled
+                and name == self._config.reversion_v2_portfolio_name)
 
     def _ensure_portfolio(
         self,
@@ -208,6 +231,12 @@ class ActivityPaperStrategyService:
         open_positions = self._repository.list_open_activity_paper_positions(
             portfolio["name"],
         )
+        causal = self._causal_portfolio(portfolio["name"])
+        pending = [
+            row for row in self._repository.list_activity_paper_execution(portfolio["name"])
+            if row["status"] == "pending"
+        ] if causal else []
+        open_positions = [*open_positions, *pending]
         open_by_ticker = Counter(item["ticker"] for item in open_positions)
         open_count = len(open_positions)
         available_cash = max(
@@ -215,11 +244,17 @@ class ActivityPaperStrategyService:
             summary["initial_cash"] + summary["realized_pnl"]
             - summary["open_notional"],
         )
+        available_cash = max(0.0, available_cash - sum(float(p["notional"]) for p in pending))
         target_notional = max(
             0.0,
             summary["initial_cash"] * self._config.position_fraction,
         )
         latest_by_ticker: dict[str, datetime] = {}
+        for request in pending:
+            latest_by_ticker[request["ticker"]] = max(
+                latest_by_ticker.get(request["ticker"], request["decision_at"]),
+                request["decision_at"],
+            )
         entries_today = 0
         if strategy == "volume_confirmed_v2" or self._strict_entries(strategy):
             entries_today = self._repository.count_activity_paper_entries_since(
@@ -231,6 +266,8 @@ class ActivityPaperStrategyService:
         for raw_candidate in self._repository.list_activity_paper_entry_candidates(
             portfolio["name"],
         ):
+            if causal:
+                now = self._normalized_now()
             ticker = raw_candidate["ticker"]
             stored_latest = raw_candidate.get("latest_entry_time")
             if stored_latest is not None:
@@ -239,7 +276,8 @@ class ActivityPaperStrategyService:
                 if current_latest is None or stored_latest > current_latest:
                     latest_by_ticker[ticker] = stored_latest
 
-            reason = self._quality_skip_reason(raw_candidate, strategy)
+            reason = causal_signal_error(raw_candidate, now) if causal else None
+            reason = reason or self._quality_skip_reason(raw_candidate, strategy)
             if reason is not None:
                 self._record_decision(
                     portfolio["name"], raw_candidate, "skip", reason, now,
@@ -282,7 +320,7 @@ class ActivityPaperStrategyService:
 
             direction = self._direction(candidate["price_change_pct"], strategy)
             notional = min(target_notional, available_cash)
-            position_id = self._repository.insert_activity_paper_position({
+            position = {
                 "portfolio_name": portfolio["name"],
                 "spike_id": candidate["spike_id"],
                 "strategy": strategy,
@@ -296,7 +334,24 @@ class ActivityPaperStrategyService:
                 "entry_price": candidate["entry_price"],
                 "entry_time": candidate["entry_time"],
                 "notional": notional,
-            })
+            }
+            if causal:
+                reserved = self._repository.reserve_activity_paper_entry(
+                    position, wait_seconds=self._config.reversion_v2_quote_wait_seconds,
+                    max_quote_age=self._config.reversion_v2_max_quote_age_seconds,
+                    cost_rate=2*(self._config.commission_rate+self._config.slippage_rate),
+                    max_positions=self._config.max_open_positions,
+                    max_per_ticker=self._config.max_open_positions_per_ticker,
+                )
+                if not reserved:
+                    continue
+                deferred += 1
+                open_count += 1
+                open_by_ticker[ticker] += 1
+                available_cash -= notional
+                latest_by_ticker[ticker] = now
+                continue
+            position_id = self._repository.insert_activity_paper_position(position)
             if position_id is None:
                 continue
             entry_reason = "strict_eligible" if self._strict_entries(strategy) else "eligible"

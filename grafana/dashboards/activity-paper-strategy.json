@@ -1,6 +1,6 @@
 {
   "annotations": { "list": [] },
-  "description": "A/B/C/D virtual portfolio comparison for market-activity momentum, reversion, and confirmed-volume v1/v2 experiments. No broker positions or orders are represented.",
+  "description": "Virtual portfolio comparison including legacy reversion-v1 and opt-in causal reversion-v2. Last-price simulations are not guaranteed executable fills. No broker positions or orders are represented.",
   "editable": false,
   "links": [
     { "asDropdown": true, "includeTimeRange": true, "keepTimeRange": true, "tags": ["tinvest"], "title": "Open another T-Invest dashboard", "type": "dashboards" }
@@ -135,7 +135,7 @@
       "targets": [{
         "datasource": { "type": "postgres", "uid": "postgres" },
         "format": "table",
-        "rawSql": "SELECT portfolio.name AS portfolio_name, count(spike.id) AS candidates, count(position.id) AS entered, count(decision.id) FILTER (WHERE decision.decision = 'skip') AS skipped, GREATEST(count(spike.id) - count(position.id) - count(decision.id) FILTER (WHERE decision.decision = 'skip'), 0) AS pending FROM activity_paper_portfolios portfolio LEFT JOIN market_activity_spikes spike ON spike.candle_time >= portfolio.started_at AND $__timeFilter(spike.candle_time) LEFT JOIN activity_paper_positions position ON position.portfolio_name = portfolio.name AND position.spike_id = spike.id LEFT JOIN activity_paper_decisions decision ON decision.portfolio_name = portfolio.name AND decision.spike_id = spike.id WHERE portfolio.name IN (${portfolio:sqlstring}) GROUP BY portfolio.name ORDER BY portfolio.name",
+        "rawSql": "SELECT portfolio.name AS portfolio_name, count(spike.id) AS candidates, count(position.id) AS entered, count(decision.id) FILTER (WHERE decision.decision IN ('skip', 'cancel')) AS skipped_or_cancelled, GREATEST(count(spike.id) - count(position.id) - count(decision.id) FILTER (WHERE decision.decision IN ('skip', 'cancel')), 0) AS pending FROM activity_paper_portfolios portfolio LEFT JOIN market_activity_spikes spike ON spike.candle_time >= portfolio.started_at AND $__timeFilter(spike.candle_time) LEFT JOIN activity_paper_positions position ON position.portfolio_name = portfolio.name AND position.spike_id = spike.id LEFT JOIN activity_paper_decisions decision ON decision.portfolio_name = portfolio.name AND decision.spike_id = spike.id WHERE portfolio.name IN (${portfolio:sqlstring}) GROUP BY portfolio.name ORDER BY portfolio.name",
         "refId": "A"
       }],
       "title": "Candidate Funnel · Selected Range",
@@ -157,10 +157,115 @@
       "targets": [{
         "datasource": { "type": "postgres", "uid": "postgres" },
         "format": "table",
-        "rawSql": "SELECT p.portfolio_name, CASE WHEN d.reason = 'strict_eligible' THEN 'strict' WHEN d.reason = 'eligible' THEN 'legacy' ELSE 'unknown' END AS entry_policy, CASE WHEN p.direction = 'up' THEN 'long' ELSE 'short' END AS side, count(*) AS entries, count(*) FILTER (WHERE p.status = 'open') AS open_positions, count(*) FILTER (WHERE p.status = 'expired') AS expired_positions, count(*) FILTER (WHERE p.status = 'closed') AS closed_positions, count(*) FILTER (WHERE p.status = 'closed' AND p.net_pnl > 0)::numeric / NULLIF(count(*) FILTER (WHERE p.status = 'closed'), 0) AS win_rate, COALESCE(sum(p.gross_pnl) FILTER (WHERE p.status = 'closed'), 0) AS gross_pnl, COALESCE(sum(p.costs) FILTER (WHERE p.status = 'closed'), 0) AS costs, COALESCE(sum(p.net_pnl) FILTER (WHERE p.status = 'closed'), 0) AS net_pnl FROM activity_paper_positions p LEFT JOIN activity_paper_decisions d ON d.portfolio_name = p.portfolio_name AND d.spike_id = p.spike_id WHERE p.portfolio_name IN (${portfolio:sqlstring}) AND $__timeFilter(p.entry_time) GROUP BY p.portfolio_name, entry_policy, side ORDER BY p.portfolio_name, entry_policy, side",
+        "rawSql": "SELECT p.portfolio_name, CASE WHEN d.reason = 'strict_eligible' THEN 'strict' WHEN d.reason = 'eligible' THEN 'legacy' WHEN d.reason = 'causal_quote_fill' THEN 'causal' ELSE 'unknown' END AS entry_policy, CASE WHEN p.direction = 'up' THEN 'long' ELSE 'short' END AS side, count(*) AS entries, count(*) FILTER (WHERE p.status = 'open') AS open_positions, count(*) FILTER (WHERE p.status = 'expired') AS expired_positions, count(*) FILTER (WHERE p.status = 'closed') AS closed_positions, count(*) FILTER (WHERE p.status = 'closed' AND p.net_pnl > 0)::numeric / NULLIF(count(*) FILTER (WHERE p.status = 'closed'), 0) AS win_rate, COALESCE(sum(p.gross_pnl) FILTER (WHERE p.status = 'closed'), 0) AS gross_pnl, COALESCE(sum(p.costs) FILTER (WHERE p.status = 'closed'), 0) AS costs, COALESCE(sum(p.net_pnl) FILTER (WHERE p.status = 'closed'), 0) AS net_pnl FROM activity_paper_positions p LEFT JOIN activity_paper_decisions d ON d.portfolio_name = p.portfolio_name AND d.spike_id = p.spike_id WHERE p.portfolio_name IN (${portfolio:sqlstring}) AND $__timeFilter(p.entry_time) GROUP BY p.portfolio_name, entry_policy, side ORDER BY p.portfolio_name, entry_policy, side",
         "refId": "A"
       }],
       "title": "Long / Short by Entry Policy",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "description": "Durable requests only. Signal time is the candle open. Reception time is the simulated fill time; processing can occur later. NULL prices mean no fill, not zero PnL. Quote IDs are audit labels; copied prices/times remain available after quote retention.",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 55
+      },
+      "id": 11,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "format": "table",
+          "rawSql": "SELECT e.decision_at, e.portfolio_name, e.ticker, e.status, e.reason, e.signal_time, e.signal_price, e.entry_source_time, e.entry_received_at, e.entry_processed_at, p.entry_price, extract(epoch FROM e.decision_at-e.signal_time) AS signal_to_decision_seconds, extract(epoch FROM e.entry_received_at-e.decision_at) AS fill_wait_seconds, 100*(p.entry_price/e.signal_price-1)*CASE WHEN e.direction='up' THEN 1 ELSE -1 END AS adverse_entry_change_pct, e.exit_due_at, e.exit_source_time, e.exit_received_at, e.completed_at, p.exit_price, p.net_pnl FROM activity_paper_execution e LEFT JOIN activity_paper_positions p ON p.id=e.position_id WHERE e.portfolio_name IN (${portfolio:sqlstring}) AND $__timeFilter(e.decision_at) ORDER BY e.decision_at DESC, e.spike_id DESC LIMIT 200",
+          "refId": "A"
+        }
+      ],
+      "title": "Execution Audit · Causal Reversion",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "description": "Compare entries in the selected range across independent virtual portfolios. Outcomes are current and may include exits after the range. Turnover counts entry plus exit notional; missing/expired exits do not fabricate turnover or profit. It is not calendar-day cash flow. Prices exclude order-book liquidity/borrow availability.",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 65
+      },
+      "id": 12,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "format": "table",
+          "rawSql": "SELECT portfolio_name, count(*) AS entries, count(*) FILTER (WHERE status='closed') AS closed, count(*) FILTER (WHERE status='expired') AS expired, sum(notional) AS entry_turnover, coalesce(sum(notional*exit_price/entry_price) FILTER (WHERE status='closed'),0) AS exit_turnover, sum(notional)+coalesce(sum(notional*exit_price/entry_price) FILTER (WHERE status='closed'),0) AS total_turnover, sum(gross_pnl) AS gross_pnl, sum(costs) AS modeled_costs, sum(net_pnl) AS net_pnl FROM activity_paper_positions WHERE portfolio_name IN (${portfolio:sqlstring}) AND $__timeFilter(entry_time) GROUP BY portfolio_name ORDER BY portfolio_name",
+          "refId": "A"
+        }
+      ],
+      "title": "Entry Cohort · Turnover and Costs",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres"
+      },
+      "description": "Requests decided in the selected range, showing their current state. Pending notional reserves cash and position slots, but is not an executed position or turnover. Cancelled entries never get a price or PnL; expired exits have unknown PnL.",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 72
+      },
+      "id": 13,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres"
+          },
+          "format": "table",
+          "rawSql": "SELECT portfolio_name, count(*) AS requests, count(*) FILTER (WHERE status='pending') AS pending, coalesce(sum(notional) FILTER (WHERE status='pending'),0) AS reserved_notional, count(*) FILTER (WHERE status='cancelled') AS cancelled_entries, count(*) FILTER (WHERE status='expired') AS unknown_exits, count(*) FILTER (WHERE status IN ('open','closed','expired')) AS fills, avg(extract(epoch FROM entry_received_at-decision_at)) AS avg_fill_wait_seconds, avg(extract(epoch FROM entry_processed_at-entry_received_at)) AS avg_processing_delay_seconds FROM activity_paper_execution WHERE portfolio_name IN (${portfolio:sqlstring}) AND $__timeFilter(decision_at) GROUP BY portfolio_name ORDER BY portfolio_name",
+          "refId": "A"
+        }
+      ],
+      "title": "Causal Requests · Reservations and Timeouts",
       "type": "table"
     }
   ],

@@ -182,6 +182,7 @@ def test_cli_activity_paper_stats_prints_enabled_arm_comparison(monkeypatch, cap
     config.activity_paper = SimpleNamespace(
         momentum_portfolio_name="activity-momentum-v1",
         reversion_portfolio_name="activity-reversion-v1",
+        reversion_v2_enabled=False,
         volume_confirmed_enabled=True,
         volume_confirmed_portfolio_name="activity-volume-confirmed-v1",
         volume_confirmed_v2_enabled=True,
@@ -237,6 +238,28 @@ def test_cli_activity_paper_stats_prints_enabled_arm_comparison(monkeypatch, cap
     assert "strict" in output
     assert "short" in output
     assert "50.0%" in output
+
+
+def test_cli_causal_stats_are_read_only_and_include_turnover(monkeypatch, capsys):
+    from tinvest_trader.app.config import ActivityPaperConfig
+
+    config = _make_config()
+    config.activity_paper = ActivityPaperConfig(reversion_v2_enabled=True)
+    container = _make_container()
+    container.repository.get_activity_paper_summary.return_value = None
+    container.repository.get_activity_paper_direction_summary.return_value = []
+    container.repository.get_activity_paper_execution_stats.side_effect = lambda name: {
+        "portfolio": name, "pending": 1, "entry_turnover": 20000, "exit_turnover": 19900,
+    }
+    monkeypatch.setattr("tinvest_trader.cli.load_config", lambda: config)
+    monkeypatch.setattr("tinvest_trader.cli.build_container", lambda cfg: container)
+    assert main(["activity-paper-stats"]) == 0
+    output = capsys.readouterr().out
+    assert "activity-reversion-v1" in output and "activity-reversion-v2" in output
+    assert "entry_turnover" in output and "exit_turnover" in output
+    assert "all time" in output
+    container.repository.reserve_activity_paper_entry.assert_not_called()
+    container.repository.fill_activity_paper_entry.assert_not_called()
 
 
 def test_cli_medium_term_paper_stats_prints_three_arm_comparison(monkeypatch, capsys):

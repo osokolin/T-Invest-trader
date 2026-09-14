@@ -291,6 +291,10 @@ class ActivityPaperConfig:
     poll_interval_seconds: int = 60
     momentum_portfolio_name: str = "activity-momentum-v1"
     reversion_portfolio_name: str = "activity-reversion-v1"
+    reversion_v2_enabled: bool = False
+    reversion_v2_portfolio_name: str = "activity-reversion-v2"
+    reversion_v2_quote_wait_seconds: int = 120
+    reversion_v2_max_quote_age_seconds: int = 30
     volume_confirmed_enabled: bool = False
     volume_confirmed_portfolio_name: str = "activity-volume-confirmed-v1"
     volume_confirmation_min_move_pct: float = 0.002
@@ -963,6 +967,18 @@ def load_config() -> AppConfig:
             reversion_portfolio_name=os.environ.get(
                 "TINVEST_ACTIVITY_PAPER_REVERSION_NAME", "activity-reversion-v1",
             ),
+            reversion_v2_enabled=os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_REVERSION_V2_ENABLED", "false",
+            ).lower() == "true",
+            reversion_v2_portfolio_name=os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_REVERSION_V2_NAME", "activity-reversion-v2",
+            ),
+            reversion_v2_quote_wait_seconds=int(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_REVERSION_V2_QUOTE_WAIT_SECONDS", "120",
+            )),
+            reversion_v2_max_quote_age_seconds=int(os.environ.get(
+                "TINVEST_ACTIVITY_PAPER_REVERSION_V2_MAX_QUOTE_AGE_SECONDS", "30",
+            )),
             volume_confirmed_enabled=os.environ.get(
                 "TINVEST_ACTIVITY_PAPER_VOLUME_CONFIRMED_ENABLED", "false",
             ).lower() == "true",

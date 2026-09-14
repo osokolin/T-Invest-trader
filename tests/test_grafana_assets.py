@@ -147,6 +147,14 @@ def test_activity_paper_dashboard_is_virtual_and_explainable() -> None:
     assert "$__timeFilter(p.entry_time)" in direction_sql
     assert "activity_paper_positions" in query_text
     assert "activity_paper_decisions" in query_text
+    assert "activity_paper_execution" in query_text
+    assert "Execution Audit \u00b7 Causal Reversion" in titles
+    assert "Entry Cohort \u00b7 Turnover and Costs" in titles
+    assert "Causal Requests \u00b7 Reservations and Timeouts" in titles
+    assert "entry_received_at" in query_text
+    assert "exit_due_at" in query_text
+    assert "causal_quote_fill" in query_text
+    assert "skipped_or_cancelled" in query_text
     assert "'${portfolio}' = 'All'" not in query_text
     assert query_text.count("IN (${portfolio:sqlstring})") == len(dashboard["panels"])
     assert "AS pending" in query_text

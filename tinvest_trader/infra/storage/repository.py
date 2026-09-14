@@ -6,6 +6,8 @@ import json
 import logging
 from datetime import UTC, date, datetime
 
+from psycopg.rows import dict_row
+
 from tinvest_trader.cbr.models import CbrEvent, CbrFeedItem
 from tinvest_trader.domain.models import (
     BrokerEventFeature,
@@ -2979,6 +2981,187 @@ class TradingRepository:
             row = conn.execute(sql, (portfolio_name, since)).fetchone()
         return int(row[0]) if row else 0
 
+    def reserve_activity_paper_entry(self, position: dict, *, wait_seconds: int,
+                                    max_quote_age: int, cost_rate: float,
+                                    max_positions: int, max_per_ticker: int) -> bool:
+        """Atomically reserve virtual cash/capacity and persist the decision first."""
+        with self._pool.get_connection() as conn:
+            # Serialize reservations for this portfolio, including multiple workers.
+            cash = conn.execute("""
+                SELECT initial_cash FROM activity_paper_portfolios
+                WHERE name = %s FOR UPDATE
+            """, (position["portfolio_name"],)).fetchone()[0]
+            exposure = conn.execute("""
+                SELECT count(*), count(*) FILTER (WHERE ticker = %s),
+                       coalesce(sum(notional), 0)
+                FROM (
+                    SELECT ticker, notional FROM activity_paper_positions
+                    WHERE portfolio_name = %s AND status = 'open'
+                    UNION ALL
+                    SELECT ticker, notional FROM activity_paper_execution
+                    WHERE portfolio_name = %s AND status = 'pending'
+                ) reserved
+            """, (position["ticker"], position["portfolio_name"],
+                  position["portfolio_name"])).fetchone()
+            realized = conn.execute("""
+                SELECT coalesce(sum(net_pnl), 0) FROM activity_paper_positions
+                WHERE portfolio_name = %s AND status = 'closed'
+            """, (position["portfolio_name"],)).fetchone()[0]
+            if (exposure[0] >= max_positions or exposure[1] >= max_per_ticker
+                    or float(cash + realized - exposure[2]) < position["notional"]):
+                return False
+            row = conn.execute("""
+                WITH clock AS (SELECT clock_timestamp() AS decision_at)
+                INSERT INTO activity_paper_execution
+                    (portfolio_name, spike_id, ticker, figi, direction, horizon,
+                     notional, signal_time, signal_price, decision_at, entry_deadline,
+                     quote_wait_seconds, max_quote_age_seconds, cost_rate)
+                SELECT %s, %s, %s, %s, %s, %s, %s, %s, %s, decision_at,
+                       decision_at + %s * interval '1 second', %s, %s, %s FROM clock
+                ON CONFLICT (portfolio_name, spike_id) DO NOTHING
+                RETURNING decision_at
+            """, (position["portfolio_name"], position["spike_id"], position["ticker"],
+                  position["figi"], position["direction"], position["horizon"],
+                  position["notional"], position["entry_time"], position["entry_price"],
+                  wait_seconds, wait_seconds, max_quote_age, cost_rate)).fetchone()
+            if row is None:
+                return False
+            conn.execute("""
+                INSERT INTO activity_paper_decisions
+                    (portfolio_name, spike_id, decision, reason, recorded_at)
+                VALUES (%s, %s, 'pending', 'awaiting_quote', %s)
+            """, (position["portfolio_name"], position["spike_id"], row[0]))
+        return True
+
+    def list_activity_paper_execution(self, name: str) -> list[dict]:
+        """Recover pending requests and open timed exits across restarts."""
+        with self._pool.get_connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            return cur.execute("""
+                SELECT e.*, p.entry_price FROM activity_paper_execution e
+                LEFT JOIN activity_paper_positions p ON p.id = e.position_id
+                WHERE e.portfolio_name = %s AND e.status IN ('pending', 'open')
+                ORDER BY e.decision_at, e.spike_id
+            """, (name,)).fetchall()
+
+    def first_activity_execution_quote(self, figi: str, *, after: datetime,
+                                       until: datetime, as_of: datetime,
+                                       max_age_seconds: int) -> dict | None:
+        """Only new, already received, finite last prices; never historical candles."""
+        with self._pool.get_connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            return cur.execute("""
+                SELECT id, price, source_time, fetched_at FROM market_quotes
+                WHERE figi = %s AND fetched_at > %s AND fetched_at <= %s
+                  AND fetched_at <= %s AND source_time > %s
+                  AND source_time <= fetched_at
+                  AND fetched_at - source_time <= %s * interval '1 second'
+                  AND price > 0 AND price < 'Infinity'::numeric
+                ORDER BY fetched_at ASC, id ASC LIMIT 1
+            """, (figi, after, until, as_of, after, max_age_seconds)).fetchone()
+
+    def fill_activity_paper_entry(self, request: dict, quote: dict, *,
+                                  exit_due_at: datetime, processed_at: datetime) -> bool:
+        """Transition reservation to position and copy quote evidence atomically."""
+        key = (request["portfolio_name"], request["spike_id"])
+        with self._pool.get_connection() as conn:
+            # Use the same portfolio lock as reservation so exposure never doubles.
+            conn.execute("SELECT name FROM activity_paper_portfolios WHERE name=%s FOR UPDATE",
+                         (key[0],))
+            row = conn.execute("""
+                SELECT status FROM activity_paper_execution
+                WHERE portfolio_name=%s AND spike_id=%s FOR UPDATE
+            """, key).fetchone()
+            if row is None or row[0] != "pending":
+                return False
+            position_id = conn.execute("""
+                INSERT INTO activity_paper_positions
+                    (portfolio_name, spike_id, strategy, horizon, ticker, figi,
+                     spike_type, severity, score, direction, entry_price, entry_time, notional)
+                SELECT e.portfolio_name, e.spike_id, 'reversion', e.horizon, e.ticker, e.figi,
+                       s.spike_type, s.severity, s.score, e.direction, %s, %s, e.notional
+                FROM activity_paper_execution e JOIN market_activity_spikes s ON s.id=e.spike_id
+                WHERE e.portfolio_name=%s AND e.spike_id=%s RETURNING id
+            """, (quote["price"], quote["fetched_at"], *key)).fetchone()[0]
+            conn.execute("""
+                UPDATE activity_paper_execution SET status='open', reason='causal_quote_fill',
+                    position_id=%s, entry_quote_id=%s, entry_source_time=%s,
+                    entry_received_at=%s, entry_processed_at=%s, exit_due_at=%s
+                WHERE portfolio_name=%s AND spike_id=%s
+            """, (position_id, quote["id"], quote["source_time"], quote["fetched_at"],
+                  processed_at, exit_due_at, *key))
+            conn.execute("""
+                UPDATE activity_paper_decisions SET decision='enter', reason='causal_quote_fill'
+                WHERE portfolio_name=%s AND spike_id=%s
+            """, key)
+        return True
+
+    def finish_activity_paper_execution(self, request: dict, *, status: str, reason: str,
+                                        now: datetime, quote: dict | None = None,
+                                        gross_return: float | None = None,
+                                        costs: float | None = None) -> bool:
+        """Terminal transition, without invented prices/PnL for missing quotes."""
+        if status not in {"closed", "cancelled", "expired"}:
+            raise ValueError("invalid virtual execution terminal status")
+        key = (request["portfolio_name"], request["spike_id"])
+        with self._pool.get_connection() as conn:
+            row = conn.execute("""
+                SELECT status FROM activity_paper_execution
+                WHERE portfolio_name=%s AND spike_id=%s FOR UPDATE
+            """, key).fetchone()
+            expected = "pending" if status == "cancelled" else "open"
+            if row is None or row[0] != expected:
+                return False
+            if status == "closed":
+                if quote is None or gross_return is None or costs is None:
+                    raise ValueError("closed virtual execution requires a quote and PnL")
+                notional = float(request["notional"])
+                conn.execute("""
+                    UPDATE activity_paper_positions SET status='closed', exit_price=%s,
+                        exit_time=%s, gross_return_pct=%s, net_return_pct=%s,
+                        gross_pnl=%s, costs=%s, net_pnl=%s, updated_at=%s
+                    WHERE id=%s AND status='open'
+                """, (quote["price"], quote["fetched_at"], gross_return,
+                      gross_return-costs/notional, notional*gross_return, costs,
+                      notional*gross_return-costs, now, request["position_id"]))
+            elif status == "expired":
+                conn.execute("""
+                    UPDATE activity_paper_positions SET status='expired', updated_at=%s
+                    WHERE id=%s AND status='open'
+                """, (now, request["position_id"]))
+            else:
+                conn.execute("""
+                    UPDATE activity_paper_decisions SET decision='cancel', reason=%s
+                    WHERE portfolio_name=%s AND spike_id=%s
+                """, (reason, *key))
+            conn.execute("""
+                UPDATE activity_paper_execution SET status=%s, reason=%s, completed_at=%s,
+                    exit_quote_id=%s, exit_source_time=%s, exit_received_at=%s
+                WHERE portfolio_name=%s AND spike_id=%s
+            """, (status, reason, now, quote["id"] if quote else None,
+                  quote["source_time"] if quote else None,
+                  quote["fetched_at"] if quote else None, *key))
+        return True
+
+    def get_activity_paper_execution_stats(self, name: str) -> dict:
+        """Read-only comparison, with separately labelled time cohorts."""
+        with self._pool.get_connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            return cur.execute("""
+                SELECT %s::text AS portfolio,
+                    (SELECT count(*) FROM activity_paper_execution
+                     WHERE portfolio_name=%s AND status='pending') AS pending,
+                    (SELECT count(*) FROM activity_paper_execution
+                     WHERE portfolio_name=%s AND status='cancelled') AS cancelled,
+                    (SELECT avg(extract(epoch FROM entry_received_at-decision_at))
+                     FROM activity_paper_execution WHERE portfolio_name=%s)
+                        AS avg_fill_wait_seconds,
+                    count(*) FILTER (WHERE status='closed') AS closed,
+                    coalesce(sum(notional),0) AS entry_turnover,
+                    coalesce(sum(notional*exit_price/entry_price)
+                        FILTER (WHERE status='closed'),0) AS exit_turnover,
+                    coalesce(sum(costs),0) AS costs, coalesce(sum(gross_pnl),0) AS gross_pnl,
+                    coalesce(sum(net_pnl),0) AS net_pnl
+                FROM activity_paper_positions WHERE portfolio_name=%s
+            """, (name, name, name, name, name)).fetchone()
+
     def insert_activity_paper_position(self, position: dict) -> int | None:
         """Insert one virtual position without touching broker execution."""
         sql = """
@@ -3073,7 +3256,8 @@ class TradingRepository:
         """Compare virtual long/short results and legacy/strict entry cohorts."""
         sql = """
             SELECT p.portfolio_name,
-                   CASE WHEN d.reason = 'strict_eligible' THEN 'strict'
+                   CASE WHEN d.reason = 'causal_quote_fill' THEN 'causal'
+                        WHEN d.reason = 'strict_eligible' THEN 'strict'
                         WHEN d.reason = 'eligible' THEN 'legacy'
                         ELSE 'unknown' END AS entry_policy,
                    CASE WHEN p.direction = 'up' THEN 'long' ELSE 'short' END AS side,

@@ -1,6 +1,8 @@
 import logging
 from unittest.mock import MagicMock
 
+import pytest
+
 from tinvest_trader.app.container import Container
 from tinvest_trader.execution.engine import ExecutionEngine
 from tinvest_trader.infra.tbank.client import TBankClient
@@ -155,11 +157,13 @@ def test_container_background_runner_none_when_disabled(container):
     assert container.background_runner is None
 
 
-def test_container_wires_activity_paper_with_matching_outcome_horizon(monkeypatch):
+@pytest.mark.parametrize("causal_enabled", [False, True])
+def test_container_wires_activity_paper_with_matching_outcome_horizon(monkeypatch, causal_enabled):
     monkeypatch.setenv("TINVEST_POSTGRES_DSN", "postgresql://test")
     monkeypatch.setenv("TINVEST_MARKET_ACTIVITY_OUTCOMES_ENABLED", "true")
     monkeypatch.setenv("TINVEST_ACTIVITY_PAPER_ENABLED", "true")
     monkeypatch.setenv("TINVEST_ACTIVITY_PAPER_HORIZON", "15m")
+    monkeypatch.setenv("TINVEST_ACTIVITY_PAPER_REVERSION_V2_ENABLED", str(causal_enabled).lower())
     monkeypatch.setattr("tinvest_trader.app.container.PostgresPool", MagicMock())
     monkeypatch.setattr("tinvest_trader.app.container.TradingRepository", MagicMock())
     from tinvest_trader.app.config import load_config
@@ -171,6 +175,8 @@ def test_container_wires_activity_paper_with_matching_outcome_horizon(monkeypatc
         built.activity_paper_strategy_service,
         ActivityPaperStrategyService,
     )
+    names = {name for name, _ in built.activity_paper_strategy_service._experiments()}
+    assert ("activity-reversion-v2" in names) is causal_enabled
 
 
 def test_container_skips_activity_paper_when_outcome_horizon_missing(monkeypatch):
